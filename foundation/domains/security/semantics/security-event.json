@@ -1,0 +1,38 @@
+{
+  "id": "security-event-mapping",
+  "kind": "semantic-mapping",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "semantic-owner",
+  "provenance": {
+    "source": "security-event-source",
+    "recorded_by": "semantic-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/domain/security",
+  "extends": [
+    {
+      "id": "security-profile",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "mapping_version": "0.1.0",
+    "source": "example-event-source",
+    "target_type": "security:Event",
+    "fields": {
+      "event_id": "id",
+      "event_time": "observed_at",
+      "principal": "actor_ref",
+      "resource": "target_ref"
+    },
+    "lineage_required": true,
+    "preserve_raw_reference": true,
+    "change_approval": {
+      "gate": "architecture",
+      "decision_required": true
+    }
+  }
+}

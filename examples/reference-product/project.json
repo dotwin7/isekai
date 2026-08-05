@@ -1,0 +1,15 @@
+{
+  "id": "reference-product-example",
+  "kind": "project",
+  "version": "0.1.0",
+  "foundation_path": "../../foundation",
+  "profiles": ["security-profile", "software-delivery-profile"],
+  "extensions": [
+    {
+      "id": "reference-product-extension",
+      "path": "extension/reference-product.json"
+    }
+  ],
+  "document_language": "ko",
+  "maximum_agent_level": "L0"
+}

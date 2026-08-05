@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from isekai.workflow import (
+    DECISION_REQUIRED_FIELDS,
+    build_command_evidence,
+    initialize_unit,
+    propose_execution_envelope,
+    record_decision,
+    record_evidence,
+    transition_unit,
+    verify_unit,
+)
+
+from test_core_workflow import make_project
+
+
+def make_unit(tmp_path: Path) -> Path:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Decision Lifecycle", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["src/**", "tests/**"],
+        stages=[
+            {"name": "inception", "depth": "standard", "allowed_actions": ["read"]},
+            {
+                "name": "construction",
+                "depth": "standard",
+                "allowed_actions": ["read", "edit", "test"],
+            },
+            {"name": "operations", "depth": "light", "allowed_actions": ["read", "test"]},
+        ],
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=5,
+        proposed_by="planner-agent",
+    )
+    return unit
+
+
+def approve(unit: Path, gate: str) -> None:
+    record_decision(
+        unit,
+        gate=gate,
+        outcome="approved",
+        summary=f"Approve {gate} gate for the test Unit.",
+        rationale=[f"The {gate} gate criteria are understood and satisfied for this test."],
+        alternatives=[{"option": "Defer the gate", "reason": "Rejected because the test gate is ready."}],
+        tradeoffs=["The test records a minimal but explicit Decision Packet."],
+        risks=["This is test-only evidence."],
+        references=["tests/test_decision_lifecycle.py", "execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+
+
+def passing_evidence(unit: Path) -> None:
+    record_evidence(
+        unit,
+        passed=True,
+        scope="Core and plugin lifecycle tests",
+        recorded_by="test-validator",
+        commands=[
+            {
+                "command": "PYTHONPATH=src python3 -m pytest -q",
+                "exit_code": 0,
+                "output_digest": "a" * 64,
+                "observed_at": "2026-08-04T00:00:00+00:00",
+            }
+        ],
+    )
+
+
+def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    with pytest.raises(ValueError, match="approved inception Decision"):
+        transition_unit(unit, "construction")
+
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+    with pytest.raises(ValueError, match="approved architecture Decision"):
+        transition_unit(unit, "awaiting-release-decision")
+
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    with pytest.raises(ValueError, match="approved release Decision"):
+        transition_unit(unit, "releasing")
+
+    approve(unit, "release")
+    passing_evidence(unit)
+    transition_unit(unit, "releasing")
+    transition_unit(unit, "operating")
+    with pytest.raises(ValueError, match="approved operation Decision"):
+        transition_unit(unit, "learned")
+
+    approve(unit, "operation")
+    result = transition_unit(unit, "learned")
+
+    assert result["from"] == "operating"
+    assert result["to"] == "learned"
+    assert result["phase"] == "operations"
+
+    decisions = json.loads((unit / "decisions.json").read_text(encoding="utf-8"))
+    assert len(decisions["decisions"]) == 4
+    assert all(DECISION_REQUIRED_FIELDS <= decision.keys() for decision in decisions["decisions"])
+
+
+def test_latest_rejected_decision_blocks_a_previous_approval(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+
+    approve(unit, "inception")
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="rejected",
+        summary="The scope needs revision before approval.",
+        rationale=["The current scope is too broad for this gate."],
+        alternatives=[{"option": "Approve now", "reason": "Rejected because scope is not bounded."}],
+        tradeoffs=["Deferring approval delays construction."],
+        risks=["Proceeding would leave scope ambiguity."],
+        references=["tests/test_decision_lifecycle.py"],
+        decided_by="human-reviewer",
+    )
+
+    with pytest.raises(ValueError, match="approved inception Decision"):
+        transition_unit(unit, "construction")
+
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+
+
+def test_invalid_skip_transition_is_rejected(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+
+    with pytest.raises(ValueError, match="invalid lifecycle transition"):
+        transition_unit(unit, "construction")
+
+
+def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    result = record_evidence(
+        unit,
+        passed=False,
+        scope="intentional failure case",
+        recorded_by="test-validator",
+        commands=[
+            {
+                "command": "python failing-check.py",
+                "exit_code": 1,
+                "output_digest": "b" * 64,
+                "observed_at": "2026-08-04T00:00:00+00:00",
+            }
+        ],
+    )
+
+    assert result["evidence"]["passed"] is False
+    verification = verify_unit(unit)
+    assert "verification evidence is not passing" in verification["issues"]
+
+
+def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+
+    with pytest.raises(ValueError, match="output_digest"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="invalid evidence",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "output_digest": "not-a-digest",
+                    "observed_at": "2026-08-04T00:00:00+00:00",
+                }
+            ],
+        )
+
+
+def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
+    command = build_command_evidence(
+        "pytest -q",
+        0,
+        "all tests passed",
+        "2026-08-04T00:00:00+00:00",
+    )
+    unit = make_unit(tmp_path)
+    result = record_evidence(
+        unit,
+        passed=True,
+        scope="digest helper",
+        recorded_by="test-validator",
+        commands=[
+            {
+                "command": command["command"],
+                "exit_code": command["exit_code"],
+                "output": "all tests passed",
+                "observed_at": command["observed_at"],
+            }
+        ],
+    )
+
+    assert result["evidence"]["commands"][0]["output_digest"] == command["output_digest"]
+
+
+def test_decision_packet_requires_rationale_and_explained_alternatives(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    with pytest.raises(ValueError, match="Decision Packet rejected"):
+        record_decision(
+            unit,
+            gate="architecture",
+            outcome="approved",
+            summary="Incomplete packet.",
+            rationale=[],
+            alternatives=[{"option": "Missing reason"}],
+            tradeoffs=[],
+            risks=[],
+            references=[],
+            decided_by="human-reviewer",
+        )
+
+    with pytest.raises(ValueError, match="needs reason"):
+        record_decision(
+            unit,
+            gate="architecture",
+            outcome="approved",
+            summary="Alternative is unexplained.",
+            rationale=["The selected design meets the requirement."],
+            alternatives=[{"option": "Unexplained alternative", "reason": ""}],
+            tradeoffs=[],
+            risks=[],
+            references=[],
+            decided_by="human-reviewer",
+        )

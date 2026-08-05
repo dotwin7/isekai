@@ -1,0 +1,52 @@
+{
+  "id": "gate-evaluation",
+  "kind": "evaluation",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "evaluation-owner",
+  "provenance": {
+    "source": "gate-fixtures",
+    "recorded_by": "evaluation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/evaluations",
+  "extends": [
+    {
+      "id": "human-gate-contract",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "visibility": "evaluation-only",
+    "evaluator": "required-decision",
+    "cases": [
+      {
+        "id": "gate-valid-decision",
+        "input": {
+          "gate": "architecture",
+          "decisions": [
+            {
+              "id": "architecture-decision",
+              "gate": "architecture",
+              "outcome": "approved",
+              "decided_by": "human",
+              "scope": "consequential-change",
+              "expires_at": "2027-08-05T00:00:00Z"
+            }
+          ]
+        },
+        "expected": "pass"
+      },
+      {
+        "id": "gate-missing-decision",
+        "input": {
+          "gate": "architecture",
+          "decisions": []
+        },
+        "expected": "fail"
+      }
+    ]
+  }
+}

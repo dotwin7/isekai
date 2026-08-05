@@ -1,0 +1,87 @@
+{
+  "id": "human-gate-contract",
+  "kind": "human-gate-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-gate-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    },
+    {
+      "id": "high-risk-policy",
+      "version": "0.1.0"
+    },
+    {
+      "id": "gate-matrix",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "high-risk-policy",
+      "core-rules",
+      "gate-matrix"
+    ],
+    "gates": [
+      {
+        "id": "inception",
+        "trigger": "unit-start",
+        "accountable_role": "unit-owner"
+      },
+      {
+        "id": "architecture",
+        "trigger": "contract-data-semantic-permission-migration",
+        "accountable_role": "architecture-owner"
+      },
+      {
+        "id": "release",
+        "trigger": "release",
+        "accountable_role": "release-owner"
+      },
+      {
+        "id": "operation",
+        "trigger": "remote-deploy-high-risk",
+        "accountable_role": "operation-owner"
+      },
+      {
+        "id": "knowledge",
+        "trigger": "knowledge-promotion",
+        "accountable_role": "knowledge-owner"
+      }
+    ],
+    "rules": [
+      {
+        "id": "GATE-001",
+        "level": "MUST",
+        "owner": "foundation-gate-owner",
+        "provenance": {
+          "source": "human-gate-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-decision",
+          "gate": "architecture",
+          "decision_ref": "architecture-decision",
+          "outcome": "approved",
+          "decided_by": "human",
+          "scope": "consequential-change"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "id": "agent-execution-contract",
+  "kind": "agent-execution-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-agent-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "core-rules",
+      "high-risk-policy"
+    ],
+    "autonomy": {
+      "default_level": "L0",
+      "levels": [
+        "L0",
+        "L1"
+      ],
+      "allowed_actions": [
+        "read",
+        "edit",
+        "test"
+      ],
+      "forbidden_actions": [
+        "remote",
+        "deploy",
+        "credential-access",
+        "promote",
+        "decision"
+      ]
+    },
+    "envelope": {
+      "required": [
+        "scope",
+        "stages",
+        "allowed_actions",
+        "forbidden_actions",
+        "max_iterations",
+        "proposed_by"
+      ],
+      "expiry_required": true
+    },
+    "rules": [
+      {
+        "id": "AGENT-001",
+        "level": "MUST",
+        "owner": "foundation-agent-owner",
+        "provenance": {
+          "source": "agent-execution-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-envelope",
+          "envelope_ref": "execution-envelope.json",
+          "action": "read",
+          "target_scope": "approved-unit",
+          "stage": "construction",
+          "expires_at": "2027-08-05T00:00:00Z"
+        }
+      },
+      {
+        "id": "AGENT-002",
+        "level": "MUST",
+        "owner": "foundation-agent-owner",
+        "provenance": {
+          "source": "agent-execution-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-decision",
+          "gate": "operation",
+          "decision_ref": "operation-decision",
+          "outcome": "approved",
+          "decided_by": "human",
+          "scope": "remote-or-high-risk"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "id": "EVD-FND-20260805105018925405",
+  "type": "foundation-release-evidence",
+  "schema_version": "1.0.0",
+  "foundation_id": "isekai-foundation",
+  "version": "0.1.0",
+  "passed": true,
+  "scope": "Foundation v0.1 contracts, evaluators, root/reference compatibility",
+  "recorded_by": "kiro-validation",
+  "recorded_at": "2026-08-05T10:50:18.925405+00:00",
+  "checks": [
+    {
+      "id": "routing",
+      "passed": true,
+      "details": "6 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/routing",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "dod-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/dod-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "exception-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/exception-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "gate-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/gate-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "knowledge-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/knowledge-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "release-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/release-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "semantic-evaluation",
+      "passed": true,
+      "details": "2 executable positive/negative cases passed",
+      "provenance": {
+        "source": "foundation/evaluations/semantic-evaluation",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "full-tests",
+      "passed": true,
+      "details": "75 pytest tests passed",
+      "provenance": {
+        "source": "python3 -m pytest -q",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "compileall",
+      "passed": true,
+      "details": "src and tests compiled successfully",
+      "provenance": {
+        "source": "python3 -m compileall -q src tests",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    },
+    {
+      "id": "root-reference-compatibility",
+      "passed": true,
+      "details": "ISEKAI root and reference-product resolve Foundation 0.1.0",
+      "provenance": {
+        "source": "resolve_context integration smoke",
+        "recorded_by": "kiro-validation",
+        "recorded_at": "2026-08-05T10:50:18.923916+00:00"
+      }
+    }
+  ]
+}

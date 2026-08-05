@@ -1,0 +1,69 @@
+{
+  "id": "isekai-agent-plugin",
+  "kind": "agent-plugin",
+  "version": "0.1.0",
+  "description": "ISEKAI AI-DLC workflow integration for existing agent runtimes",
+  "core": {
+    "package": "isekai-agent-plugin",
+    "interface": "isekai plugin",
+    "user_interface": "isekai <action>"
+  },
+  "compatibility": {
+    "matrix": "compatibility.json",
+    "policy": "verified-baseline"
+  },
+  "runtimes": [
+    {
+      "id": "kiro",
+      "surface": "workspace-agent-skill",
+      "path": ".kiro/skills/isekai/SKILL.md"
+    },
+    {
+      "id": "claude",
+      "surface": "claude-plugin",
+      "path": "plugin/isekai/runtimes/claude"
+    },
+    {
+      "id": "codex",
+      "surface": "codex-plugin",
+      "path": "plugin/isekai/runtimes/codex"
+    }
+  ],
+  "actions": [
+    "init",
+    "on",
+    "off",
+    "status",
+    "intake",
+    "route",
+    "inception",
+    "compatibility",
+    "release-check",
+    "foundation-decision",
+    "foundation-evidence",
+    "foundation-promote",
+    "resume",
+    "unit-init",
+    "checkpoint",
+    "envelope-propose",
+    "authorize",
+    "evidence",
+    "decision",
+    "transition",
+    "verify"
+  ],
+  "writes": [
+    "init",
+    "unit-init",
+    "checkpoint",
+    "envelope-propose",
+    "evidence",
+    "decision",
+    "transition",
+    "foundation-decision",
+    "foundation-evidence",
+    "foundation-promote"
+  ],
+  "high_risk_actions": [],
+  "dependencies": []
+}

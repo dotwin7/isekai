@@ -1,0 +1,78 @@
+{
+  "id": "exception-evaluation",
+  "kind": "evaluation",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "evaluation-owner",
+  "provenance": {
+    "source": "exception-fixtures",
+    "recorded_by": "evaluation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/evaluations",
+  "extends": [
+    {
+      "id": "exception-contract",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "visibility": "evaluation-only",
+    "evaluator": "required-exception-controls",
+    "cases": [
+      {
+        "id": "exception-bounded-valid",
+        "input": {
+          "rule_ref": "core-rules:FOUNDATION-001",
+          "reason": "documented",
+          "owner": "exception-owner",
+          "scope": "bounded",
+          "compensating_controls": [
+            "review"
+          ],
+          "expires_at": "2026-08-06T00:00:00Z",
+          "review": {
+            "id": "exception-review",
+            "status": "approved"
+          },
+          "decisions": [
+            {
+              "id": "exception-decision",
+              "gate": "operation",
+              "outcome": "approved",
+              "expires_at": "2026-08-06T00:00:00Z"
+            }
+          ]
+        },
+        "expected": "pass"
+      },
+      {
+        "id": "exception-expired-invalid",
+        "input": {
+          "rule_ref": "core-rules:FOUNDATION-001",
+          "reason": "documented",
+          "owner": "exception-owner",
+          "scope": "bounded",
+          "compensating_controls": [
+            "review"
+          ],
+          "expires_at": "2026-08-04T00:00:00Z",
+          "review": {
+            "id": "exception-review",
+            "status": "approved"
+          },
+          "decisions": [
+            {
+              "id": "exception-decision",
+              "gate": "operation",
+              "outcome": "approved"
+            }
+          ]
+        },
+        "expected": "fail"
+      }
+    ]
+  }
+}

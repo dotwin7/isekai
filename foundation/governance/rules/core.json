@@ -1,0 +1,107 @@
+{
+  "id": "core-rules",
+  "kind": "rule-set",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-owner",
+  "provenance": {
+    "source": "foundation-core-rules",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "rules": [
+      {
+        "id": "FOUNDATION-001",
+        "level": "MUST",
+        "title": "Core contract cannot be weakened by an extension",
+        "owner": "foundation-owner",
+        "provenance": {
+          "source": "core-rules",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "*"
+        ],
+        "condition": {
+          "type": "extension-cannot-weaken-must",
+          "parent_asset": "core-model",
+          "parent_rule_id": "FOUNDATION-001",
+          "parent_level": "MUST",
+          "comparison": "preserve-or-strengthen"
+        },
+        "enforcement": [
+          "validator",
+          "review"
+        ]
+      },
+      {
+        "id": "EVIDENCE-001",
+        "level": "MUST",
+        "title": "Completion claims require verification evidence",
+        "owner": "foundation-owner",
+        "provenance": {
+          "source": "core-rules",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "unit"
+        ],
+        "condition": {
+          "type": "required-artifact",
+          "artifact": "evidence/verification.json",
+          "field": "passed",
+          "equals": true,
+          "commands_required": true
+        },
+        "enforcement": [
+          "context",
+          "release-gate"
+        ]
+      },
+      {
+        "id": "CONTEXT-001",
+        "level": "SHOULD",
+        "title": "Only task-relevant context should be delivered",
+        "owner": "foundation-owner",
+        "provenance": {
+          "source": "core-rules",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "*"
+        ],
+        "condition": {
+          "type": "context-scope",
+          "required_fields": [
+            "project_id",
+            "route",
+            "rules",
+            "profiles",
+            "extensions"
+          ],
+          "allowed_routes": [
+            "query",
+            "quick-change",
+            "unit"
+          ]
+        },
+        "enforcement": [
+          "context"
+        ]
+      }
+    ]
+  }
+}

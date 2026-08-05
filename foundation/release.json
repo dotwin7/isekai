@@ -1,0 +1,143 @@
+{
+  "id": "isekai-foundation",
+  "kind": "foundation-release",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-owner",
+  "provenance": {
+    "source": "foundation-v0.1-architecture-a",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "artifacts": [
+    {
+      "id": "core-model",
+      "kind": "schema",
+      "version": "0.1.0",
+      "path": "core/schema.json"
+    },
+    {
+      "id": "security-profile",
+      "kind": "profile",
+      "version": "0.1.0",
+      "path": "domains/security/profile.json"
+    },
+    {
+      "id": "software-delivery-profile",
+      "kind": "profile",
+      "version": "0.1.0",
+      "path": "domains/software-delivery/profile.json"
+    },
+    {
+      "id": "core-rules",
+      "kind": "rule-set",
+      "version": "0.1.0",
+      "path": "governance/rules/core.json"
+    },
+    {
+      "id": "high-risk-policy",
+      "kind": "policy",
+      "version": "0.1.0",
+      "path": "governance/policies/high-risk.json"
+    },
+    {
+      "id": "gate-matrix",
+      "kind": "gate-matrix",
+      "version": "0.1.0",
+      "path": "governance/gate-matrix.json"
+    },
+    {
+      "id": "security-event-mapping",
+      "kind": "semantic-mapping",
+      "version": "0.1.0",
+      "path": "domains/security/semantics/security-event.json"
+    },
+    {
+      "id": "knowledge-catalog",
+      "kind": "knowledge",
+      "version": "0.1.0",
+      "path": "knowledge/catalog.json"
+    },
+    {
+      "id": "routing-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/routing.json"
+    },
+    {
+      "id": "agent-execution-contract",
+      "kind": "agent-execution-contract",
+      "version": "0.1.0",
+      "path": "governance/contracts/agent-execution.json"
+    },
+    {
+      "id": "human-gate-contract",
+      "kind": "human-gate-contract",
+      "version": "0.1.0",
+      "path": "governance/contracts/human-gate.json"
+    },
+    {
+      "id": "exception-contract",
+      "kind": "exception-contract",
+      "version": "0.1.0",
+      "path": "governance/contracts/exception.json"
+    },
+    {
+      "id": "semantic-contract",
+      "kind": "semantic-contract",
+      "version": "0.1.0",
+      "path": "semantics/contract.json"
+    },
+    {
+      "id": "knowledge-contract",
+      "kind": "knowledge-contract",
+      "version": "0.1.0",
+      "path": "knowledge/contract.json"
+    },
+    {
+      "id": "unit-dod-evaluation-contract",
+      "kind": "unit-dod-evaluation-contract",
+      "version": "0.1.0",
+      "path": "units/dod-contract.json"
+    },
+    {
+      "id": "gate-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/gate.json"
+    },
+    {
+      "id": "release-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/release.json"
+    },
+    {
+      "id": "semantic-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/semantic.json"
+    },
+    {
+      "id": "knowledge-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/knowledge.json"
+    },
+    {
+      "id": "exception-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/exception.json"
+    },
+    {
+      "id": "dod-evaluation",
+      "kind": "evaluation",
+      "version": "0.1.0",
+      "path": "evaluations/dod.json"
+    }
+  ]
+}

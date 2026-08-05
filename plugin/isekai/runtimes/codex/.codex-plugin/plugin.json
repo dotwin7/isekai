@@ -1,0 +1,8 @@
+{
+  "name": "isekai-agent-plugin",
+  "description": "ISEKAI AI-DLC workflow integration for Codex",
+  "version": "0.1.0",
+  "author": {
+    "name": "ISEKAI"
+  }
+}

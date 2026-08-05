@@ -1,0 +1,67 @@
+{
+  "id": "exception-contract",
+  "kind": "exception-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-exception-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-rules",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "core-rules",
+      "human-gate-contract"
+    ],
+    "required_fields": [
+      "rule_ref",
+      "reason",
+      "owner",
+      "scope",
+      "compensating_controls",
+      "expires_at",
+      "review_ref",
+      "decision_ref"
+    ],
+    "expiry_policy": "expired-exceptions-are-invalid",
+    "rules": [
+      {
+        "id": "EXCEPTION-001",
+        "level": "MUST",
+        "owner": "foundation-exception-owner",
+        "provenance": {
+          "source": "exception-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-exception-controls",
+          "rule_ref": "core-rules:FOUNDATION-001",
+          "reason": "documented",
+          "owner": "exception-owner",
+          "scope": "bounded",
+          "compensating_controls": [
+            "review"
+          ],
+          "expires_at": "2026-08-06T00:00:00Z",
+          "review_ref": "exception-review",
+          "decision_ref": "exception-decision"
+        }
+      }
+    ]
+  }
+}

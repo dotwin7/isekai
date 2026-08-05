@@ -1,0 +1,56 @@
+{
+  "id": "gate-matrix",
+  "kind": "gate-matrix",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-gate-owner",
+  "provenance": {
+    "source": "foundation-gate-matrix",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "matrix_version": "0.1.0",
+    "gates": [
+      {
+        "id": "inception",
+        "trigger": "unit-start",
+        "required_decision": true,
+        "accountable_role": "unit-owner"
+      },
+      {
+        "id": "architecture",
+        "trigger": "contract-data-semantic-permission-migration",
+        "required_decision": true,
+        "accountable_role": "architecture-owner"
+      },
+      {
+        "id": "release",
+        "trigger": "release",
+        "required_decision": true,
+        "accountable_role": "release-owner"
+      },
+      {
+        "id": "operation",
+        "trigger": "remote-deploy-high-risk",
+        "required_decision": true,
+        "accountable_role": "operation-owner"
+      },
+      {
+        "id": "knowledge",
+        "trigger": "knowledge-promotion",
+        "required_decision": true,
+        "accountable_role": "knowledge-owner"
+      }
+    ]
+  }
+}

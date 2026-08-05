@@ -1,0 +1,46 @@
+{
+  "id": "security-profile",
+  "kind": "profile",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "security-domain-owner",
+  "provenance": {
+    "source": "security-domain",
+    "recorded_by": "security-domain-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/domain/security",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "namespace": "security",
+    "types": {
+      "Asset": "Entity",
+      "Identity": "Entity",
+      "Event": "Observation",
+      "Alert": "Claim",
+      "Finding": "Claim",
+      "Case": "Entity",
+      "Evidence": "Evidence",
+      "ResponseAction": "Action"
+    },
+    "relations": [
+      {
+        "type": "affects",
+        "source": "Finding",
+        "target": "Asset"
+      },
+      {
+        "type": "supports",
+        "source": "Evidence",
+        "target": "Finding"
+      }
+    ]
+  }
+}

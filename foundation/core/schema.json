@@ -1,0 +1,43 @@
+{
+  "id": "core-model",
+  "kind": "schema",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-owner",
+  "provenance": {
+    "source": "foundation-core",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "content": {
+    "concepts": [
+      "Entity",
+      "Relation",
+      "Observation",
+      "Claim",
+      "Evidence",
+      "Decision",
+      "Action",
+      "Scope"
+    ],
+    "required_metadata": [
+      "id",
+      "type",
+      "schema_version",
+      "owner",
+      "status",
+      "provenance",
+      "classification",
+      "scope"
+    ],
+    "optional_metadata": [
+      "observed_at",
+      "effective_from",
+      "expires_at",
+      "confidence"
+    ]
+  }
+}

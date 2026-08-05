@@ -1,0 +1,114 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from isekai.cli import main
+
+
+def test_direct_intake_alias_matches_plugin_namespace(capsys) -> None:
+    direct_exit = main(
+        [
+            "intake",
+            "--source",
+            "direct-request",
+            "--goal",
+            "Entity가 뭐야?",
+        ]
+    )
+    direct_output = json.loads(capsys.readouterr().out)
+
+    plugin_exit = main(
+        [
+            "plugin",
+            "intake",
+            "--source",
+            "direct-request",
+            "--goal",
+            "Entity가 뭐야?",
+        ]
+    )
+    plugin_output = json.loads(capsys.readouterr().out)
+
+    assert direct_exit == 0
+    assert plugin_exit == 0
+    assert direct_output["action"] == "intake"
+    assert plugin_output["action"] == "intake"
+    assert direct_output["result"]["route"] == plugin_output["result"]["route"]
+
+
+def test_direct_status_alias_uses_project_context(tmp_path: Path, capsys) -> None:
+    from test_core_workflow import make_project
+
+    project = make_project(tmp_path)
+    exit_code = main(["status", "--project", str(project)])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["action"] == "status"
+    assert output["result"]["project"]["id"] == "test-project"
+
+
+def test_direct_on_and_off_aliases_expose_adapter_mode(
+    tmp_path: Path, capsys
+) -> None:
+    from test_core_workflow import make_project
+
+    project = make_project(tmp_path)
+    on_exit = main(["on", "--project", str(project)])
+    on_output = json.loads(capsys.readouterr().out)
+
+    off_exit = main(["off"])
+    off_output = json.loads(capsys.readouterr().out)
+
+    assert on_exit == 0
+    assert on_output["action"] == "on"
+    assert on_output["result"]["activation"] == "project"
+    assert on_output["result"]["unit"] is None
+    assert on_output["result"]["active_unit"] is None
+    assert on_output["result"]["adapter_mode"]["state"] == "on"
+    assert on_output["result"]["adapter_mode"]["next_session_state"] == "off"
+    assert off_exit == 0
+    assert off_output["action"] == "off"
+    assert off_output["result"]["adapter_mode"]["state"] == "off"
+    assert off_output["result"]["artifacts_changed"] is False
+    assert off_output["result"]["checkpoint_changed"] is False
+
+
+def test_direct_init_alias_creates_project_manifest(tmp_path: Path, capsys) -> None:
+    import shutil
+
+    from test_core_workflow import ROOT
+
+    project_root = tmp_path / "cli-project"
+    project_root.mkdir()
+    shutil.copytree(ROOT / "foundation", project_root / "foundation")
+
+    exit_code = main(
+        [
+            "init",
+            "--path",
+            str(project_root),
+            "--id",
+            "cli-project",
+            "--profile",
+            "software-delivery-profile",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["action"] == "init"
+    assert Path(output["result"]["created"]) == project_root / "project.json"
+    assert (project_root / "units").is_dir()
+
+
+def test_direct_on_rejects_unit_option(tmp_path: Path) -> None:
+    from test_core_workflow import make_project
+
+    project = make_project(tmp_path)
+    with pytest.raises(SystemExit) as exc_info:
+        main(["on", "--project", str(project), "--unit", "some-unit"])
+    assert exc_info.value.code == 2

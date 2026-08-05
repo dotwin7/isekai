@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "policy": {
+    "classification": "verified-baseline",
+    "tested_versions_are": "observed CLI versions with recorded adapter and Core smoke evidence; they are not minimum-version claims",
+    "unknown_version": "unverified",
+    "upgrade_rule": "keep the adapter path unless the host changes its documented plugin discovery contract",
+    "required_upgrade_checks": [
+      "host plugin or skill validation when available",
+      "manifest and skill structure validation",
+      "Core plugin status/resume/verify smoke against the Golden Path"
+    ]
+  },
+  "runtimes": [
+    {
+      "id": "kiro",
+      "cli": "kiro-cli",
+      "tested_versions": ["2.14.2"],
+      "surface": "workspace-agent-skill",
+      "host_checks": ["workspace skill frontmatter and path"],
+      "core_checks": ["status", "resume", "verify"]
+    },
+    {
+      "id": "claude",
+      "cli": "claude",
+      "tested_versions": ["2.1.220"],
+      "surface": "claude-plugin",
+      "host_checks": ["claude plugin validate"],
+      "core_checks": ["status", "resume", "verify"]
+    },
+    {
+      "id": "codex",
+      "cli": "codex",
+      "tested_versions": ["0.146.0"],
+      "surface": "codex-plugin",
+      "host_checks": ["plugin manifest structure", "codex plugin command surface"],
+      "core_checks": ["status", "resume", "verify"]
+    }
+  ]
+}

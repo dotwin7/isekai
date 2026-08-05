@@ -1,0 +1,30 @@
+{
+  "id": "high-risk-policy",
+  "kind": "policy",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "policy-owner",
+  "provenance": {
+    "source": "foundation-high-risk-policy",
+    "recorded_by": "policy-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "effect": "deny",
+    "when": {
+      "risk": "high",
+      "approval": "missing"
+    },
+    "reason": "High-risk actions require a recorded human decision",
+    "enforcement": "runtime-or-release-gate"
+  }
+}

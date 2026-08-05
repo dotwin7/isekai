@@ -1,0 +1,43 @@
+{
+  "id": "software-delivery-profile",
+  "kind": "profile",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "delivery-domain-owner",
+  "provenance": {
+    "source": "software-delivery-domain",
+    "recorded_by": "delivery-domain-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/domain/software-delivery",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "namespace": "delivery",
+    "types": {
+      "Requirement": "Claim",
+      "Component": "Entity",
+      "Change": "Action",
+      "Build": "Observation",
+      "ReleaseDecision": "Decision"
+    },
+    "relations": [
+      {
+        "type": "changes",
+        "source": "Change",
+        "target": "Component"
+      },
+      {
+        "type": "verifies",
+        "source": "Build",
+        "target": "Change"
+      }
+    ]
+  }
+}

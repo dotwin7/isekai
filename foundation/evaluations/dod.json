@@ -1,0 +1,56 @@
+{
+  "id": "dod-evaluation",
+  "kind": "evaluation",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "evaluation-owner",
+  "provenance": {
+    "source": "dod-fixtures",
+    "recorded_by": "evaluation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/evaluations",
+  "extends": [
+    {
+      "id": "unit-dod-evaluation-contract",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "visibility": "evaluation-only",
+    "evaluator": "required-dod",
+    "cases": [
+      {
+        "id": "dod-complete-valid",
+        "input": {
+          "unit_ref": "unit.json",
+          "artifacts": [
+            "architecture.md",
+            "implementation-guide.md",
+            "release.md",
+            "operations.md"
+          ],
+          "evaluations": [
+            "routing-evaluation"
+          ],
+          "evidence_ref": "evidence/verification.json",
+          "evidence_passed": true
+        },
+        "expected": "pass"
+      },
+      {
+        "id": "dod-empty-invalid",
+        "input": {
+          "unit_ref": "unit.json",
+          "artifacts": [],
+          "evaluations": [],
+          "evidence_ref": "evidence/verification.json",
+          "evidence_passed": false
+        },
+        "expected": "fail"
+      }
+    ]
+  }
+}

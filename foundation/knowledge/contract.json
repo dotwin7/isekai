@@ -1,0 +1,55 @@
+{
+  "id": "knowledge-contract",
+  "kind": "knowledge-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-knowledge-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "knowledge-catalog",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "knowledge-catalog",
+      "software-delivery-profile"
+    ],
+    "expiry_policy": "expired-knowledge-reference-only",
+    "rules": [
+      {
+        "id": "KNOWLEDGE-001",
+        "level": "MUST",
+        "owner": "foundation-knowledge-owner",
+        "provenance": {
+          "source": "knowledge-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-promotion-review",
+          "entry_ref": "KNOWLEDGE-REVIEW-001",
+          "evidence_refs": [
+            "review-evidence"
+          ],
+          "reviewed_by": "knowledge-reviewer",
+          "effective_from": "2026-08-05T00:00:00Z",
+          "expires_at": "2027-08-05T00:00:00Z",
+          "promotion_decision_ref": "knowledge-promotion-decision"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "id": "routing-evaluation",
+  "kind": "evaluation",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "evaluation-owner",
+  "provenance": {
+    "source": "foundation-routing-fixtures",
+    "recorded_by": "evaluation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation/evaluations",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "visibility": "evaluation-only",
+    "cases": [
+      {
+        "id": "query-001",
+        "input": {
+          "change": "none",
+          "risk": "low"
+        },
+        "expected": "query"
+      },
+      {
+        "id": "quick-001",
+        "input": {
+          "change": "local",
+          "risk": "low"
+        },
+        "expected": "quick-change"
+      },
+      {
+        "id": "unit-001",
+        "input": {
+          "change": "persistent",
+          "risk": "low"
+        },
+        "expected": "unit"
+      },
+      {
+        "id": "unit-002",
+        "input": {
+          "change": "local",
+          "risk": "high"
+        },
+        "expected": "unit"
+      },
+      {
+        "id": "negative-persistent-quick-change",
+        "input": {
+          "change": "persistent",
+          "risk": "low"
+        },
+        "expected": "unit"
+      },
+      {
+        "id": "negative-high-risk-query",
+        "input": {
+          "change": "local",
+          "risk": "high"
+        },
+        "expected": "unit"
+      }
+    ]
+  }
+}

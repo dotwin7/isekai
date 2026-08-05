@@ -1,0 +1,58 @@
+{
+  "id": "semantic-contract",
+  "kind": "semantic-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-semantic-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "security-event-mapping",
+      "security-profile"
+    ],
+    "mapping_requirements": [
+      "mapping_version",
+      "field_mapping",
+      "lineage_record",
+      "raw_reference",
+      "change_approval"
+    ],
+    "rules": [
+      {
+        "id": "SEMANTIC-001",
+        "level": "MUST",
+        "owner": "foundation-semantic-owner",
+        "provenance": {
+          "source": "semantic-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-lineage",
+          "mapping_ref": "security-event-mapping@0.1.0",
+          "source_ref": "source-record",
+          "target_ref": "security-event",
+          "transformation": "field-map",
+          "raw_reference": "raw-source"
+        }
+      }
+    ]
+  }
+}
