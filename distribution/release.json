@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "id": "isekai",
+  "version": "0.1.0",
+  "protocol_version": "1.0.0",
+  "compatibility": {
+    "project_schema_versions": [
+      "1.0.0"
+    ],
+    "foundation_schema_versions": [
+      "1.0.0"
+    ]
+  },
+  "core": {
+    "package": "isekai-agent-plugin",
+    "version": "0.1.0",
+    "path": "src/isekai",
+    "digest": "sha256:10887e8245b4e09c206c03a59c2679e938d5584f308f7057c707161afd4ef3d2"
+  },
+  "bootstrap": {
+    "id": "bootstrap",
+    "version": "0.1.0",
+    "path": "scripts",
+    "digest": "sha256:848fbc7b2b5cfe6333c1d19da4db87dcd48662ab5e28b5282bedb40e05a055e2"
+  },
+  "foundation": {
+    "id": "isekai-foundation",
+    "version": "0.1.0",
+    "path": "foundation",
+    "digest": "sha256:5b1ecf50ae7d53924c0692f9213b06f0d81de59eee2f91750f0c1aa1e986c557"
+  },
+  "adapters": [
+    {
+      "id": "claude",
+      "version": "0.1.0",
+      "path": "plugin/isekai/runtimes/claude",
+      "digest": "sha256:e4055c1e5d2fbe081788bc819c260e1372c65bff862a6fec8729599baf3a3d9f"
+    },
+    {
+      "id": "codex",
+      "version": "0.1.0",
+      "path": "plugin/isekai/runtimes/codex",
+      "digest": "sha256:136dea093f4d76698a28d9de954aaa6dc5a78f3d677929d106eb187cc8fd9031"
+    },
+    {
+      "id": "kiro",
+      "version": "0.1.0",
+      "path": ".kiro/skills/isekai",
+      "digest": "sha256:b623512b42722dc453eb8168f2ff27fd1cffa464613526fe6219f16c5a98817a"
+    }
+  ]
+}

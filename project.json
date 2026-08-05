@@ -1,6 +1,7 @@
 {
   "id": "isekai-agent-plugin",
   "kind": "project",
+  "schema_version": "1.0.0",
   "version": "0.1.0",
   "foundation_path": "foundation",
   "profiles": [

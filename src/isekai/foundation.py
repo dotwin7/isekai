@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import stat
@@ -73,6 +74,25 @@ class FoundationRelease:
     def assets_by_kind(self, kind: str) -> list[dict[str, Any]]:
         return [asset for asset in self.assets.values() if asset["kind"] == kind]
 
+    @property
+    def contract_digest(self) -> str:
+        """Identify the immutable release manifest and every registered contract asset."""
+        digest = hashlib.sha256()
+        paths = [Path("release.json")]
+        paths.extend(
+            Path(str(descriptor["path"]))
+            for descriptor in self.manifest.get("artifacts", [])
+        )
+        for relative in sorted(paths, key=lambda item: item.as_posix()):
+            content = (self.root / relative).read_bytes()
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(len(content)).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(content)
+            digest.update(b"\0")
+        return "sha256:" + digest.hexdigest()
+
     def rules(self) -> Iterator[dict[str, Any]]:
         for asset in self.assets_by_kind("rule-set"):
             yield from asset["content"].get("rules", [])
@@ -85,6 +105,7 @@ class FoundationRelease:
         return {
             "id": self.manifest["id"],
             "version": self.version,
+            "contract_digest": self.contract_digest,
             "status": self.manifest["status"],
             "asset_count": len(self.assets),
             "kinds": dict(sorted(kinds.items())),
@@ -149,6 +170,8 @@ def _latest_foundation_decision(
         return None, [str(exc)]
     if document.get("foundation_id") != foundation.manifest["id"]:
         return None, ["Foundation Decision foundation_id does not match release"]
+    if document.get("version") != foundation.version:
+        return None, ["Foundation Decision document version does not match release"]
     entries = document.get("decisions")
     if not isinstance(entries, list) or not entries:
         return None, ["Foundation release Decision list is empty"]
@@ -164,7 +187,19 @@ def _latest_foundation_decision(
         return None, ["Foundation Decision version does not match release"]
     if latest.get("outcome") not in {"approved", "rejected"}:
         return None, ["Foundation Decision has an invalid outcome"]
-    return latest, []
+    issues: list[str] = []
+    if latest.get("type") != "foundation-release-decision":
+        issues.append("Foundation Decision has an invalid type")
+    if latest.get("schema_version") != "1.0.0":
+        issues.append("Foundation Decision has an unsupported schema_version")
+    for field in ("id", "summary", "decided_by"):
+        if not isinstance(latest.get(field), str) or not latest.get(field, "").strip():
+            issues.append(f"Foundation Decision requires a non-empty {field}")
+    try:
+        _parse_timestamp(latest.get("decided_at"), "Foundation Decision decided_at")
+    except FoundationError as exc:
+        issues.append(str(exc))
+    return latest, issues
 
 
 def _foundation_evidence_issues(
@@ -191,10 +226,17 @@ def _foundation_evidence_issues(
         issues.append("Foundation Evidence requires a scope")
     if not isinstance(evidence.get("recorded_by"), str) or not evidence.get("recorded_by", "").strip():
         issues.append("Foundation Evidence requires recorded_by provenance")
+    if not isinstance(evidence.get("id"), str) or not evidence.get("id", "").strip():
+        issues.append("Foundation Evidence requires a non-empty id")
+    try:
+        _parse_timestamp(evidence.get("recorded_at"), "Foundation Evidence recorded_at")
+    except FoundationError as exc:
+        issues.append(str(exc))
     checks = evidence.get("checks")
     if not isinstance(checks, list) or not checks:
         issues.append("Foundation Evidence has no checks")
     else:
+        seen_check_ids: set[str] = set()
         for index, check in enumerate(checks):
             if not isinstance(check, dict):
                 issues.append(f"Foundation Evidence check {index} must be an object")
@@ -207,6 +249,13 @@ def _foundation_evidence_issues(
                 )
             if check.get("passed") is not True:
                 issues.append(f"Foundation Evidence check {index} is not passing")
+            check_id = check.get("id")
+            if not isinstance(check_id, str) or not check_id.strip():
+                issues.append(f"Foundation Evidence check {index} requires a non-empty id")
+            elif check_id in seen_check_ids:
+                issues.append(f"Foundation Evidence has duplicate check id: {check_id}")
+            else:
+                seen_check_ids.add(check_id)
             if not isinstance(check.get("details"), str) or not check.get("details", "").strip():
                 issues.append(f"Foundation Evidence check {index} requires details")
             try:
@@ -271,6 +320,8 @@ def record_foundation_decision(
     }
     if document.get("foundation_id") != foundation.manifest["id"]:
         raise FoundationError("Foundation Decision foundation_id does not match release")
+    if document.get("version") != foundation.version:
+        raise FoundationError("Foundation Decision document version does not match release")
     entries = document.get("decisions")
     if not isinstance(entries, list):
         raise FoundationError("Foundation decisions must be a list")
@@ -309,6 +360,7 @@ def record_foundation_evidence(
         raise FoundationError("Foundation Evidence scope must be non-empty")
     if not isinstance(recorded_by, str) or not recorded_by.strip():
         raise FoundationError("Foundation Evidence recorded_by must be non-empty")
+    seen_check_ids: set[str] = set()
     for index, check in enumerate(checks):
         if not isinstance(check, dict):
             raise FoundationError(f"Foundation Evidence check {index} must be an object")
@@ -321,6 +373,12 @@ def record_foundation_evidence(
             raise FoundationError(f"Foundation Evidence check {index} passed must be boolean")
         if not isinstance(check["details"], str) or not check["details"].strip():
             raise FoundationError(f"Foundation Evidence check {index} details must be non-empty")
+        check_id = check.get("id")
+        if not isinstance(check_id, str) or not check_id.strip():
+            raise FoundationError(f"Foundation Evidence check {index} id must be non-empty")
+        if check_id in seen_check_ids:
+            raise FoundationError(f"Foundation Evidence has duplicate check id: {check_id}")
+        seen_check_ids.add(check_id)
         _validate_provenance_record(check.get("provenance"), f"Foundation Evidence check {index} provenance")
     if passed and any(check["passed"] is not True for check in checks):
         raise FoundationError("passing Foundation Evidence cannot contain failed checks")
@@ -872,6 +930,9 @@ def _load_foundation_documents(
         raise FoundationError("release kind must be foundation-release")
     if manifest["status"] not in ALLOWED_STATUSES:
         raise FoundationError("release has an invalid status")
+    if not isinstance(manifest["id"], str) or not manifest["id"].strip():
+        raise FoundationError("release id must be a non-empty string")
+    _validate_provenance(manifest)
     descriptors = manifest["artifacts"]
     if not isinstance(descriptors, list) or not descriptors:
         raise FoundationError("release requires at least one artifact")

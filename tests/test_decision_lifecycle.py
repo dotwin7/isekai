@@ -186,6 +186,26 @@ def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> No
         )
 
 
+def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+
+    with pytest.raises(ValueError, match="observed_at"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="invalid evidence timestamp",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": "not-a-timestamp",
+                }
+            ],
+        )
+
+
 def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
     command = build_command_evidence(
         "pytest -q",
@@ -241,3 +261,36 @@ def test_decision_packet_requires_rationale_and_explained_alternatives(tmp_path:
             references=[],
             decided_by="human-reviewer",
         )
+
+
+def test_foreign_unit_decision_cannot_satisfy_a_gate(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    first = initialize_unit(project, "First Decision Unit", project.parent / "units")
+    second = initialize_unit(project, "Second Decision Unit", project.parent / "units")
+    for unit in (first, second):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=[
+                {"name": "inception", "depth": "standard", "allowed_actions": ["read"]},
+                {"name": "construction", "depth": "standard", "allowed_actions": ["read", "edit"]},
+            ],
+            allowed_actions=["read", "edit"],
+            forbidden_actions=["remote", "deploy", "credential-access"],
+            max_iterations=2,
+            proposed_by="planner-agent",
+        )
+        transition_unit(unit, "inception")
+        transition_unit(unit, "awaiting-inception-decision")
+
+    approve(first, "inception")
+    first_decisions = json.loads((first / "decisions.json").read_text(encoding="utf-8"))
+    second_decisions = json.loads((second / "decisions.json").read_text(encoding="utf-8"))
+    second_decisions["decisions"] = first_decisions["decisions"]
+    (second / "decisions.json").write_text(
+        json.dumps(second_decisions, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="approved inception Decision"):
+        transition_unit(second, "construction")

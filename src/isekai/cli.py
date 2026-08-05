@@ -6,6 +6,16 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .distribution import (
+    MANIFEST_PATH,
+    doctor_install,
+    install_from_git,
+    load_install_lock,
+    plan_git_update,
+    rollback_install,
+    verify_distribution,
+    write_distribution_manifest,
+)
 from .foundation import (
     FoundationError,
     load_foundation,
@@ -31,6 +41,7 @@ def _json(value: object) -> None:
 
 DIRECT_PLUGIN_ACTIONS = {
     "init",
+    "handshake",
     "on",
     "off",
     "status",
@@ -57,6 +68,60 @@ DIRECT_PLUGIN_ACTIONS = {
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m isekai")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    install = commands.add_parser(
+        "install", help="install a pinned Git release into a project"
+    )
+    install.add_argument("--source", required=True)
+    install.add_argument("--ref", required=True)
+    install.add_argument("--path", default=".")
+    install.add_argument(
+        "--runtime",
+        action="append",
+        choices=("all", "kiro", "claude", "codex"),
+        default=[],
+    )
+    install.add_argument("--adopt-foundation", action="store_true")
+    install.add_argument("--register", action="store_true")
+
+    update = commands.add_parser(
+        "update", help="update Core and adapters from a new immutable Git ref"
+    )
+    update.add_argument("--source")
+    update.add_argument("--ref", required=True)
+    update.add_argument("--path", default=".")
+    update.add_argument(
+        "--runtime",
+        action="append",
+        choices=("all", "kiro", "claude", "codex"),
+        default=[],
+    )
+    update.add_argument("--include-foundation", action="store_true")
+    update.add_argument("--adopt-foundation", action="store_true")
+    update.add_argument("--register", action="store_true")
+    update.add_argument("--check", action="store_true")
+
+    doctor = commands.add_parser(
+        "doctor", help="verify project lock, installed files, and Foundation pin"
+    )
+    doctor.add_argument("--path", default=".")
+
+    rollback = commands.add_parser(
+        "rollback", help="restore the previous project-local ISEKAI installation"
+    )
+    rollback.add_argument("--path", default=".")
+    rollback.add_argument("--register", action="store_true")
+
+    distribution_build = commands.add_parser(
+        "distribution-build", help="write a digest-pinned Git release manifest"
+    )
+    distribution_build.add_argument("--root", default=".")
+    distribution_build.add_argument("--output", default=str(MANIFEST_PATH))
+
+    distribution_check = commands.add_parser(
+        "distribution-check", help="verify the checked-in release manifest"
+    )
+    distribution_check.add_argument("--root", default=".")
 
     validate = commands.add_parser("validate", help="validate a Foundation release")
     validate.add_argument("--foundation", default="foundation")
@@ -123,12 +188,20 @@ def _parser() -> argparse.ArgumentParser:
     )
     plugin_project_init.add_argument("--path", default=".")
     plugin_project_init.add_argument("--id", dest="project_id")
-    plugin_project_init.add_argument("--foundation-path", default="foundation")
+    plugin_project_init.add_argument("--foundation-path")
     plugin_project_init.add_argument("--profile", action="append", default=[])
     plugin_project_init.add_argument(
         "--document-language", choices=("ko", "en"), default="ko"
     )
     plugin_project_init.add_argument("--maximum-agent-level", default="L0")
+
+    plugin_handshake = plugin_commands.add_parser(
+        "handshake", help="verify Adapter, Core, protocol, and project lock compatibility"
+    )
+    plugin_handshake.add_argument("--runtime", choices=("kiro", "claude", "codex"), required=True)
+    plugin_handshake.add_argument("--adapter-version", required=True)
+    plugin_handshake.add_argument("--protocol-version", required=True)
+    plugin_handshake.add_argument("--project", default=".")
 
     plugin_on = plugin_commands.add_parser(
         "on", help="activate ISEKAI mode for the current conversation"
@@ -295,7 +368,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         arguments = ["plugin", *arguments]
     args = _parser().parse_args(arguments)
     try:
-        if args.command == "validate":
+        if args.command == "install":
+            _json(
+                install_from_git(
+                    args.source,
+                    args.ref,
+                    args.path,
+                    runtimes=args.runtime or ("all",),
+                    adopt_foundation=args.adopt_foundation,
+                    register=args.register,
+                )
+            )
+        elif args.command == "update":
+            lock = load_install_lock(args.path)
+            if lock is None:
+                raise ValueError("cannot update before ISEKAI is installed")
+            source = args.source or lock.get("source", {}).get("git")
+            if not isinstance(source, str) or not source:
+                raise ValueError("update requires --source or a Git source in isekai.lock.json")
+            runtimes = args.runtime or tuple(lock.get("adapters", {}))
+            if args.check:
+                _json(
+                    plan_git_update(
+                        source,
+                        args.ref,
+                        args.path,
+                        runtimes=runtimes,
+                        include_foundation=args.include_foundation,
+                    )
+                )
+            else:
+                _json(
+                    install_from_git(
+                        source,
+                        args.ref,
+                        args.path,
+                        runtimes=runtimes,
+                        update=True,
+                        include_foundation=args.include_foundation,
+                        adopt_foundation=args.adopt_foundation,
+                        register=args.register,
+                    )
+                )
+        elif args.command == "doctor":
+            result = doctor_install(args.path)
+            _json(result)
+            return 0 if result["ready"] else 1
+        elif args.command == "rollback":
+            _json(rollback_install(args.path, register=args.register))
+        elif args.command == "distribution-build":
+            path = write_distribution_manifest(args.root, args.output)
+            _json({"created": str(path)})
+        elif args.command == "distribution-check":
+            result = verify_distribution(args.root)
+            _json(result)
+            return 0 if result["valid"] else 1
+        elif args.command == "validate":
             _json({"valid": True, "foundation": load_foundation(args.foundation).summary()})
         elif args.command == "release-check":
             result = load_foundation(args.foundation).readiness()
@@ -366,6 +494,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "profiles": args.profile,
                     "document_language": args.document_language,
                     "maximum_agent_level": args.maximum_agent_level,
+                }
+            elif action == "handshake":
+                payload = {
+                    "runtime": args.runtime,
+                    "adapter_version": args.adapter_version,
+                    "protocol_version": args.protocol_version,
+                    "project": args.project,
                 }
             elif action == "on":
                 payload = {"project": args.project}

@@ -1,0 +1,131 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$Source,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Ref,
+
+    [Alias("Path")]
+    [string]$ProjectPath = ".",
+
+    [ValidateSet("all", "codex", "claude", "kiro")]
+    [string[]]$Runtime = @("all"),
+
+    [switch]$Register,
+    [switch]$AdoptFoundation,
+    [switch]$Init,
+    [string[]]$Profile = @(),
+    [string]$Python
+)
+
+$ErrorActionPreference = "Stop"
+
+function Assert-LastExitCode {
+    param([string]$Action)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Action failed with exit code $LASTEXITCODE"
+    }
+}
+
+if ($Source.StartsWith("-")) {
+    throw "Source cannot start with '-'"
+}
+if ($Ref.StartsWith("-")) {
+    throw "Ref cannot start with '-'"
+}
+if ($Profile.Count -gt 0 -and -not $Init) {
+    throw "-Profile requires -Init"
+}
+if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) {
+    throw "Project directory does not exist: $ProjectPath"
+}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "git is required"
+}
+
+$pythonPrefix = @()
+if ($Python) {
+    $pythonCommand = Get-Command $Python -ErrorAction Stop
+}
+else {
+    $pythonCommand = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $pythonCommand) {
+        $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    }
+    if (-not $pythonCommand) {
+        $pythonCommand = Get-Command py -ErrorAction SilentlyContinue
+        if ($pythonCommand) {
+            $pythonPrefix = @("-3")
+        }
+    }
+    if (-not $pythonCommand) {
+        throw "Python 3.11 or newer is required"
+    }
+}
+$pythonExecutable = $pythonCommand.Source
+
+& $pythonExecutable @pythonPrefix -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"
+Assert-LastExitCode "Python version check"
+
+$resolvedProject = (Resolve-Path -LiteralPath $ProjectPath).Path
+$temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("isekai-bootstrap-" + [guid]::NewGuid().ToString("N"))
+$checkout = Join-Path $temporaryRoot "release"
+New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+$previousPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+
+try {
+    & git clone --quiet --no-checkout -- $Source $checkout
+    Assert-LastExitCode "Git clone"
+    & git -C $checkout checkout --quiet --detach $Ref
+    Assert-LastExitCode "Git checkout"
+
+    $env:PYTHONPATH = Join-Path $checkout "src"
+    $installArgs = @(
+        "-m", "isekai", "install",
+        "--source", $Source,
+        "--ref", $Ref,
+        "--path", $resolvedProject
+    )
+    foreach ($selectedRuntime in $Runtime) {
+        $installArgs += @("--runtime", $selectedRuntime)
+    }
+    if ($Register) {
+        $installArgs += "--register"
+    }
+    if ($AdoptFoundation) {
+        $installArgs += "--adopt-foundation"
+    }
+
+    & $pythonExecutable @pythonPrefix @installArgs
+    Assert-LastExitCode "ISEKAI install"
+
+    if ($Init) {
+        $projectManifest = Join-Path $resolvedProject "project.json"
+        if (Test-Path -LiteralPath $projectManifest) {
+            Write-Warning "ISEKAI project already initialized: $projectManifest"
+        }
+        else {
+            $launcher = Join-Path $resolvedProject ".isekai/bin/isekai.py"
+            $initArgs = @($launcher, "init", "--path", $resolvedProject)
+            foreach ($selectedProfile in $Profile) {
+                $initArgs += @("--profile", $selectedProfile)
+            }
+            & $pythonExecutable @pythonPrefix @initArgs
+            Assert-LastExitCode "ISEKAI project initialization"
+        }
+    }
+
+    Write-Host "ISEKAI installation complete: $resolvedProject"
+}
+finally {
+    if ($null -eq $previousPythonPath) {
+        Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:PYTHONPATH = $previousPythonPath
+    }
+    if (Test-Path -LiteralPath $temporaryRoot) {
+        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
+    }
+}

@@ -177,6 +177,37 @@ def test_generic_one_check_evidence_cannot_promote(tmp_path: Path) -> None:
     assert load_foundation(foundation).manifest["status"] == "draft"
 
 
+def test_release_metadata_and_approval_provenance_fail_closed(tmp_path: Path) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    release_path = foundation / "release.json"
+    release = json.loads(release_path.read_text(encoding="utf-8"))
+    release.pop("provenance")
+    release_path.write_text(json.dumps(release, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match="provenance"):
+        load_foundation(foundation)
+
+    shutil.rmtree(foundation)
+    shutil.copytree(ROOT / "foundation", foundation)
+    decisions_path = foundation / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decisions["decisions"][-1]["decided_at"] = "not-a-timestamp"
+    decisions_path.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+    evidence_path = foundation / "evidence/release.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["recorded_at"] = "not-a-timestamp"
+    evidence["checks"].append(dict(evidence["checks"][0]))
+    evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+
+    readiness = load_foundation(foundation).readiness()
+
+    assert readiness["ready"] is False
+    assert any("decided_at" in blocker for blocker in readiness["blockers"])
+    assert any("recorded_at" in blocker for blocker in readiness["blockers"])
+    assert any("duplicate check id" in blocker for blocker in readiness["blockers"])
+
+
 def target_snapshot(foundation: Path) -> dict[str, tuple[bytes, int]]:
     release = load_foundation(foundation)
     paths = [foundation / "release.json"] + [

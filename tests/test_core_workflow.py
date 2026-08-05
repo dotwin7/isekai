@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError, load_foundation
-from isekai.session import resume_session
+from isekai.session import SessionError, resume_session
 from isekai.workflow import (
     UNIT_REQUIRED_FILES,
     RouteRequest,
@@ -137,6 +137,20 @@ def test_checkpoint_and_resume_restore_authoritative_next_action(tmp_path: Path)
     assert resumed["resume"]["completed"] == ["scaffold"]
     assert resumed["resume"]["pending"] == ["record inception decision"]
     assert resumed["resume"]["next_action"] == "record inception decision"
+
+
+def test_resume_rejects_foundation_contract_drift_with_same_version(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    initialize_unit(project, "Pinned Foundation", tmp_path / "project" / "units")
+    rules_path = project.parent / "foundation/governance/rules/core.json"
+    rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    rules["content"]["rules"][0]["title"] += " changed"
+    rules_path.write_text(json.dumps(rules, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(SessionError, match="Foundation contract digest"):
+        resume_session(project)
 
 
 def test_foundation_readiness_reports_approved_baseline() -> None:
@@ -303,3 +317,15 @@ def test_unit_metadata_is_versionable_but_raw_evidence_is_ignored() -> None:
     assert "units/" not in ignore_lines
     assert "units/**/evidence/raw/" in ignore_lines
     assert ".isekai-runtime/" in ignore_lines
+
+
+def test_verify_reports_missing_json_artifact_without_crashing(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Partial Unit", project.parent / "units")
+    (unit / "decisions.json").unlink()
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    assert "decisions.json" in result["missing"]
+    assert any("decisions.json" in issue for issue in result["issues"])

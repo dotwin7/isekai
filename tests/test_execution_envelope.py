@@ -99,3 +99,53 @@ def test_envelope_proposal_rejects_empty_scope_and_actions(tmp_path: Path) -> No
             max_iterations=3,
             proposed_by="planner-agent",
         )
+
+
+def test_envelope_rejects_actions_outside_the_local_agent_contract(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Unsafe Envelope", project.parent / "units")
+
+    with pytest.raises(ValueError, match="unsupported|prohibited"):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=[
+                {
+                    "name": "construction",
+                    "depth": "standard",
+                    "allowed_actions": ["read", "deploy"],
+                }
+            ],
+            allowed_actions=["read", "deploy"],
+            forbidden_actions=[],
+            max_iterations=3,
+            proposed_by="planner-agent",
+        )
+
+
+def test_later_rejected_inception_decision_revokes_envelope_authorization(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="rejected",
+        summary="Revoke the previously approved execution scope.",
+        rationale=["The approved scope is no longer valid."],
+        alternatives=[
+            {"option": "Keep the approval", "reason": "Rejected because the scope changed."}
+        ],
+        tradeoffs=["Construction pauses until a new approval is recorded."],
+        risks=["Continuing would execute against revoked authority."],
+        references=["execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+
+    result = authorize_action(unit, action="edit", target="src/main.py")
+
+    assert result["allowed"] is False
+    assert "revoked" in result["reason"] or "latest" in result["reason"]

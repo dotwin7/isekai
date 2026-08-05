@@ -19,6 +19,33 @@ def test_direct_question_routes_to_query_without_workflow() -> None:
     assert "without creating a Unit" in result["next_action"]
 
 
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "프로젝트 구조를 먼저 파악해봐",
+        "현재 구현 성숙도를 분석해줘",
+        "Review the current architecture",
+    ],
+)
+def test_read_only_analysis_routes_to_query(goal: str) -> None:
+    result = intake({"source": "direct-request", "goal": goal})
+
+    assert result["intent"]["change"] == "none"
+    assert result["route"]["route"] == "query"
+
+
+def test_analysis_feature_implementation_still_routes_to_unit() -> None:
+    result = intake(
+        {
+            "goal": "분석 기능을 구현해줘",
+            "expected_outcome": "분석 결과를 저장한다",
+        }
+    )
+
+    assert result["intent"]["change"] == "persistent"
+    assert result["route"]["route"] == "unit"
+
+
 def test_direct_small_text_change_routes_to_quick_change() -> None:
     result = intake({"goal": "README 오타를 고쳐줘"})
 

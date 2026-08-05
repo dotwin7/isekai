@@ -1,0 +1,56 @@
+{
+  "id": "unit-dod-evaluation-contract",
+  "kind": "unit-dod-evaluation-contract",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "approved",
+  "owner": "foundation-evaluation-owner",
+  "provenance": {
+    "source": "foundation-architecture-review",
+    "recorded_by": "foundation-owner",
+    "recorded_at": "2026-08-05T00:00:00Z"
+  },
+  "classification": "internal",
+  "scope": "foundation",
+  "extends": [
+    {
+      "id": "core-model",
+      "version": "0.1.0"
+    }
+  ],
+  "content": {
+    "contract_version": "0.1.0",
+    "references": [
+      "routing-evaluation"
+    ],
+    "rules": [
+      {
+        "id": "DOD-001",
+        "level": "MUST",
+        "owner": "foundation-evaluation-owner",
+        "provenance": {
+          "source": "unit-dod-evaluation-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-05T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-dod",
+          "unit_ref": "unit.json",
+          "required_artifacts": [
+            "architecture.md",
+            "implementation-guide.md",
+            "release.md",
+            "operations.md"
+          ],
+          "evaluation_refs": [
+            "routing-evaluation"
+          ],
+          "evidence_ref": "evidence/verification.json"
+        }
+      }
+    ]
+  }
+}

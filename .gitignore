@@ -5,4 +5,8 @@ dist/
 build/
 *.egg-info/
 .isekai-runtime/
+.isekai-stage-*/
+.isekai-rollback-stage-*/
+.isekai-backup-*/
+.isekai-kiro-backup-*/
 units/**/evidence/raw/

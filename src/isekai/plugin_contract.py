@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from . import __version__
+from .distribution import PROTOCOL_VERSION, verify_adapter_handshake
 from .intake import intake
 from .foundation import (
     FoundationError,
@@ -33,7 +35,7 @@ from .workflow import (
 
 
 PLUGIN_ID = "isekai-agent-plugin"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = __version__
 
 
 class PluginError(ValueError):
@@ -66,6 +68,8 @@ def _envelope(action: str, result: dict[str, Any]) -> dict[str, Any]:
     return {
         "plugin": PLUGIN_ID,
         "plugin_version": PLUGIN_VERSION,
+        "core_version": __version__,
+        "protocol_version": PROTOCOL_VERSION,
         "action": action,
         "result": result,
     }
@@ -73,13 +77,31 @@ def _envelope(action: str, result: dict[str, Any]) -> dict[str, Any]:
 
 def dispatch(action: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
     values = dict(payload or {})
+    if action == "handshake":
+        try:
+            result = verify_adapter_handshake(
+                str(_required(values, "runtime")),
+                str(_required(values, "adapter_version")),
+                str(_required(values, "protocol_version")),
+                values.get("project", "."),
+            )
+        except ValueError as exc:
+            raise PluginError(str(exc)) from exc
+        return _envelope(
+            action,
+            result,
+        )
     if action == "init":
         from .workflow import initialize_project
 
         path = initialize_project(
             values.get("path", "."),
             project_id=values.get("project_id"),
-            foundation_path=str(values.get("foundation_path", "foundation")),
+            foundation_path=(
+                str(values["foundation_path"])
+                if values.get("foundation_path") is not None
+                else None
+            ),
             profiles=list(values.get("profiles", [])),
             document_language=str(values.get("document_language", "ko")),
             maximum_agent_level=str(values.get("maximum_agent_level", "L0")),

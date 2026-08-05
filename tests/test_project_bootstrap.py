@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError
-from isekai.session import SessionError, discover_project
-from isekai.workflow import initialize_project, resolve_context
+from isekai.session import SessionError, build_session, discover_project
+from isekai.workflow import initialize_project, initialize_unit, resolve_context
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,3 +159,50 @@ def test_discover_project_uses_nearest_ancestor_in_nested_projects(
     nested.mkdir(parents=True)
 
     assert discover_project(nested) == nearest
+
+
+def test_context_and_unit_init_accept_project_root_or_nested_directory(
+    tmp_path: Path,
+) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    manifest = initialize_project(
+        project_root,
+        project_id="discovered-project",
+        profiles=["software-delivery-profile"],
+    )
+    nested = project_root / "src/package"
+    nested.mkdir(parents=True)
+
+    assert resolve_context(project_root)["source_manifest"] == str(manifest)
+    unit = initialize_unit(nested, "Discovered Project")
+
+    assert unit.parent == project_root / "units"
+
+
+def test_unknown_agent_level_is_rejected_fail_closed(tmp_path: Path) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+
+    with pytest.raises(ValueError, match="maximum_agent_level"):
+        initialize_project(project_root, maximum_agent_level="L2")
+
+    assert not (project_root / "project.json").exists()
+    assert not (project_root / "units").exists()
+
+
+def test_session_rejects_a_unit_from_another_project(tmp_path: Path) -> None:
+    first_root = project_root_with_foundation(tmp_path, "first")
+    first = initialize_project(
+        first_root,
+        project_id="first-project",
+        profiles=["software-delivery-profile"],
+    )
+    second_root = project_root_with_foundation(tmp_path, "second")
+    second = initialize_project(
+        second_root,
+        project_id="second-project",
+        profiles=["software-delivery-profile"],
+    )
+    foreign_unit = initialize_unit(second, "Foreign Unit")
+
+    with pytest.raises(SessionError, match="project_id"):
+        build_session(first, foreign_unit)

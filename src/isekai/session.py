@@ -115,6 +115,8 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
         "unit_id": status.get("unit_id"),
         "phase": status.get("phase"),
         "status": status.get("status"),
+        "foundation_version": status.get("foundation_version"),
+        "foundation_digest": status.get("foundation_digest"),
         "valid": status.get("valid"),
         "missing": status.get("missing", []),
         "issues": status.get("issues", []),
@@ -184,9 +186,25 @@ def build_session(
     session = build_project_session(project, route)
     project_path = Path(session["project"]["manifest"])
     selected_unit = discover_unit(project_path, unit_dir)
-    unit = None if selected_unit is None else _unit_ref(
-        selected_unit, unit_status(selected_unit)
-    )
+    unit = None
+    if selected_unit is not None:
+        status = unit_status(selected_unit)
+        if status.get("project_id") != session["project"]["id"]:
+            raise SessionError(
+                f"Unit project_id does not match selected Project: {selected_unit}"
+            )
+        context = session["context"]
+        if status.get("foundation_version") != context.get("foundation_version"):
+            raise SessionError(
+                "Unit Foundation version does not match the selected Project; "
+                "migrate the Unit explicitly before resuming it"
+            )
+        if status.get("foundation_digest") != context.get("foundation_digest"):
+            raise SessionError(
+                "Unit Foundation contract digest does not match the selected Project; "
+                "migrate the Unit explicitly before resuming it"
+            )
+        unit = _unit_ref(selected_unit, status)
     return {
         **session,
         "unit": unit,
@@ -253,6 +271,15 @@ def update_checkpoint(
     unit = _read_object(path / "unit.json")
     if not isinstance(next_action, str) or not next_action.strip():
         raise SessionError("next_action must be a non-empty string")
+    for field, values in (
+        ("completed", completed),
+        ("pending", pending),
+        ("blocked_by", blocked_by),
+    ):
+        if not isinstance(values, list) or any(
+            not isinstance(item, str) or not item.strip() for item in values
+        ):
+            raise SessionError(f"{field} must be a list of non-empty strings")
     checkpoint = {
         "unit_id": unit.get("id"),
         "completed": completed,

@@ -12,10 +12,18 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 | Claude Code | `plugin/isekai/runtimes/claude/` | `claude --plugin-dir ./plugin/isekai/runtimes/claude` |
 | Codex | `plugin/isekai/runtimes/codex/` | run the Codex plugin validator |
 
-The user-facing CLI uses direct actions:
+Install the project-local launcher and adapters from an immutable Git tag first:
 
 ```bash
-isekai init --path path/to/project --profile software-delivery-profile
+curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.sh
+bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.1.0 --path . --runtime all --init
+./.isekai/bin/isekai doctor --path .
+```
+
+The user-facing CLI uses direct actions through that launcher:
+
+```bash
+./.isekai/bin/isekai init --path path/to/project --profile software-delivery-profile
 isekai on
 isekai off
 isekai status
@@ -25,9 +33,19 @@ isekai verify --unit path/to/unit
 
 Run the Agent CLI from a Project root containing `project.json`; Core also searches ancestors and unambiguous descendant workspace candidates. `init` creates a validated manifest and `units/` without overwriting existing configuration. Unit output defaults to the selected Project root.
 
-The Adapter is discoverable by the host but conversation mode is off by default. `on` activates one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Explicit actions remain available as one-shot calls while mode is off. Host plugin installation or enablement remains a host-native operation.
+The Adapter is discoverable by the host but conversation mode is off by default. `on` activates one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Explicit actions remain available as one-shot calls while mode is off. `install` prepares project-local host surfaces; `--register` explicitly delegates enablement to each host's native marketplace command.
 
 `isekai plugin <action>` remains the internal Runtime Adapter contract and is backward-compatible for host integrations.
+
+Git releases are pinned by `isekai.lock.json`. Check and apply an update separately so contract changes are reviewable:
+
+```bash
+./.isekai/bin/isekai update --check --ref v0.2.0
+./.isekai/bin/isekai update --ref v0.2.0
+./.isekai/bin/isekai rollback
+```
+
+Ordinary updates preserve the pinned Foundation. `--include-foundation` and, when switching an existing Project path, `--adopt-foundation` are explicit contract-change operations. Adapter/Core compatibility is verified through `isekai plugin handshake`; Codex and Claude use the new Adapter from a new conversation.
 
 
 ```bash

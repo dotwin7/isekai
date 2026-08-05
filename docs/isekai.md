@@ -2,24 +2,25 @@
 
 - 상태: Canonical
 - 작성일: 2026-08-03
-- 설명: Security Engineering Foundation 및 AI-DLC 운영 모델
+- 설명: 범용 AI-DLC 운영 모델 및 Security Engineering Domain Profile
 - 문서 역할: 이 저장소의 유일한 canonical 설계 문서
 
 ## 1. 정의
 
-> ISEKAI는 기존 AI 에이전트를 활용해 보안 제품과 서비스를 AI 중심으로 기획·개발·검증·운영하는 AI-DLC와, 이를 조직 전체에 일관되게 적용하는 Security Engineering Foundation이다.
+> ISEKAI는 기존 AI 에이전트를 활용해 소프트웨어 제품과 서비스를 AI 중심으로 기획·개발·검증·운영하는 범용 AI-DLC와, 이를 도메인별로 일관되게 적용하는 Engineering Foundation이다. 보안은 첫 번째 Domain Profile이자 우선 적용 영역이다.
 
-최상위 목표는 Agent Platform을 만드는 것이 아니라 **AWS AI-Driven Development Life Cycle과 유사한 AI 중심 개발 생명주기를 보안기술팀에 구현하는 것**이다. CLI, Registry, Context Service와 Control Plane은 이 목표에 필요한 만큼 단계적으로 만든다.
+최상위 목표는 Agent Platform을 만드는 것이 아니라 **AWS AI-Driven Development Life Cycle과 유사한 범용 AI 중심 개발 생명주기를 구현하는 것**이다. 보안기술팀과 보안 제품에서 먼저 검증하되 Core의 workflow·information model·governance는 특정 도메인에 종속시키지 않는다. CLI, Registry, Context Service와 Control Plane은 이 목표에 필요한 만큼 단계적으로 만든다.
 
 참고: [AWS, AI-Driven Development Life Cycle: Reimagining Software Engineering, 2025-07-31](https://aws.amazon.com/blogs/devops/ai-driven-development-life-cycle/)
 
 ## 2. 목표
 
-1. **보안운영:** 사람과 에이전트가 탐지·조사·판단·대응 준비를 함께 수행한다.
-2. **제품 개발:** 현재 및 향후 제품을 동일한 AI-DLC와 Foundation으로 지속 개발한다.
-3. **보안서비스:** 취약점 진단과 승인된 레드팀 서비스에 에이전트를 결합한다.
+1. **범용 제품 개발:** 도메인과 기술 스택에 관계없이 현재 및 향후 제품을 동일한 AI-DLC Core로 지속 개발한다.
+2. **보안운영:** 사람과 에이전트가 탐지·조사·판단·대응 준비를 함께 수행한다.
+3. **보안 제품 개발:** Security Domain Profile을 사용해 보안 제품을 공통 Foundation 위에서 개발한다.
+4. **보안서비스:** 취약점 진단과 승인된 레드팀 서비스에 에이전트를 결합한다.
 
-Foundation은 특정 제품에 종속되지 않으며 서로 다른 제품과 서비스가 공통으로 사용한다. 초기 적용 대상은 Foundation v0.1 이후 별도 Unit으로 선정한다.
+AI-DLC Core와 Foundation은 특정 제품이나 도메인에 종속되지 않으며 서로 다른 제품과 서비스가 공통으로 사용한다. Security Profile과 보안 정책은 범용 Core 위에 선택적으로 적용한다. 초기 적용 대상은 Foundation v0.1 이후 별도 Unit으로 선정한다.
 
 ## 3. 핵심 원칙
 
@@ -41,7 +42,7 @@ ISEKAI는 다섯 가지로 구성된다.
 | 구성 | 역할 |
 |---|---|
 | AI-DLC Workflow | Inception부터 Operations까지의 상태·산출물·인간 게이트 |
-| Security Engineering Foundation | 범용 Core, Domain Profile과 개발·운영·Agent·Policy·평가 공통 규칙 |
+| Engineering Foundation | 범용 Core, Domain Profile과 개발·운영·Agent·Policy·평가 공통 규칙 |
 | Persistent Context | Unit, Decision, Evidence, Receipt, Checkpoint |
 | Agent Integration | 기존 에이전트를 교체 가능한 실행 엔진으로 연결 |
 | Security Extensions | 기준 제품, 신규 제품, 보안운영, 진단·레드팀 확장 |
@@ -92,6 +93,54 @@ Project가 없으면 명시적 사용자 확인 후 `isekai init --path PATH`로
 Project discovery 순서는 direct current directory → nearest ancestor → filtered descendants다. 중첩 Project에서는 가장 가까운 ancestor manifest를 사용한다. descendant 후보가 하나면 선택할 수 있지만 둘 이상이면 모든 후보를 표시하고 `--project`로 명시적 선택을 요구한다. `.git`, build output, dependency, runtime과 `units/` 디렉터리는 descendant 검색에서 제외한다.
 
 `project.json.parent`가 Project root다. `unit-init`의 output을 생략하면 `project-root/units/`를 사용한다. 상대 output은 Project root 기준이며 `..` 또는 symlink로 root를 벗어나면 거부한다. 명시적 절대 output은 외부 저장 의도로 간주해 허용한다. `foundation_path`는 조직 공통 Foundation을 공유할 수 있도록 Project 외부 상대·절대 경로를 허용한다. Unit metadata, Decision, Receipt, Checkpoint와 검증 Evidence는 Stage 1의 공유 Persistent Context로 버전 관리한다. 고객 데이터나 민감한 원본 출력은 `units/**/evidence/raw/` 아래에 두고 Git에서 제외한다.
+
+### 4.2 Git release 설치와 프로젝트 버전 고정
+
+공식 배포 단위는 immutable Git tag와 commit이다. 각 tag는 `distribution/release.json`에 bootstrap script, Core, Foundation, Kiro·Claude·Codex Adapter의 버전·경로·SHA-256 tree digest를 등록한다. 설치기는 tag를 임시 checkout하고 모든 digest를 검증한 뒤에만 Project를 변경한다.
+
+Distribution, Core, Foundation과 각 Adapter version은 독립적으로 진화한다. 상호 호환성은 같은 숫자 버전이 아니라 `protocol_version`, 지원 Project/Foundation schema와 `isekai.lock.json`의 component pin으로 판정한다.
+
+```bash
+curl -fsSLo /tmp/isekai-install.sh \
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.sh
+bash /tmp/isekai-install.sh \
+  --source https://github.com/dotwin7/isekai.git \
+  --ref v0.1.0 \
+  --path . \
+  --runtime all \
+  --init
+./.isekai/bin/isekai doctor --path .
+```
+
+Windows PowerShell에서는 같은 tag의 스크립트를 사용한다.
+
+```powershell
+$installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-v0.1.0.ps1"
+Invoke-WebRequest `
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.ps1 `
+  -OutFile $installer
+& $installer `
+  -Source https://github.com/dotwin7/isekai.git `
+  -Ref v0.1.0 `
+  -Path . `
+  -Runtime all `
+  -Init
+py -3 .\.isekai\bin\isekai.py doctor --path .
+```
+
+bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다.
+
+설치는 `.isekai/runtime/`, `.isekai/foundations/<version>/`, Codex·Claude project marketplace와 `.kiro/skills/isekai/`를 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. `isekai.lock.json`, `.isekai/`와 workspace Adapter는 팀이 같은 계약을 재현하도록 Git에 포함한다. 기존 `.isekai/`나 Kiro Skill이 ISEKAI 관리 대상으로 확인되지 않으면 덮어쓰지 않는다.
+
+Codex·Claude의 host 등록은 저장소 밖 상태를 변경할 수 있으므로 `--register`를 명시한 경우에만 네이티브 marketplace 명령을 실행한다. 등록하지 않은 설치는 실행할 명령을 JSON 결과로 반환한다. Adapter 업데이트 뒤에는 host가 새 Skill을 읽도록 새 대화를 시작한다.
+
+```bash
+./.isekai/bin/isekai update --check --ref v0.2.0 --path .
+./.isekai/bin/isekai update --ref v0.2.0 --path .
+./.isekai/bin/isekai rollback --path .
+```
+
+`update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지한다. Foundation 변경은 diff와 사람 승인을 거쳐 `--include-foundation`을 명시해야 하며, 기존 외부 Foundation과 다르면 `--adopt-foundation`도 요구한다. 진행 중 Unit은 생성 당시 Foundation version과 contract digest를 유지하고, 현재 Project 계약과 다르면 명시적 migration 전까지 resume을 차단한다.
 
 ## 5. 작업 라우팅
 
@@ -336,7 +385,7 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
 
 승인된 Envelope 밖의 Scope·Action·Stage는 Core가 fail-closed로 거부한다. Envelope가 없거나 불완전하면 Agent는 제안·읽기 수준에 머물며, 원격·운영·Credential Action은 기본 금지한다. 이 구조는 고정된 workflow를 강제하기보다 Unit의 Intent·위험·복잡도에 따라 Agent가 단계와 깊이를 제안하고 사람이 승인하는 Adaptive AI-DLC를 지원한다.
 
-## 8. Security Engineering Foundation
+## 8. Engineering Foundation과 Security Profile
 
 Foundation은 제품마다 AI-DLC가 달라지지 않게 하는 공통 자산이다. 저장소에서는 Release Manifest를 중심으로 다음 계층을 사용한다.
 
@@ -584,6 +633,8 @@ OFF
 
 Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. 실제 Host plugin enable/disable은 각 Agent CLI의 네이티브 기능을 사용한다.
 
+Adapter는 `on`, `status`, `resume` 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 `doctor` 또는 명시적 update를 요구한다.
+
 ```json
 {
   "adapter_mode": {
@@ -612,6 +663,8 @@ Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode�
 일반적인 로컬 탐색·작성·테스트에는 과도하게 개입하지 않는다. 강한 통제는 원격 IAM, 보호 브랜치, 승인 시스템과 격리 실행 환경에서 최종 집행한다.
 
 ## 13. 제품·서비스 적용
+
+아래 보안 적용은 범용 AI-DLC Core를 검증하는 첫 사례다. 비보안 제품은 Software Delivery Profile 또는 별도 Domain Profile과 Product Extension을 선택하며 동일한 Workflow·Decision·Evidence 계약을 사용한다.
 
 ### 기준 제품
 
@@ -747,11 +800,8 @@ L2 이상 실행 권한, 고객 데이터, 장시간 세션이나 중앙 승인�
 
 ## 20. 남은 결정
 
-1. 로컬 CLI 이름
-2. Foundation v0.1 소유자와 승인자
-3. 첫 Agent Adapter
-4. Unit Profile별 필수·선택 산출물
-5. Foundation 저장소와 제품 저장소 경계
-6. 첫 기준 제품 Unit
-7. 초기 평가 사례
-8. Shared Service 전환 기준
+1. Foundation 후속 버전의 소유자와 승인자
+2. Unit Profile별 필수·선택 산출물
+3. Foundation 저장소와 제품 저장소 경계
+4. 첫 기준 제품 Unit
+5. Shared Service 전환 기준

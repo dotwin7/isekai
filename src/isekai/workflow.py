@@ -19,6 +19,17 @@ class WorkRoute(str, Enum):
     UNIT = "unit"
 
 
+ALLOWED_AGENT_LEVELS = {"L0", "L1"}
+AGENT_ALLOWED_ACTIONS = {"read", "edit", "test"}
+AGENT_PROHIBITED_ACTIONS = {
+    "remote",
+    "deploy",
+    "credential-access",
+    "promote",
+    "decision",
+}
+
+
 @dataclass(frozen=True)
 class RouteRequest:
     change: str
@@ -169,7 +180,14 @@ def _load_project_extension(
 def load_project(
     path: str | Path,
 ) -> tuple[Path, dict[str, Any], FoundationRelease, list[dict[str, Any]]]:
-    manifest_path = Path(path).resolve()
+    requested_path = Path(path).expanduser()
+    if requested_path.is_dir():
+        # Import lazily because session owns discovery and imports workflow types.
+        from .session import discover_project
+
+        manifest_path = discover_project(requested_path)
+    else:
+        manifest_path = requested_path.resolve()
     project = _load_json(manifest_path)
     required = {"id", "kind", "version", "foundation_path", "profiles", "extensions"}
     missing = sorted(required - project.keys())
@@ -177,7 +195,23 @@ def load_project(
         raise FoundationError(f"project manifest missing fields: {', '.join(missing)}")
     if project["kind"] != "project":
         raise FoundationError("project manifest kind must be project")
+    schema_version = str(project.get("schema_version", "1.0.0"))
+    if schema_version != "1.0.0":
+        raise FoundationError("project manifest has an unsupported schema_version")
     foundation = load_foundation(manifest_path.parent / str(project["foundation_path"]))
+
+    lock_path = manifest_path.parent / "isekai.lock.json"
+    if lock_path.is_file():
+        from .distribution import load_install_lock, tree_digest
+
+        lock = load_install_lock(manifest_path.parent)
+        foundation_pin = lock.get("foundation") if lock else None
+        if not isinstance(foundation_pin, dict):
+            raise FoundationError("isekai.lock.json has no Foundation pin")
+        if foundation.version != foundation_pin.get("version"):
+            raise FoundationError("Project Foundation version does not match isekai.lock.json")
+        if tree_digest(foundation.root) != foundation_pin.get("digest"):
+            raise FoundationError("Project Foundation digest does not match isekai.lock.json")
 
     profiles = project["profiles"]
     if not isinstance(profiles, list):
@@ -185,6 +219,12 @@ def load_project(
     document_language = str(project.get("document_language", "ko"))
     if document_language not in {"ko", "en"}:
         raise FoundationError("project document_language must be ko or en")
+    maximum_agent_level = str(project.get("maximum_agent_level", "L0"))
+    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+        raise FoundationError(
+            "project maximum_agent_level must be one of: "
+            + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
+        )
     for asset_id in profiles:
         asset = foundation.assets.get(asset_id)
         if asset is None or asset["kind"] != "profile":
@@ -198,8 +238,10 @@ def load_project(
         for entry in raw_extensions
     ]
     normalized_project = dict(project)
+    normalized_project["schema_version"] = schema_version
     normalized_project["profiles"] = list(profiles)
     normalized_project["document_language"] = document_language
+    normalized_project["maximum_agent_level"] = maximum_agent_level
     normalized_project["extensions"] = [asset["id"] for asset in project_extensions]
     return manifest_path, normalized_project, foundation, project_extensions
 
@@ -215,9 +257,11 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
     body = {
         "project_id": project["id"],
         "project_version": project["version"],
+        "project_schema_version": project["schema_version"],
         "document_language": project["document_language"],
         "foundation_id": foundation.manifest["id"],
         "foundation_version": foundation.version,
+        "foundation_digest": foundation.contract_digest,
         "profiles": project["profiles"],
         "extensions": project["extensions"],
         "extension_assets": sorted(project_extensions, key=lambda asset: asset["id"]),
@@ -253,7 +297,7 @@ def initialize_project(
     path: str | Path = ".",
     *,
     project_id: str | None = None,
-    foundation_path: str = "foundation",
+    foundation_path: str | None = None,
     profiles: list[str] | None = None,
     document_language: str = "ko",
     maximum_agent_level: str = "L0",
@@ -269,12 +313,21 @@ def initialize_project(
     resolved_id = str(project_id or project_root.name).strip()
     if not resolved_id:
         raise ValueError("project id must be a non-empty string")
+    if foundation_path is None:
+        from .distribution import load_install_lock
+
+        lock = load_install_lock(project_root)
+        pinned_path = lock.get("foundation", {}).get("path") if lock else None
+        foundation_path = str(pinned_path or "foundation")
     if not isinstance(foundation_path, str) or not foundation_path.strip():
         raise ValueError("foundation_path must be a non-empty string")
     if document_language not in {"ko", "en"}:
         raise ValueError("document_language must be ko or en")
-    if not isinstance(maximum_agent_level, str) or not maximum_agent_level.strip():
-        raise ValueError("maximum_agent_level must be a non-empty string")
+    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+        raise ValueError(
+            "maximum_agent_level must be one of: "
+            + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
+        )
 
     selected_profiles = list(profiles or [])
     if any(not isinstance(item, str) or not item.strip() for item in selected_profiles):
@@ -288,12 +341,13 @@ def initialize_project(
     manifest = {
         "id": resolved_id,
         "kind": "project",
+        "schema_version": "1.0.0",
         "version": "0.1.0",
         "foundation_path": foundation_path,
         "profiles": selected_profiles,
         "extensions": [],
         "document_language": document_language,
-        "maximum_agent_level": maximum_agent_level.strip(),
+        "maximum_agent_level": maximum_agent_level,
     }
     units_root = project_root / "units"
     created_units_root = not units_root.exists()
@@ -370,6 +424,7 @@ def initialize_unit(
             "constraints": constraints,
             "acceptance_criteria": acceptance_criteria,
             "foundation_version": receipt["foundation_version"],
+            "foundation_digest": receipt["foundation_digest"],
         },
     )
     if document_language == "ko":
@@ -485,7 +540,7 @@ def initialize_unit(
             "scope": [],
             "stages": [],
             "allowed_actions": [],
-            "forbidden_actions": ["remote", "deploy", "credential-access"],
+            "forbidden_actions": sorted(AGENT_PROHIBITED_ACTIONS),
             "max_iterations": 0,
             "proposed_by": owner,
             "proposed_at": datetime.now(timezone.utc).isoformat(),
@@ -551,12 +606,28 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         receipt = _unit_json(unit_dir, "context-receipt.json")
     except ValueError as exc:
         return issues + [str(exc)]
-    required_context = {"project_id", "route", "rules", "profiles", "extensions"}
+    required_context = {
+        "project_id",
+        "route",
+        "rules",
+        "profiles",
+        "extensions",
+        "foundation_version",
+        "foundation_digest",
+    }
     missing_context = sorted(required_context - receipt.keys())
     if missing_context:
         issues.append(
             f"Context Receipt missing fields: {', '.join(missing_context)}"
         )
+    if receipt.get("project_id") != unit.get("project_id"):
+        issues.append("Context Receipt project_id does not match Unit")
+    if receipt.get("route") != WorkRoute.UNIT.value:
+        issues.append("Context Receipt route must be unit")
+    if receipt.get("foundation_version") != unit.get("foundation_version"):
+        issues.append("Context Receipt foundation_version does not match Unit")
+    if receipt.get("foundation_digest") != unit.get("foundation_digest"):
+        issues.append("Context Receipt foundation_digest does not match Unit")
     rules = receipt.get("rules")
     if not isinstance(rules, list) or not rules:
         issues.append("Context Receipt has no full applied rules")
@@ -630,6 +701,32 @@ def _execution_envelope_issues(
             issues.append(f"Execution Envelope {field} must be a list of strings")
         elif field in {"scope", "allowed_actions"} and not value:
             issues.append(f"Execution Envelope {field} must not be empty")
+    allowed_actions = envelope.get("allowed_actions")
+    forbidden_actions = envelope.get("forbidden_actions")
+    if isinstance(allowed_actions, list) and all(
+        isinstance(item, str) for item in allowed_actions
+    ):
+        unknown_actions = sorted(set(allowed_actions) - AGENT_ALLOWED_ACTIONS)
+        if unknown_actions:
+            issues.append(
+                "Execution Envelope contains unsupported allowed actions: "
+                + ", ".join(unknown_actions)
+            )
+        prohibited_actions = sorted(set(allowed_actions) & AGENT_PROHIBITED_ACTIONS)
+        if prohibited_actions:
+            issues.append(
+                "Execution Envelope cannot allow prohibited actions: "
+                + ", ".join(prohibited_actions)
+            )
+        if isinstance(forbidden_actions, list) and all(
+            isinstance(item, str) for item in forbidden_actions
+        ):
+            overlap = sorted(set(allowed_actions) & set(forbidden_actions))
+            if overlap:
+                issues.append(
+                    "Execution Envelope actions cannot be both allowed and forbidden: "
+                    + ", ".join(overlap)
+                )
     max_iterations = envelope.get("max_iterations")
     if not isinstance(max_iterations, int) or isinstance(max_iterations, bool) or max_iterations <= 0:
         issues.append("Execution Envelope max_iterations must be a positive integer")
@@ -652,6 +749,20 @@ def _execution_envelope_issues(
                 issues.append(
                     f"Execution Envelope stage {index} allowed_actions must be a list of strings"
                 )
+            else:
+                unknown_stage_actions = sorted(set(actions) - AGENT_ALLOWED_ACTIONS)
+                if unknown_stage_actions:
+                    issues.append(
+                        f"Execution Envelope stage {index} contains unsupported actions: "
+                        + ", ".join(unknown_stage_actions)
+                    )
+                if isinstance(allowed_actions, list):
+                    outside_envelope = sorted(set(actions) - set(allowed_actions))
+                    if outside_envelope:
+                        issues.append(
+                            f"Execution Envelope stage {index} actions are not allowed by the envelope: "
+                            + ", ".join(outside_envelope)
+                        )
     if require_approved:
         if not isinstance(envelope.get("approval_decision_id"), str) or not envelope.get("approval_decision_id", "").strip():
             issues.append("approved Execution Envelope needs approval_decision_id")
@@ -731,6 +842,16 @@ def authorize_action(
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         return {"allowed": False, "reason": f"Unit directory does not exist: {unit_dir}"}
+    if action in AGENT_PROHIBITED_ACTIONS:
+        return {
+            "allowed": False,
+            "reason": f"Action is forbidden by the local Agent contract: {action}",
+        }
+    if action not in AGENT_ALLOWED_ACTIONS:
+        return {
+            "allowed": False,
+            "reason": f"Action is not supported by the local Agent contract: {action}",
+        }
     try:
         unit = _unit_json(unit_dir, "unit.json")
         envelope = _unit_json(unit_dir, "execution-envelope.json")
@@ -746,6 +867,12 @@ def authorize_action(
     )
     if envelope_issues:
         return {"allowed": False, "reason": "Action blocked: " + "; ".join(envelope_issues)}
+    decision_issues = _approved_envelope_decision_issues(unit_dir, envelope, unit)
+    if decision_issues:
+        return {
+            "allowed": False,
+            "reason": "Action blocked: " + "; ".join(decision_issues),
+        }
     if action in envelope["forbidden_actions"]:
         return {"allowed": False, "reason": f"Action is forbidden by the Execution Envelope: {action}"}
     if action not in envelope["allowed_actions"]:
@@ -874,6 +1001,49 @@ def _decision_packet_issues(decision: Any) -> list[str]:
                 issues.append(f"Decision Packet alternative {index} needs reason")
     return issues
 
+
+def _is_iso_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
+def _decision_record_issues(
+    decision: Any,
+    *,
+    unit_id: str | None = None,
+    scope: str | None = None,
+) -> list[str]:
+    if not isinstance(decision, dict):
+        return ["Decision must be an object"]
+    issues: list[str] = []
+    missing = sorted(DECISION_REQUIRED_FIELDS - decision.keys())
+    if missing:
+        issues.append(f"Decision missing fields: {', '.join(missing)}")
+    if decision.get("type") != "human-decision":
+        issues.append("Decision has an invalid type")
+    if decision.get("schema_version") != "1.0.0":
+        issues.append("Decision has an unsupported schema_version")
+    if unit_id is not None and decision.get("unit_id") != unit_id:
+        issues.append("Decision unit_id does not match Unit")
+    if decision.get("gate") not in DECISION_GATES:
+        issues.append("Decision has an invalid gate")
+    if decision.get("outcome") not in DECISION_OUTCOMES:
+        issues.append("Decision has an invalid outcome")
+    for field in ("id", "summary", "scope", "decided_by"):
+        if not isinstance(decision.get(field), str) or not decision.get(field, "").strip():
+            issues.append(f"Decision requires a non-empty {field}")
+    if scope is not None and decision.get("scope") != scope:
+        issues.append("Decision scope does not match Unit")
+    if not _is_iso_timestamp(decision.get("decided_at")):
+        issues.append("Decision decided_at must be an ISO-8601 timestamp")
+    issues.extend(_decision_packet_issues(decision))
+    return issues
+
 def _latest_decision(decisions: dict[str, Any], gate: str) -> dict[str, Any] | None:
     entries = decisions.get("decisions", [])
     if not isinstance(entries, list):
@@ -884,9 +1054,47 @@ def _latest_decision(decisions: dict[str, Any], gate: str) -> dict[str, Any] | N
     return None
 
 
-def _has_approved_decision(decisions: dict[str, Any], gate: str) -> bool:
+def _has_approved_decision(
+    decisions: dict[str, Any],
+    gate: str,
+    *,
+    unit_id: str | None = None,
+    scope: str | None = None,
+) -> bool:
     latest = _latest_decision(decisions, gate)
-    return latest is not None and latest.get("outcome") == "approved"
+    return (
+        latest is not None
+        and latest.get("outcome") == "approved"
+        and not _decision_record_issues(latest, unit_id=unit_id, scope=scope)
+    )
+
+
+def _approved_envelope_decision_issues(
+    unit_dir: Path,
+    envelope: dict[str, Any],
+    unit: dict[str, Any],
+) -> list[str]:
+    if envelope.get("status") != "approved":
+        return []
+    try:
+        decisions = _unit_json(unit_dir, "decisions.json")
+    except ValueError as exc:
+        return [str(exc)]
+    if decisions.get("unit_id") != unit.get("id"):
+        return ["decisions.json unit_id does not match Unit"]
+    latest = _latest_decision(decisions, "inception")
+    if latest is None:
+        return ["approved Execution Envelope has no Inception Decision"]
+    issues = _decision_record_issues(
+        latest,
+        unit_id=str(unit.get("id")),
+        scope=str(unit.get("scope")),
+    )
+    if latest.get("outcome") != "approved":
+        issues.append("approved Execution Envelope was revoked by the latest Inception Decision")
+    if latest.get("id") != envelope.get("approval_decision_id"):
+        issues.append("Execution Envelope approval does not match the latest Inception Decision")
+    return issues
 
 
 EVIDENCE_REQUIRED_FIELDS = {
@@ -934,8 +1142,8 @@ def _evidence_issues(
         issues.append("verification evidence requires a scope")
     if not isinstance(evidence.get("recorded_by"), str) or not evidence.get("recorded_by", "").strip():
         issues.append("verification evidence requires recorded_by provenance")
-    if not isinstance(evidence.get("recorded_at"), str) or not evidence.get("recorded_at", "").strip():
-        issues.append("verification evidence requires recorded_at provenance")
+    if not _is_iso_timestamp(evidence.get("recorded_at")):
+        issues.append("verification evidence recorded_at must be an ISO-8601 timestamp")
 
     commands = evidence.get("commands")
     if not isinstance(commands, list) or not commands:
@@ -964,8 +1172,10 @@ def _evidence_issues(
                 issues.append(
                     f"evidence command {index} output_digest must be a SHA-256 hex digest"
                 )
-            if not isinstance(command.get("observed_at"), str) or not command["observed_at"].strip():
-                issues.append(f"evidence command {index} requires observed_at")
+            if not _is_iso_timestamp(command.get("observed_at")):
+                issues.append(
+                    f"evidence command {index} observed_at must be an ISO-8601 timestamp"
+                )
             if evidence.get("passed") is True and exit_code != 0:
                 issues.append(
                     f"passing verification evidence has non-zero command {index} exit_code"
@@ -1126,6 +1336,18 @@ def record_decision(
     entries = decisions.get("decisions")
     if not isinstance(entries, list):
         raise ValueError("decisions.json decisions must be a list")
+    if decisions.get("unit_id") != unit.get("id"):
+        raise ValueError("decisions.json unit_id does not match Unit")
+    for index, existing in enumerate(entries):
+        existing_issues = _decision_record_issues(
+            existing,
+            unit_id=str(unit.get("id")),
+            scope=str(unit.get("scope")),
+        )
+        if existing_issues:
+            raise ValueError(
+                f"existing Decision {index} is invalid: " + "; ".join(existing_issues)
+            )
 
     now = datetime.now(timezone.utc)
     decision = {
@@ -1180,7 +1402,12 @@ def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
     required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(target_status)
     if required_gate:
         decisions = _unit_json(unit_dir, "decisions.json")
-        if not _has_approved_decision(decisions, required_gate):
+        if not _has_approved_decision(
+            decisions,
+            required_gate,
+            unit_id=str(unit.get("id")),
+            scope=str(unit.get("scope")),
+        ):
             raise ValueError(
                 f"transition to {target_status} requires an approved "
                 f"{required_gate} Decision"
@@ -1215,7 +1442,7 @@ def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
 
 
 def verify_unit(path: str | Path) -> dict[str, Any]:
-    unit_dir = Path(path).resolve()
+    unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise ValueError(f"Unit directory does not exist: {unit_dir}")
     present = {
@@ -1225,37 +1452,43 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     }
     missing = sorted(UNIT_REQUIRED_FILES - present)
     issues: list[str] = []
-    unit = _unit_json(unit_dir, "unit.json")
-    decisions = _unit_json(unit_dir, "decisions.json")
-    checkpoint = _unit_json(unit_dir, "checkpoint.json")
+
+    def read_artifact(relative: str) -> dict[str, Any] | None:
+        try:
+            return _unit_json(unit_dir, relative)
+        except ValueError as exc:
+            issues.append(str(exc))
+            return None
+
+    unit = read_artifact("unit.json") or {}
+    decisions = read_artifact("decisions.json")
+    checkpoint = read_artifact("checkpoint.json")
     issues.extend(_unit_preflight_issues(unit_dir))
     envelope_path = unit_dir / "execution-envelope.json"
     if envelope_path.is_file():
-        envelope = _unit_json(unit_dir, "execution-envelope.json")
-        issues.extend(_execution_envelope_issues(envelope, str(unit.get("id"))))
+        envelope = read_artifact("execution-envelope.json")
+        if envelope is not None:
+            issues.extend(_execution_envelope_issues(envelope, str(unit.get("id"))))
+            issues.extend(_approved_envelope_decision_issues(unit_dir, envelope, unit))
 
-    decision_entries = decisions.get("decisions")
-    if not isinstance(decision_entries, list):
+    decision_entries = decisions.get("decisions") if decisions is not None else None
+    if decisions is not None:
+        if decisions.get("unit_id") != unit.get("id"):
+            issues.append("decisions.json unit_id does not match Unit")
+    if decisions is not None and not isinstance(decision_entries, list):
         issues.append("decisions.json decisions must be a list")
-    elif not decision_entries:
+    elif isinstance(decision_entries, list) and not decision_entries:
         issues.append("at least one recorded decision is required")
-    else:
+    elif isinstance(decision_entries, list):
         for index, decision in enumerate(decision_entries):
-            if not isinstance(decision, dict):
-                issues.append(f"decision {index} must be an object")
-                continue
-            missing_fields = sorted(DECISION_REQUIRED_FIELDS - decision.keys())
-            if missing_fields:
-                issues.append(
-                    f"decision {index} missing fields: {', '.join(missing_fields)}"
+            issues.extend(
+                f"decision {index}: {issue}"
+                for issue in _decision_record_issues(
+                    decision,
+                    unit_id=str(unit.get("id")),
+                    scope=str(unit.get("scope")),
                 )
-            if decision.get("gate") not in DECISION_GATES:
-                issues.append(f"decision {index} has an invalid gate")
-            if decision.get("outcome") not in DECISION_OUTCOMES:
-                issues.append(f"decision {index} has an invalid outcome")
-            if not isinstance(decision.get("scope"), str) or not decision.get("scope", "").strip():
-                issues.append(f"decision {index} has an ambiguous scope")
-            issues.extend(_decision_packet_issues(decision))
+            )
 
     status = unit.get("status")
     if status not in LIFECYCLE_STATUSES:
@@ -1266,10 +1499,15 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
             issues.append(
                 f"status {status} requires an approved {required_gate} Decision"
             )
-    if checkpoint.get("blocked_by"):
-        issues.append("checkpoint has blockers")
-    if unit.get("status") == "learned" and checkpoint.get("pending"):
-        issues.append("learned Unit cannot have pending work")
+    if status in STATUS_PHASE and unit.get("phase") != STATUS_PHASE[status]:
+        issues.append("Unit phase does not match lifecycle status")
+    if checkpoint is not None:
+        if checkpoint.get("unit_id") != unit.get("id"):
+            issues.append("checkpoint unit_id does not match Unit")
+        if checkpoint.get("blocked_by"):
+            issues.append("checkpoint has blockers")
+        if unit.get("status") == "learned" and checkpoint.get("pending"):
+            issues.append("learned Unit cannot have pending work")
 
     acceptance_path = unit_dir / "acceptance.md"
     if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(encoding="utf-8"):
@@ -1277,16 +1515,18 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
 
     criteria_path = unit_dir / "evaluations/criteria.json"
     if criteria_path.is_file():
-        criteria = _unit_json(unit_dir, "evaluations/criteria.json")
-        if criteria.get("visibility") != "evaluation-only":
+        criteria = read_artifact("evaluations/criteria.json")
+        if criteria is not None and criteria.get("visibility") != "evaluation-only":
             issues.append("evaluation criteria must be evaluation-only")
 
     evidence_path = unit_dir / "evidence/verification.json"
     evidence: dict[str, Any] | None = None
     if evidence_path.is_file():
-        evidence = _unit_json(unit_dir, "evidence/verification.json")
-        issues.extend(_evidence_issues(evidence, str(unit.get("id"))))
+        evidence = read_artifact("evidence/verification.json")
+        if evidence is not None:
+            issues.extend(_evidence_issues(evidence, str(unit.get("id"))))
 
+    issues = list(dict.fromkeys(issues))
     valid = not missing and not issues
     return {
         "valid": valid,
@@ -1297,8 +1537,11 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
         "missing": missing,
         "issues": issues,
         "decision_count": len(decision_entries) if isinstance(decision_entries, list) else 0,
-        "pending": checkpoint.get("pending", []),
-        "blocked_by": checkpoint.get("blocked_by", []),
+        "project_id": unit.get("project_id"),
+        "foundation_version": unit.get("foundation_version"),
+        "foundation_digest": unit.get("foundation_digest"),
+        "pending": checkpoint.get("pending", []) if checkpoint is not None else [],
+        "blocked_by": checkpoint.get("blocked_by", []) if checkpoint is not None else [],
         "evidence": evidence,
     }
 

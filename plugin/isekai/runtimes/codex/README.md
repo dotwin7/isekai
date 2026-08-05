@@ -16,7 +16,7 @@ python3 -m pytest -q tests/test_adapter_contract.py
 
 When a repo-local Codex marketplace is configured, also install the plugin in a clean session and run the Core `on`, `resume`, and `verify` Golden Path smoke.
 
-For a local development or team marketplace, use the Codex plugin creator flow with an explicit repository marketplace path. This project does not modify any user-global Codex configuration.
+`isekai install --runtime codex` prepares a project-local marketplace under `.isekai/marketplaces/codex/` and records its version and digest in `isekai.lock.json`. Add `--register` only when the installer is authorized to run Codex's native marketplace add and plugin reinstall commands. Updates use a single `+codex.<commit>` cachebuster and require a new conversation. This project does not silently modify user-global Codex configuration.
 
 ## Conversation mode
 
@@ -24,7 +24,7 @@ The Adapter is discoverable but ISEKAI mode is off by default in each new conver
 
 Core searches the current directory, ancestors, and unambiguous descendant candidates. If no manifest exists, `$isekai init --path PATH` creates a validated manifest and Project-local `units/` after explicit confirmation; multiple candidates require user selection. Sensitive raw Evidence belongs under ignored `units/**/evidence/raw/`.
 
-The Skill calls the installed local ISEKAI Plugin launcher `isekai plugin`. ISEKAI Core and Unit artifacts remain authoritative. The Adapter does not perform high-risk actions.
+The Skill prefers the project launcher `.isekai/bin/isekai`, performs a version/protocol handshake, and then calls the ISEKAI Plugin contract. ISEKAI Core and Unit artifacts remain authoritative. The Adapter does not perform high-risk actions.
 
 ## Compatibility
 

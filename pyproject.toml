@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "isekai-agent-plugin"
 version = "0.1.0"
 description = "ISEKAI AI-DLC agent plugin with local Core runtime"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 

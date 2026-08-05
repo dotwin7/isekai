@@ -6,7 +6,8 @@
   "core": {
     "package": "isekai-agent-plugin",
     "interface": "isekai plugin",
-    "user_interface": "isekai <action>"
+    "user_interface": "isekai <action>",
+    "protocol_version": "1.0.0"
   },
   "compatibility": {
     "matrix": "compatibility.json",
@@ -31,6 +32,7 @@
   ],
   "actions": [
     "init",
+    "handshake",
     "on",
     "off",
     "status",

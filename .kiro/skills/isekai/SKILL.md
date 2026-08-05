@@ -1,11 +1,13 @@
 ---
 name: isekai
-description: Use the ISEKAI AI-DLC workflow for project routing, inception questions, Unit resume, artifact verification, and explicit Unit initialization or checkpoint updates.
+description: Use the ISEKAI AI-DLC workflow for project routing, version compatibility, installation health, safe updates, Unit resume, and artifact verification.
 ---
 
 # ISEKAI Agent Plugin
 
 You are using the ISEKAI runtime adapter. ISEKAI is a workflow and evidence contract, not a replacement agent brain.
+
+This Adapter is version `0.1.0` and uses protocol `1.0.0`. Prefer the Project launcher at `.isekai/bin/isekai` on POSIX or `.isekai/bin/isekai.cmd` on Windows; fall back to an installed `isekai` command only when the Project launcher is absent. Before `on`, `status`, or `resume`, run `plugin handshake --runtime kiro --adapter-version 0.1.0 --protocol-version 1.0.0 --project PATH` with that launcher and stop on incompatibility.
 
 ## Invocation
 
@@ -29,6 +31,7 @@ Supported actions:
 
 ```text
 init [--path PATH] [--id ID] [--foundation-path PATH] [--profile ID ...] [--document-language ko|en] [--maximum-agent-level LEVEL]
+handshake --runtime kiro --adapter-version VERSION --protocol-version VERSION [--project PATH]
 on [--project PATH]
 off
 compatibility
@@ -51,16 +54,27 @@ transition --unit PATH --to STATUS
 verify --unit PATH
 ```
 
+Project installation management uses the top-level launcher rather than `isekai plugin`:
+
+```text
+install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation] [--register]
+doctor [--path PATH]
+update --check --ref TAG [--path PATH] [--include-foundation]
+update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation] [--register]
+rollback [--path PATH] [--register]
+```
+
 ## Workflow rules
 
 1. Start with `status` or `route` before proposing a persistent change.
 2. For `inception`, ask the listed questions and summarize intent, scope, acceptance criteria, risks, and non-goals before writing artifacts.
-3. Ask for explicit user confirmation immediately before `unit-init`, `checkpoint`, lifecycle transitions, or any other write.
+3. Ask for explicit user confirmation immediately before `install`, applying `update`, `rollback`, `unit-init`, `checkpoint`, lifecycle transitions, or any other write. `update --check` is read-only and must precede an applied update.
 4. Use `resume` after a new session or context interruption. Treat `checkpoint.json`, `context-receipt.json`, Decisions, and Evidence as authoritative.
 5. Use `verify` after implementation and report its actual result. Do not claim success from an unexecuted command.
 6. If the route is Unit, a human Decision is required before progressing through a consequential gate.
-7. Do not execute remote Git, cloud, Kubernetes, customer-data, credential, or high-risk security actions through this skill.
+7. Do not execute arbitrary remote Git, cloud, Kubernetes, customer-data, credential, or high-risk security actions through this skill. Installation may use only a source explicitly supplied by the user; updates must use the Git source pinned in `isekai.lock.json` unless the user explicitly approves a source change.
 8. Do not copy the entire Foundation or conversation into context. Load only the project, Unit, Receipt, Checkpoint, and referenced artifacts needed for the current action.
+9. Preserve the pinned Foundation during ordinary updates. Use `--include-foundation` only after showing the contract change and receiving explicit human approval. Start a new conversation after a Codex or Claude Adapter update.
 
 ## Output discipline
 

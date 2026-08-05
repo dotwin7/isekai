@@ -37,7 +37,26 @@ def _infer_change(text: str, source: str) -> str:
     if source == "host-goal":
         return "persistent"
     lowered = text.lower()
-    question_markers = ("?", "무엇", "뭐가", "왜", "어떻게", "설명", "what ", "why ", "how ")
+    question_markers = (
+        "?",
+        "무엇",
+        "뭐가",
+        "왜",
+        "어떻게",
+        "설명",
+        "파악",
+        "조회",
+        "요약",
+        "분석",
+        "검토",
+        "what ",
+        "why ",
+        "how ",
+        "inspect",
+        "summarize",
+        "analyze",
+        "review ",
+    )
     change_markers = (
         "개발",
         "추가",
@@ -57,9 +76,36 @@ def _infer_change(text: str, source: str) -> str:
         "deploy",
         "delete",
     )
+    requested_change_markers = (
+        "개발해",
+        "개발하",
+        "추가해",
+        "추가하",
+        "수정해",
+        "수정하",
+        "변경해",
+        "변경하",
+        "구현해",
+        "구현하",
+        "만들어",
+        "만들자",
+        "리팩터해",
+        "리팩터하",
+        "배포해",
+        "배포하",
+        "삭제해",
+        "삭제하",
+        "please fix",
+        "please add",
+        "please change",
+        "please implement",
+        "can you fix",
+        "can you add",
+        "can you implement",
+    )
     quick_markers = ("오타", "typo", "문구", "format", "whitespace")
     if any(marker in lowered for marker in question_markers) and not any(
-        marker in lowered for marker in change_markers
+        marker in lowered for marker in requested_change_markers
     ):
         return "none"
     if any(marker in lowered for marker in quick_markers):

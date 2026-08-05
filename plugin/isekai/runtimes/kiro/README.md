@@ -10,7 +10,9 @@ The repository's Kiro workspace Skill is checked in at:
 .kiro/skills/isekai/SKILL.md
 ```
 
-Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. The Adapter invokes the installed local ISEKAI Plugin launcher:
+`isekai install --runtime kiro` copies the versioned Skill to that path after verifying the Git release and refuses to replace an unmanaged existing Skill. Updates verify the installed digest against `isekai.lock.json` before replacement.
+
+Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. The Adapter prefers the project launcher, verifies its version/protocol handshake, and invokes the local ISEKAI Plugin contract:
 
 ```bash
 isekai plugin <action> ...

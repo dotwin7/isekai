@@ -4,5 +4,19 @@
   "version": "0.1.0",
   "author": {
     "name": "ISEKAI"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ISEKAI AI-DLC",
+    "shortDescription": "Load a versioned development contract into Codex",
+    "longDescription": "Use the ISEKAI Foundation, Project, and Unit contracts from an existing Codex conversation.",
+    "developerName": "ISEKAI",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "$isekai on",
+      "$isekai doctor",
+      "$isekai update --check --ref v0.2.0"
+    ]
   }
 }

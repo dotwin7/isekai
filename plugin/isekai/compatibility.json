@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0.0",
+  "protocol_version": "1.0.0",
   "policy": {
     "classification": "verified-baseline",
     "tested_versions_are": "observed CLI versions with recorded adapter and Core smoke evidence; they are not minimum-version claims",

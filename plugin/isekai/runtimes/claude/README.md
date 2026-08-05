@@ -14,6 +14,8 @@ Test locally without changing user or marketplace configuration:
 claude --plugin-dir ./plugin/isekai/runtimes/claude
 ```
 
+For a Project install, `isekai install --runtime claude` prepares `.isekai/marketplaces/claude/`; `--register` explicitly adds that marketplace and installs `isekai-agent-plugin` at Claude's project scope. The source, resolved Git commit, version, and digest are pinned in `isekai.lock.json`.
+
 Invoke the namespaced Skill in the Claude Code session:
 
 ```text
@@ -25,7 +27,7 @@ The Adapter is discoverable but ISEKAI mode is off by default in each new conver
 
 Start Claude Code from a repository containing `project.json` to use `on` without a path. Core searches ancestors and unambiguous descendant candidates. If no manifest exists, the namespaced `init --path PATH` action creates a validated manifest and Project-local `units/` after explicit confirmation; multiple candidates require user selection. Sensitive raw Evidence belongs under ignored `units/**/evidence/raw/`.
 
-The Skill calls the installed local ISEKAI Plugin launcher `isekai plugin`. ISEKAI Core and Unit artifacts remain authoritative. The Adapter does not install global configuration, register a marketplace, or perform high-risk actions.
+The Skill prefers the project launcher `.isekai/bin/isekai`, performs a version/protocol handshake, and then calls the ISEKAI Plugin contract. ISEKAI Core and Unit artifacts remain authoritative. Marketplace registration only occurs through an explicitly confirmed `install` or `update --register`; the Adapter does not perform high-risk actions.
 
 ## Compatibility
 
