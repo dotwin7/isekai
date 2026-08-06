@@ -307,7 +307,7 @@ def test_rollback_removes_kiro_added_after_codex_only_install(tmp_path: Path) ->
 def test_post_install_failure_restores_new_project_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from isekai import distribution as distribution_module
+    from isekai.distribution import install as distribution_module
 
     project = _project_with_foundation(tmp_path)
     project_before = (project / "project.json").read_bytes()
@@ -336,7 +336,7 @@ def test_post_install_failure_restores_new_project_state(
 def test_rollback_failure_restores_current_project_lock_and_adapters(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from isekai import distribution as distribution_module
+    from isekai.distribution import install as distribution_module
 
     project = _project_with_foundation(tmp_path)
     _install(project)
@@ -501,7 +501,7 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
 def test_rollback_staging_failure_preserves_current_installation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from isekai import distribution as distribution_module
+    from isekai.distribution import install as distribution_module
 
     project = _project_with_foundation(tmp_path)
     _install(project)
@@ -614,7 +614,7 @@ def test_managed_kiro_symlink_is_rejected_before_update(tmp_path: Path) -> None:
 def test_rollback_postflight_failure_restores_current_installation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from isekai import distribution as distribution_module
+    from isekai.distribution import install as distribution_module
 
     project = _project_with_foundation(tmp_path)
     _install(project)

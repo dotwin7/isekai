@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai import foundation as foundation_module
+from isekai.foundation import promotion as foundation_module
 from isekai.foundation import (
     FoundationError,
     load_foundation,

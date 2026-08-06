@@ -75,6 +75,20 @@ Foundation + Project + Unit artifacts
 
 Core는 기본적으로 서버가 아니며, Plugin은 Host 연결과 사용자 명령 표면을 담당하고 Core는 workflow·Decision·Evidence·authorization을 담당한다.
 
+### Core 내부 모듈 경계
+
+Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`, `isekai.foundation`, `isekai.plugin_contract`만 안정적인 façade로 사용한다. façade는 기존 import와 응답 계약을 유지하고, 구현 책임은 다음 경계로 분리한다.
+
+| 영역 | 구현 경계 |
+|---|---|
+| Project와 Unit workflow | `workflow/project.py`, `workflow/routing.py`, `workflow/session.py`, `workflow/unit/` |
+| 배포와 설치 | `distribution/release.py`, `distribution/marketplace.py`, `distribution/install.py`, `distribution/git.py` |
+| Foundation | `foundation/types.py`, `foundation/validation.py`, `foundation/evaluation.py`, `foundation/promotion.py` |
+| Agent Plugin | `plugin/actions.py`가 host-neutral action을 실행하고 `plugin_contract.py`가 protocol envelope를 생성 |
+| CLI | `cli/parser.py`가 명령 표면을, `cli/plugin_request.py`가 plugin payload와 exit code를 담당 |
+
+루트에는 기존 import 경로를 보존하는 얇은 호환 façade만 둔다. 새 기능은 façade에 도메인 로직을 추가하지 않고 해당 구현 경계에 둔다. 구조 테스트는 전체 패키지를 재귀 검사해 구현 모듈 750줄, façade 150줄 상한과 module-level import cycle 부재를 CI에서 검증한다.
+
 ### 4.1 Project bootstrap과 discovery
 
 ISEKAI 적용 저장소는 기본적으로 루트에 `project.json`을 둔다. Agent CLI를 저장소 루트나 하위 디렉터리에서 실행하면 별도 경로 없이 Project를 선택할 수 있다.

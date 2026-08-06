@@ -113,8 +113,9 @@ def test_bootstrap_checkout_install_requires_a_clean_tree(tmp_path: Path) -> Non
     # Release digests live inside the release, so re-signing a tampered tree
     # keeps it self-consistent. Only the clean-tree check ties the installed
     # files to the commit recorded in the lock.
-    (release / "src/isekai/cli.py").write_text(
-        (release / "src/isekai/cli.py").read_text(encoding="utf-8") + "# injected\n",
+    (release / "src/isekai/cli/__init__.py").write_text(
+        (release / "src/isekai/cli/__init__.py").read_text(encoding="utf-8")
+        + "# injected\n",
         encoding="utf-8",
     )
     from isekai.distribution import write_distribution_manifest
