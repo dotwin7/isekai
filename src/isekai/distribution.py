@@ -435,9 +435,21 @@ def load_install_lock(project: str | Path) -> dict[str, Any] | None:
     return lock
 
 
+def _project_path_without_symlinks(
+    project_root: Path, relative: Path, *, label: str
+) -> Path:
+    lexical = project_root
+    for part in relative.parts:
+        lexical = lexical / part
+        if lexical.is_symlink():
+            raise DistributionError(f"{label} contains a symlink: {relative}")
+    return lexical
+
+
 def _installed_path(project_root: Path, value: object, *, label: str) -> Path:
     relative = _safe_relative_path(value, label=label)
-    target = (project_root / relative).resolve()
+    lexical = _project_path_without_symlinks(project_root, relative, label=label)
+    target = lexical.resolve()
     try:
         target.relative_to(project_root.resolve())
     except ValueError as exc:  # pragma: no cover - defensive
@@ -640,6 +652,16 @@ def install_from_checkout(
     adopt_foundation: bool = False,
     register: bool = False,
 ) -> dict[str, Any]:
+    """Install an already resolved checkout using ``commit`` as the immutable pin.
+
+    Normal callers must use :func:`install_from_git`, which validates tags and full
+    commits before loading release code. This lower-level helper trusts the caller
+    to supply the checkout for the recorded full commit; ``ref`` is descriptive.
+    """
+    if not isinstance(commit, str) or not re.fullmatch(
+        r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit
+    ):
+        raise DistributionError("commit must be a full 40- or 64-character hash")
     release_root = Path(checkout).resolve()
     project_root = Path(project).expanduser().resolve()
     if not project_root.is_dir():
@@ -653,8 +675,22 @@ def install_from_checkout(
         raise DistributionError(
             f"refusing to replace unmanaged {MANAGED_ROOT}; move it aside or adopt it explicitly"
         )
-    unmanaged_kiro = project_root / ".kiro/skills/isekai"
-    if current_lock is None and "kiro" in selected and unmanaged_kiro.exists():
+    kiro_relative = Path(".kiro/skills/isekai")
+    kiro_target = project_root / kiro_relative
+    current_kiro_owned = (
+        current_lock is not None
+        and isinstance(current_lock.get("adapters"), dict)
+        and "kiro" in current_lock["adapters"]
+    )
+    if "kiro" in selected or current_kiro_owned:
+        kiro_target = _project_path_without_symlinks(
+            project_root, kiro_relative, label="adapter:kiro.path"
+        )
+    if (
+        "kiro" in selected
+        and (kiro_target.exists() or kiro_target.is_symlink())
+        and not current_kiro_owned
+    ):
         raise DistributionError(
             "refusing to replace an unmanaged .kiro/skills/isekai directory"
         )
@@ -704,7 +740,6 @@ def install_from_checkout(
     staged = stage_root / MANAGED_ROOT
     managed = project_root / MANAGED_ROOT
     backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
-    kiro_target = project_root / ".kiro/skills/isekai"
     kiro_backup = project_root / f".isekai-kiro-backup-{uuid.uuid4().hex}"
     project_before: bytes | None = None
     lock_before = (project_root / LOCK_NAME).read_bytes() if current_lock else None
@@ -841,9 +876,15 @@ def install_from_checkout(
                 project_root, str(foundation_entry["path"])
             )
         _write_json_atomic(project_root / LOCK_NAME, lock)
+        health = doctor_install(project_root)
+        if not health["ready"]:
+            raise DistributionError(
+                "post-install verification failed: " + "; ".join(health["issues"])
+            )
     except Exception:
-        if managed.exists() and backup.exists():
-            shutil.rmtree(managed)
+        if backup.exists():
+            if managed.exists():
+                shutil.rmtree(managed)
             backup.rename(managed)
         elif managed.exists() and not current_lock:
             shutil.rmtree(managed)
@@ -872,9 +913,6 @@ def install_from_checkout(
         project_root, marketplace_name, selected, update=current_lock is not None
     )
     registration = _run_registration(commands) if register else []
-    health = doctor_install(project_root)
-    if not health["ready"]:
-        raise DistributionError("post-install verification failed: " + "; ".join(health["issues"]))
     result = {
         "installed": True,
         "updated": current_lock is not None,
@@ -912,6 +950,27 @@ def _git(command: list[str], *, cwd: Path | None = None) -> str:
     return completed.stdout.strip()
 
 
+def _resolve_immutable_git_ref(checkout: Path, ref: str) -> str:
+    if re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", ref):
+        try:
+            commit = _git(["rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=checkout)
+        except DistributionError as exc:
+            raise DistributionError(f"Git commit does not exist: {ref}") from exc
+        if commit.lower() != ref.lower():
+            raise DistributionError(f"Git ref is not the requested full commit: {ref}")
+        return commit
+    try:
+        return _git(
+            ["rev-parse", "--verify", f"refs/tags/{ref}^{{commit}}"],
+            cwd=checkout,
+        )
+    except DistributionError as exc:
+        raise DistributionError(
+            "Git ref must be an immutable tag or full commit; "
+            f"branches and abbreviated commits are not allowed: {ref}"
+        ) from exc
+
+
 def install_from_git(
     source: str,
     ref: str,
@@ -926,12 +985,12 @@ def install_from_git(
     if not isinstance(source, str) or not source.strip() or source.startswith("-"):
         raise DistributionError("Git source must be a non-empty path or URL")
     if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
-        raise DistributionError("Git ref must be a non-empty tag, branch, or commit")
+        raise DistributionError("Git ref must be a non-empty immutable tag or full commit")
     with tempfile.TemporaryDirectory(prefix="isekai-release-") as temporary:
         checkout = Path(temporary) / "checkout"
         _git(["clone", "--quiet", "--no-checkout", source, str(checkout)])
-        _git(["checkout", "--quiet", "--detach", ref], cwd=checkout)
-        commit = _git(["rev-parse", "HEAD^{commit}"], cwd=checkout)
+        commit = _resolve_immutable_git_ref(checkout, ref)
+        _git(["checkout", "--quiet", "--detach", commit], cwd=checkout)
         current = load_install_lock(project)
         if current:
             locked_source = current.get("source", {})
@@ -973,8 +1032,8 @@ def plan_git_update(
     with tempfile.TemporaryDirectory(prefix="isekai-release-plan-") as temporary:
         checkout = Path(temporary) / "checkout"
         _git(["clone", "--quiet", "--no-checkout", source, str(checkout)])
-        _git(["checkout", "--quiet", "--detach", ref], cwd=checkout)
-        commit = _git(["rev-parse", "HEAD^{commit}"], cwd=checkout)
+        commit = _resolve_immutable_git_ref(checkout, ref)
+        _git(["checkout", "--quiet", "--detach", commit], cwd=checkout)
         locked_source = current.get("source", {})
         if (
             locked_source.get("git") == source
@@ -985,33 +1044,59 @@ def plan_git_update(
                 "Git ref moved to a different commit; use a new immutable tag"
             )
         target = _verify_or_raise(checkout)
+
+    def source_digest(entry: object) -> object:
+        if not isinstance(entry, dict):
+            return None
+        return entry.get("source_digest", entry.get("digest"))
+
+    def change(
+        component: str,
+        current_entry: object,
+        target_entry: dict[str, Any],
+        *,
+        policy: str | None = None,
+    ) -> dict[str, Any]:
+        current_value = current_entry if isinstance(current_entry, dict) else {}
+        from_version = current_value.get("version")
+        to_version = target_entry.get("version")
+        from_digest = source_digest(current_value)
+        to_digest = source_digest(target_entry)
+        result = {
+            "component": component,
+            "from": from_version,
+            "to": to_version,
+            "from_digest": from_digest,
+            "to_digest": to_digest,
+            "changed": from_version != to_version or from_digest != to_digest,
+        }
+        if policy is not None:
+            result["policy"] = policy
+        return result
+
     adapters = {item["id"]: item for item in target["adapters"]}
-    changes = [
-        {
-            "component": "core",
-            "from": current.get("core", {}).get("version"),
-            "to": target["core"]["version"],
-        }
-    ]
+    changes = [change("core", current.get("core"), target["core"])]
     changes.extend(
-        {
-            "component": f"adapter:{runtime}",
-            "from": current.get("adapters", {}).get(runtime, {}).get("version"),
-            "to": adapters[runtime]["version"],
-        }
+        change(
+            f"adapter:{runtime}",
+            current.get("adapters", {}).get(runtime),
+            adapters[runtime],
+        )
         for runtime in selected
     )
+    current_foundation = current.get("foundation")
+    target_foundation = (
+        target["foundation"] if include_foundation else current_foundation
+    )
+    if not isinstance(target_foundation, dict):
+        target_foundation = {}
     changes.append(
-        {
-            "component": "foundation",
-            "from": current.get("foundation", {}).get("version"),
-            "to": (
-                target["foundation"]["version"]
-                if include_foundation
-                else current.get("foundation", {}).get("version")
-            ),
-            "policy": "explicit" if include_foundation else "preserved",
-        }
+        change(
+            "foundation",
+            current_foundation,
+            target_foundation,
+            policy="explicit" if include_foundation else "preserved",
+        )
     )
     return {
         "ready": True,
@@ -1044,7 +1129,35 @@ def rollback_install(project: str | Path, *, register: bool = False) -> dict[str
         raise DistributionError("no previous ISEKAI installation is available")
     previous_lock = _read_json(previous_lock_path)
 
-    stage_root = Path(tempfile.mkdtemp(prefix=".isekai-rollback-stage-", dir=project_root))
+    current_adapters = current.get("adapters", {})
+    previous_adapters = previous_lock.get("adapters", {})
+    current_kiro_owned = (
+        isinstance(current_adapters, dict) and "kiro" in current_adapters
+    )
+    previous_kiro_owned = (
+        isinstance(previous_adapters, dict) and "kiro" in previous_adapters
+    )
+    previous_kiro_snapshot = rollback / "kiro"
+    if previous_kiro_owned and not previous_kiro_snapshot.is_dir():
+        raise DistributionError("previous Kiro installation snapshot is missing")
+    kiro_relative = Path(".kiro/skills/isekai")
+    kiro_target = project_root / kiro_relative
+    if current_kiro_owned or previous_kiro_owned:
+        kiro_target = _project_path_without_symlinks(
+            project_root, kiro_relative, label="adapter:kiro.path"
+        )
+    if (
+        previous_kiro_owned
+        and not current_kiro_owned
+        and (kiro_target.exists() or kiro_target.is_symlink())
+    ):
+        raise DistributionError(
+            "refusing to replace an unmanaged .kiro/skills/isekai directory"
+        )
+
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=".isekai-rollback-stage-", dir=project_root)
+    )
     staged = stage_root / MANAGED_ROOT
     previous_kiro_copy = stage_root / "previous-kiro"
     previous_project_bytes = (
@@ -1052,40 +1165,68 @@ def rollback_install(project: str | Path, *, register: bool = False) -> dict[str
         if (rollback / "project.json").is_file()
         else None
     )
-    if (rollback / "kiro").is_dir():
-        shutil.copytree(rollback / "kiro", previous_kiro_copy)
     backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
-    kiro_target = project_root / ".kiro/skills/isekai"
     kiro_backup = project_root / f".isekai-kiro-backup-{uuid.uuid4().hex}"
+    project_manifest = project_root / "project.json"
+    current_project_bytes = (
+        project_manifest.read_bytes() if project_manifest.is_file() else None
+    )
+    lock_path = project_root / LOCK_NAME
+    current_lock_bytes = lock_path.read_bytes()
+
     try:
+        if previous_kiro_snapshot.is_dir():
+            shutil.copytree(previous_kiro_snapshot, previous_kiro_copy)
         shutil.copytree(previous_install, staged)
         redo = staged / "rollback"
         _copy_managed_root(managed, redo / "install")
         _write_json_atomic(redo / LOCK_NAME, current)
-        if kiro_target.is_dir() and "kiro" in current.get("adapters", {}):
+        if current_kiro_owned:
             shutil.copytree(kiro_target, redo / "kiro")
-        project_manifest = project_root / "project.json"
-        if project_manifest.is_file():
-            (redo / "project.json").write_bytes(project_manifest.read_bytes())
+        if current_project_bytes is not None:
+            (redo / "project.json").write_bytes(current_project_bytes)
 
         managed.rename(backup)
         staged.rename(managed)
+        if current_kiro_owned:
+            kiro_target.rename(kiro_backup)
         if previous_kiro_copy.is_dir():
-            if kiro_target.exists():
-                kiro_target.rename(kiro_backup)
             kiro_target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(previous_kiro_copy, kiro_target)
-        if previous_project_bytes is not None:
+        if previous_project_bytes is None:
+            project_manifest.unlink(missing_ok=True)
+        else:
             project_manifest.write_bytes(previous_project_bytes)
-        _write_json_atomic(project_root / LOCK_NAME, previous_lock)
+        _write_json_atomic(lock_path, previous_lock)
+        postflight = doctor_install(project_root)
+        if not postflight["ready"]:
+            raise DistributionError(
+                "rollback verification failed: " + "; ".join(postflight["issues"])
+            )
     except Exception:
-        if managed.exists() and backup.exists():
-            shutil.rmtree(managed)
+        if backup.exists():
+            if managed.exists():
+                shutil.rmtree(managed)
             backup.rename(managed)
-        if kiro_backup.exists():
-            if kiro_target.exists():
-                shutil.rmtree(kiro_target)
+        if current_kiro_owned and kiro_backup.exists():
+            if kiro_target.exists() or kiro_target.is_symlink():
+                if kiro_target.is_dir() and not kiro_target.is_symlink():
+                    shutil.rmtree(kiro_target)
+                else:
+                    kiro_target.unlink()
             kiro_backup.rename(kiro_target)
+        elif not current_kiro_owned and previous_kiro_copy.is_dir() and (
+            kiro_target.exists() or kiro_target.is_symlink()
+        ):
+            if kiro_target.is_dir() and not kiro_target.is_symlink():
+                shutil.rmtree(kiro_target)
+            else:
+                kiro_target.unlink()
+        if current_project_bytes is None:
+            project_manifest.unlink(missing_ok=True)
+        else:
+            project_manifest.write_bytes(current_project_bytes)
+        lock_path.write_bytes(current_lock_bytes)
         raise
     finally:
         if stage_root.exists():
@@ -1103,9 +1244,6 @@ def rollback_install(project: str | Path, *, register: bool = False) -> dict[str
         update=True,
     )
     registration = _run_registration(commands) if register else []
-    postflight = doctor_install(project_root)
-    if not postflight["ready"]:
-        raise DistributionError("rollback verification failed: " + "; ".join(postflight["issues"]))
     return {
         "rolled_back": True,
         "project": str(project_root),

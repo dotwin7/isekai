@@ -77,7 +77,21 @@ $previousPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Proce
 try {
     & git clone --quiet --no-checkout -- $Source $checkout
     Assert-LastExitCode "Git clone"
-    & git -C $checkout checkout --quiet --detach $Ref
+    $resolvedCommit = $null
+    if ($Ref -match "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$") {
+        $resolvedCommit = (& git -C $checkout rev-parse --verify "${Ref}^{commit}")
+        Assert-LastExitCode "Resolve immutable Git commit"
+        if ($resolvedCommit.Trim().ToLowerInvariant() -ne $Ref.ToLowerInvariant()) {
+            throw "Git ref is not the requested full commit: $Ref"
+        }
+    }
+    else {
+        $resolvedCommit = (& git -C $checkout rev-parse --verify "refs/tags/${Ref}^{commit}")
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git ref must be an immutable tag or full commit; branches and abbreviated commits are not allowed: $Ref"
+        }
+    }
+    & git -C $checkout checkout --quiet --detach $resolvedCommit.Trim()
     Assert-LastExitCode "Git checkout"
 
     $env:PYTHONPATH = Join-Path $checkout "src"

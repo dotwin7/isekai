@@ -116,3 +116,83 @@ def test_posix_bootstrap_preserves_git_failure_exit_code(tmp_path: Path) -> None
 
     assert completed.returncode != 0
     assert not (project / "isekai.lock.json").exists()
+
+
+def test_posix_bootstrap_rejects_branch_before_release_code_execution(
+    tmp_path: Path,
+) -> None:
+    release = tmp_path / "branch-release"
+    shutil.copytree(
+        ROOT,
+        release,
+        ignore=shutil.ignore_patterns(
+            ".git", ".venv", "__pycache__", ".pytest_cache"
+        ),
+    )
+    marker = tmp_path / "release-code-executed"
+    (release / "src/isekai/__init__.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed', encoding='utf-8')\n"
+        "__version__ = '0.1.0'\n",
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q"], cwd=release, check=True)
+    subprocess.run(["git", "add", "."], cwd=release, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=ISEKAI Test",
+            "-c",
+            "user.email=isekai@example.invalid",
+            "commit",
+            "-qm",
+            "branch release",
+        ],
+        cwd=release,
+        check=True,
+    )
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=release,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    project = tmp_path / "product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(release / "scripts/install.sh"),
+            "--source",
+            str(release),
+            "--ref",
+            branch,
+            "--path",
+            str(project),
+            "--python",
+            sys.executable,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "immutable tag or full commit" in completed.stderr
+    assert not marker.exists()
+    assert not (project / "isekai.lock.json").exists()
+
+
+def test_powershell_bootstrap_validates_immutable_ref_before_checkout() -> None:
+    content = (ROOT / "scripts/install.ps1").read_text(encoding="utf-8")
+
+    validation = content.index('refs/tags/${Ref}^{commit}')
+    checkout = content.index("& git -C $checkout checkout --quiet --detach")
+
+    assert validation < checkout
+    assert "[0-9a-fA-F]{40}" in content
+    assert "[0-9a-fA-F]{64}" in content
+    assert "branches and abbreviated commits are not allowed" in content

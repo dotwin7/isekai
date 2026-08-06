@@ -150,7 +150,21 @@ trap 'exit 143' TERM
 
 checkout="$temporary_root/release"
 git clone --quiet --no-checkout -- "$source_url" "$checkout"
-git -C "$checkout" checkout --quiet --detach "$release_ref"
+resolved_commit=""
+if [[ "$release_ref" =~ ^[0-9a-fA-F]{40}$ || "$release_ref" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  if ! resolved_commit="$(git -C "$checkout" rev-parse --verify "${release_ref}^{commit}" 2>/dev/null)"; then
+    fail "Git commit does not exist: $release_ref"
+  fi
+  normalized_ref="$(printf '%s' "$release_ref" | tr '[:upper:]' '[:lower:]')"
+  normalized_commit="$(printf '%s' "$resolved_commit" | tr '[:upper:]' '[:lower:]')"
+  [[ "$normalized_commit" == "$normalized_ref" ]] \
+    || fail "Git ref is not the requested full commit: $release_ref"
+else
+  if ! resolved_commit="$(git -C "$checkout" rev-parse --verify "refs/tags/${release_ref}^{commit}" 2>/dev/null)"; then
+    fail "Git ref must be an immutable tag or full commit; branches and abbreviated commits are not allowed: $release_ref"
+  fi
+fi
+git -C "$checkout" checkout --quiet --detach "$resolved_commit"
 
 install_args=(
   -m isekai install

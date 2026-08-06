@@ -15,13 +15,13 @@
     "package": "isekai-agent-plugin",
     "version": "0.1.0",
     "path": "src/isekai",
-    "digest": "sha256:10887e8245b4e09c206c03a59c2679e938d5584f308f7057c707161afd4ef3d2"
+    "digest": "sha256:c6a2eedf423189b2531f1428c852e8267626e325e7805e87274632ec3bf702ca"
   },
   "bootstrap": {
     "id": "bootstrap",
     "version": "0.1.0",
     "path": "scripts",
-    "digest": "sha256:848fbc7b2b5cfe6333c1d19da4db87dcd48662ab5e28b5282bedb40e05a055e2"
+    "digest": "sha256:ed6c0674654580211ca3d4445d6519938ded4107b891d0dad8f54fb2d51295b6"
   },
   "foundation": {
     "id": "isekai-foundation",
