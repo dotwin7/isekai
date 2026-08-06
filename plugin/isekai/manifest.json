@@ -17,7 +17,7 @@
     {
       "id": "kiro",
       "surface": "workspace-agent-skill",
-      "path": ".kiro/skills/isekai/SKILL.md"
+      "path": "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md"
     },
     {
       "id": "claude",

@@ -64,6 +64,7 @@ def test_all_runtime_adapter_surfaces_exist_and_parse() -> None:
     manifest = read_json(ROOT / "plugin/isekai/manifest.json")
     runtimes = {runtime["id"]: runtime for runtime in manifest["runtimes"]}
     assert set(runtimes) == {"kiro", "claude", "codex"}
+    assert not (ROOT / ".kiro").exists()
 
     assert (ROOT / runtimes["kiro"]["path"]).is_file()
     assert read_json(ROOT / "plugin/isekai/runtimes/claude/.claude-plugin/plugin.json")
@@ -72,7 +73,7 @@ def test_all_runtime_adapter_surfaces_exist_and_parse() -> None:
 
 def test_runtime_skill_documents_expose_the_same_action_contract() -> None:
     skill_paths = [
-        ROOT / ".kiro/skills/isekai/SKILL.md",
+        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
         ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
         ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
     ]
@@ -105,7 +106,7 @@ def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> No
 
 def test_runtime_skills_share_conversation_mode_contract() -> None:
     skill_paths = [
-        ROOT / ".kiro/skills/isekai/SKILL.md",
+        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
         ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
         ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
     ]

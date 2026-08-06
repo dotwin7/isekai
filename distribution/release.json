@@ -15,7 +15,7 @@
     "package": "isekai-agent-plugin",
     "version": "0.1.0",
     "path": "src/isekai",
-    "digest": "sha256:c6a2eedf423189b2531f1428c852e8267626e325e7805e87274632ec3bf702ca"
+    "digest": "sha256:c18e57ed4d9e0a4f645718edb95506ca94418458cc1c9e3c62e05a7322c41fd8"
   },
   "bootstrap": {
     "id": "bootstrap",
@@ -45,7 +45,7 @@
     {
       "id": "kiro",
       "version": "0.1.0",
-      "path": ".kiro/skills/isekai",
+      "path": "plugin/isekai/runtimes/kiro/skills/isekai",
       "digest": "sha256:b623512b42722dc453eb8168f2ff27fd1cffa464613526fe6219f16c5a98817a"
     }
   ]

@@ -77,7 +77,7 @@ def _bump_release(release: Path, version: str) -> None:
         release / "plugin/isekai/manifest.json",
         release / "plugin/isekai/runtimes/codex/.codex-plugin/plugin.json",
         release / "plugin/isekai/runtimes/claude/.claude-plugin/plugin.json",
-        release / ".kiro/skills/isekai/SKILL.md",
+        release / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
         release / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
         release / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
     ]

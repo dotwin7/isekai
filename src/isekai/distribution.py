@@ -133,7 +133,7 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
             raise DistributionError(f"{runtime} Adapter version does not match plugin release")
 
     adapter_paths = {
-        "kiro": ".kiro/skills/isekai",
+        "kiro": "plugin/isekai/runtimes/kiro/skills/isekai",
         "claude": "plugin/isekai/runtimes/claude",
         "codex": "plugin/isekai/runtimes/codex",
     }

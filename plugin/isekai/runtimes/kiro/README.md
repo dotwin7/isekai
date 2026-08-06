@@ -4,13 +4,19 @@ The first ISEKAI runtime adapter uses Kiro CLI's documented workspace Agent Skil
 
 ## Installation
 
-The repository's Kiro workspace Skill is checked in at:
+The versioned Kiro Skill source is checked in under the plugin runtime:
+
+```text
+plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md
+```
+
+`isekai install --runtime kiro` copies that source into the consuming Project's workspace discovery path:
 
 ```text
 .kiro/skills/isekai/SKILL.md
 ```
 
-`isekai install --runtime kiro` copies the versioned Skill to that path after verifying the Git release and refuses to replace an unmanaged existing Skill. Updates verify the installed digest against `isekai.lock.json` before replacement.
+The installer verifies the Git release and refuses to replace an unmanaged existing Skill. Updates verify the installed digest against `isekai.lock.json` before replacement.
 
 Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. The Adapter prefers the project launcher, verifies its version/protocol handshake, and invokes the local ISEKAI Plugin contract:
 
