@@ -260,6 +260,7 @@ unit/
 ├─ checkpoint.json
 ├─ context-receipt.json
 ├─ execution-envelope.json
+├─ execution-authorizations.json
 ├─ release.md
 └─ operations.md
 ```
@@ -317,8 +318,13 @@ Decision은 Unit의 `decisions.json`에 다음 최소 구조로 기록한다.
   ],
   "references": [
     "requirements.md",
-    "architecture.md"
+    "execution-envelope.json"
   ],
+  "approval_subject": {
+    "type": "execution-envelope",
+    "id": "ENV-UNIT-...",
+    "digest": "sha256:..."
+  },
   "decided_by": "human-owner",
   "decided_at": "2026-08-04T00:00:00+00:00"
 }
@@ -379,9 +385,12 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
   "allowed_actions": ["read", "edit", "test"],
   "forbidden_actions": ["remote", "deploy", "credential-access"],
   "max_iterations": 5,
+  "approval_digest": "sha256:...",
   "approval_decision_id": "DEC-..."
 }
 ```
+
+Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박한다. 이후 Envelope가 교체되거나 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다.
 
 승인된 Envelope 밖의 Scope·Action·Stage는 Core가 fail-closed로 거부한다. Envelope가 없거나 불완전하면 Agent는 제안·읽기 수준에 머물며, 원격·운영·Credential Action은 기본 금지한다. 이 구조는 고정된 workflow를 강제하기보다 Unit의 Intent·위험·복잡도에 따라 Agent가 단계와 깊이를 제안하고 사람이 승인하는 Adaptive AI-DLC를 지원한다.
 
@@ -486,11 +495,11 @@ foundation/
    └─ release.json
 ```
 
-`decisions.json`의 최신 Foundation release Decision이 `approved`여야 하며, `evidence/release.json`에는 모든 release check가 passing이어야 한다. 두 조건이 모두 충족될 때만 `foundation-promote`가 `release.json`과 모든 등록 asset의 상태를 `approved`로 승격한다. 승인 Decision이나 passing Evidence가 없으면 명령은 실패하고 Foundation 파일을 변경하지 않는다.
+`decisions.json`의 최신 Foundation release Decision이 `approved`여야 하며, `evidence/release.json`에는 모든 release check가 passing이어야 한다. Decision과 Evidence는 status를 제외한 release·등록 asset 전체의 `approval_digest`를 함께 기록한다. 승인이나 검증 후 Foundation 내용이 달라지면 promotion은 실패하며 새 Decision과 Evidence가 필요하다. 두 조건이 모두 충족될 때만 `foundation-promote`가 `release.json`과 모든 등록 asset의 상태를 `approved`로 승격한다. 승인 Decision이나 passing Evidence가 없으면 명령은 실패하고 Foundation 파일을 변경하지 않는다.
 
 `release-check`는 승인 여부를 자동으로 결정하지 않고 현재 blocker를 보고한다. `foundation-promote`는 사람의 명시적 승인 이후에만 실행하는 쓰기 명령이다.
 
-현재 공통 기준선은 `isekai-foundation@0.1.0`이며 Foundation Decision `DEC-FND-20260805110909440545`와 passing Evidence를 근거로 release와 등록된 21개 asset이 `approved` 상태다. 후속 gap은 approved v0.1.0을 임의 수정하지 않고 patch/minor Foundation version으로 보완한다. API 사용 시 `plan_foundation_promotion(root)`은 release manifest와 등록 asset 21개를 합친 22개 target의 상대 path·version·from/to status를 결정적으로 반환한다. `promote_foundation(root, dry_run=True)`는 같은 plan과 blocker만 보고하며 JSON, mode, Decision, Evidence를 변경하지 않는다.
+현재 공통 기준선은 `isekai-foundation@0.1.0`이며 최신 Foundation Decision `DEC-FND-20260806051711261003`과 digest-bound passing Evidence를 근거로 release와 등록된 21개 asset이 `approved` 상태다. 후속 gap은 approved v0.1.0을 임의 수정하지 않고 patch/minor Foundation version으로 보완한다. API 사용 시 `plan_foundation_promotion(root)`은 release manifest와 등록 asset 21개를 합친 22개 target의 상대 path·version·from/to status를 결정적으로 반환한다. `promote_foundation(root, dry_run=True)`는 같은 plan과 blocker만 보고하며 JSON, mode, Decision, Evidence를 변경하지 않는다.
 
 실행 promotion은 모든 22개 JSON 결과를 메모리에서 만들고 `load_foundation` preflight와 readiness를 통과시킨 뒤 시작한다. 각 target은 같은 directory의 temporary file에 write·flush·fsync하고, 전체 staging 성공 후 `os.replace` commit한다. commit 또는 postflight(load, 22개 approved, readiness) 중 예외가 나면 원본 bytes와 mode를 복원하고 temporary file을 삭제한다. 이 transaction은 단일 프로세스·로컬 파일시스템 경계의 best-effort rollback이며 전원 손실, 파일시스템/외부 프로세스의 동시 변경, rollback 자체의 I/O 실패까지 원자성을 보장하지 않는다. descriptor의 중복·절대/상위 경로와 release.json 충돌은 preflight에서 차단한다. 기존 `promote_foundation(root)` 호출은 호환성을 위해 실행 모드로 유지한다.
 

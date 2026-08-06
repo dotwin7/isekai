@@ -75,6 +75,9 @@ def test_foundation_loads_and_reports_expected_assets() -> None:
         (RouteRequest(change="persistent", risk="low"), WorkRoute.UNIT),
         (RouteRequest(change="local", risk="high"), WorkRoute.UNIT),
         (RouteRequest(change="local", risk="low", ambiguous=True), WorkRoute.UNIT),
+        (RouteRequest(change="none", risk="high"), WorkRoute.UNIT),
+        (RouteRequest(change="none", risk="low", remote=True), WorkRoute.UNIT),
+        (RouteRequest(change="none", risk="low", sensitive=True), WorkRoute.UNIT),
     ],
 )
 def test_routing_contract(route_request: RouteRequest, expected: WorkRoute) -> None:

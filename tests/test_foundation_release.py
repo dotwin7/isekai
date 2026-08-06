@@ -135,6 +135,20 @@ def test_approved_decision_and_passing_evidence_promote_all_assets(
     assert release["status"] == "approved"
 
 
+def test_content_change_after_approval_invalidates_promotion(tmp_path: Path) -> None:
+    foundation = make_foundation(tmp_path)
+    approve_and_evidence(foundation)
+    policy_path = foundation / "governance/policies/high-risk.json"
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    policy["content"]["reason"] = "Changed after approval"
+    policy_path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match="approval_digest"):
+        promote_foundation(foundation)
+
+    assert load_foundation(foundation).manifest["status"] == "draft"
+
+
 def test_must_rule_without_condition_is_rejected(tmp_path: Path) -> None:
     foundation = make_foundation(tmp_path)
     rules_path = foundation / "governance/rules/core.json"

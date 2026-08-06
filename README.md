@@ -181,7 +181,7 @@ Inception → Human Decision → Construction → Validation
 - Inception에서는 Intent, Scope, Requirements, Acceptance Criteria와 Risk를 정리합니다.
 - Construction에서는 승인된 범위 안에서 설계, 구현, 테스트와 Evidence를 만듭니다.
 - Release와 Operations에서는 사람이 배포·롤백·고위험 결정을 승인하고 결과를 다음 Unit에 반영합니다.
-- Execution Envelope 밖의 action, scope 또는 stage는 Core가 거부합니다.
+- Execution Envelope 밖의 action, canonical Project scope 또는 실제 Unit stage는 Core가 거부합니다. 승인 grant는 Unit ledger에 기록되고 iteration 예산을 소모합니다.
 
 ## 버전 관리와 업데이트
 

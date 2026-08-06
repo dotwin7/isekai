@@ -36,11 +36,11 @@ Start Kiro from a repository containing `project.json` and invoke `/isekai on` w
 
 ## Supported surface
 
-- Read-only: `on`, `off`, `status`, `intake`, `route`, `inception`, `resume`, `verify`, `release-check`, `authorize`
-- Explicit writes: `init`, `unit-init`, `checkpoint`, `envelope-propose`, `evidence`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
+- Read-only: `on`, `off`, `status`, `intake`, `route`, `inception`, `resume`, `verify`, `release-check`
+- Explicit writes: `init`, `unit-init`, `checkpoint`, `envelope-propose`, `authorize`, `evidence`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
 - Human confirmation is required before write actions or any lifecycle decision.
 
-The runtime adapter does not own Unit state. Unit artifacts and ISEKAI Core remain authoritative.
+The runtime adapter does not own Unit state. Before a governed read, edit, or test, `authorize` supplies a Project target and records a bounded grant in the Unit authorization ledger. Unit artifacts and ISEKAI Core remain authoritative.
 
 ## Compatibility
 

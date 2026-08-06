@@ -50,9 +50,22 @@
         "allowed_actions",
         "forbidden_actions",
         "max_iterations",
-        "proposed_by"
+        "proposed_by",
+        "approval_digest"
       ],
-      "expiry_required": true
+      "expiry_required": true,
+      "approval_binding": {
+        "decision_field": "approval_subject",
+        "identity_fields": [
+          "id",
+          "approval_digest"
+        ]
+      },
+      "authorization_ledger": {
+        "path": "execution-authorizations.json",
+        "budget_semantics": "successful-authorization-grants",
+        "fail_closed_on_mismatch": true
+      }
     },
     "rules": [
       {

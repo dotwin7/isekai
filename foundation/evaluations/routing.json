@@ -54,6 +54,32 @@
         "expected": "unit"
       },
       {
+        "id": "unit-high-risk-query",
+        "input": {
+          "change": "none",
+          "risk": "high"
+        },
+        "expected": "unit"
+      },
+      {
+        "id": "unit-remote-query",
+        "input": {
+          "change": "none",
+          "risk": "low",
+          "remote": true
+        },
+        "expected": "unit"
+      },
+      {
+        "id": "unit-sensitive-query",
+        "input": {
+          "change": "none",
+          "risk": "low",
+          "sensitive": true
+        },
+        "expected": "unit"
+      },
+      {
         "id": "negative-persistent-quick-change",
         "input": {
           "change": "persistent",

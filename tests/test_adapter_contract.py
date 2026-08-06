@@ -34,6 +34,7 @@ EXPECTED_WRITES = {
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "authorize",
     "evidence",
     "decision",
     "transition",

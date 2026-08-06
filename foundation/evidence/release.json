@@ -1,22 +1,23 @@
 {
-  "id": "EVD-FND-20260805153642598531",
+  "id": "EVD-FND-20260806051932370660",
   "type": "foundation-release-evidence",
   "schema_version": "1.0.0",
   "foundation_id": "isekai-foundation",
   "version": "0.1.0",
+  "approval_digest": "sha256:d96f493ee9ba3d5046387179da4456d23be794a8fd562174fdcc9e99309a1bfd",
   "passed": true,
-  "scope": "Foundation v0.1 restored DoD contract and Core regression verification",
+  "scope": "Foundation v0.1 authorization boundary and routing regression verification",
   "recorded_by": "codex-validation",
-  "recorded_at": "2026-08-05T15:36:42.598531+00:00",
+  "recorded_at": "2026-08-06T05:19:32.370660+00:00",
   "checks": [
     {
       "id": "routing",
       "passed": true,
-      "details": "6 routing evaluation cases passed",
+      "details": "9 routing evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/routing.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-05T15:36:23Z"
+        "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     },
     {
@@ -82,11 +83,11 @@
     {
       "id": "full-tests",
       "passed": true,
-      "details": "98 pytest tests passed",
+      "details": "134 pytest tests passed",
       "provenance": {
         "source": "uv run pytest -q",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-05T15:36:23Z"
+        "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     },
     {
@@ -96,7 +97,7 @@
       "provenance": {
         "source": "python3 -m compileall -q src tests",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-05T15:36:23Z"
+        "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     },
     {
@@ -106,7 +107,7 @@
       "provenance": {
         "source": "uv build --wheel",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-05T15:36:23Z"
+        "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     },
     {
@@ -116,7 +117,7 @@
       "provenance": {
         "source": "isekai validate and release-check",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-05T15:36:23Z"
+        "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     }
   ]

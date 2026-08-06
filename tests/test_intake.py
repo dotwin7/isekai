@@ -79,6 +79,28 @@ def test_persistent_direct_request_without_outcome_is_marked_ambiguous() -> None
     assert "ambiguous acceptance criteria" in result["route"]["reasons"]
 
 
+@pytest.mark.parametrize(
+    "risk_flags",
+    [
+        {"risk": "high"},
+        {"remote": True},
+        {"sensitive": True},
+    ],
+)
+def test_read_only_request_with_risk_signal_is_escalated_to_unit(
+    risk_flags: dict[str, object],
+) -> None:
+    result = intake(
+        {
+            "goal": "현재 상태를 조회해줘",
+            "change": "none",
+            **risk_flags,
+        }
+    )
+
+    assert result["route"]["route"] == "unit"
+
+
 def test_intake_rejects_missing_goal_and_unknown_source() -> None:
     with pytest.raises(ValueError, match="goal"):
         normalize_intent({"source": "direct-request"})

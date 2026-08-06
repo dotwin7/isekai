@@ -37,6 +37,7 @@ FOUNDATION_DECISION_FIELDS = {
     "schema_version",
     "foundation_id",
     "version",
+    "approval_digest",
     "outcome",
     "summary",
     "decided_by",
@@ -48,6 +49,7 @@ FOUNDATION_EVIDENCE_FIELDS = {
     "schema_version",
     "foundation_id",
     "version",
+    "approval_digest",
     "passed",
     "scope",
     "recorded_by",
@@ -93,6 +95,40 @@ class FoundationRelease:
             digest.update(b"\0")
         return "sha256:" + digest.hexdigest()
 
+    @property
+    def approval_digest(self) -> str:
+        """Bind approval to semantic release content while ignoring promotion status."""
+        digest = hashlib.sha256()
+        paths = [Path("release.json")]
+        paths.extend(
+            Path(str(descriptor["path"]))
+            for descriptor in self.manifest.get("artifacts", [])
+        )
+        for relative in sorted(paths, key=lambda item: item.as_posix()):
+            try:
+                value = json.loads((self.root / relative).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:  # pragma: no cover - load already validates
+                raise FoundationError(
+                    f"cannot calculate Foundation approval digest for {relative}: {exc}"
+                ) from exc
+            if not isinstance(value, dict):  # pragma: no cover - load already validates
+                raise FoundationError(
+                    f"Foundation approval digest requires an object: {relative}"
+                )
+            subject = copy.deepcopy(value)
+            subject.pop("status", None)
+            content = json.dumps(
+                subject,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(content)
+            digest.update(b"\0")
+        return "sha256:" + digest.hexdigest()
+
     def rules(self) -> Iterator[dict[str, Any]]:
         for asset in self.assets_by_kind("rule-set"):
             yield from asset["content"].get("rules", [])
@@ -106,6 +142,7 @@ class FoundationRelease:
             "id": self.manifest["id"],
             "version": self.version,
             "contract_digest": self.contract_digest,
+            "approval_digest": self.approval_digest,
             "status": self.manifest["status"],
             "asset_count": len(self.assets),
             "kinds": dict(sorted(kinds.items())),
@@ -185,6 +222,8 @@ def _latest_foundation_decision(
         return None, ["Foundation Decision foundation_id does not match release"]
     if latest.get("version") != foundation.version:
         return None, ["Foundation Decision version does not match release"]
+    if latest.get("approval_digest") != foundation.approval_digest:
+        return None, ["Foundation Decision approval_digest does not match release content"]
     if latest.get("outcome") not in {"approved", "rejected"}:
         return None, ["Foundation Decision has an invalid outcome"]
     issues: list[str] = []
@@ -216,6 +255,8 @@ def _foundation_evidence_issues(
         issues.append("Foundation Evidence foundation_id does not match release")
     if evidence.get("version") != foundation.version:
         issues.append("Foundation Evidence version does not match release")
+    if evidence.get("approval_digest") != foundation.approval_digest:
+        issues.append("Foundation Evidence approval_digest does not match release content")
     if evidence.get("type") != "foundation-release-evidence":
         issues.append("Foundation Evidence has an invalid type")
     if evidence.get("schema_version") != "1.0.0":
@@ -332,6 +373,7 @@ def record_foundation_decision(
         "schema_version": "1.0.0",
         "foundation_id": foundation.manifest["id"],
         "version": foundation.version,
+        "approval_digest": foundation.approval_digest,
         "outcome": outcome,
         "summary": summary.strip(),
         "decided_by": decided_by.strip(),
@@ -390,6 +432,7 @@ def record_foundation_evidence(
         "schema_version": "1.0.0",
         "foundation_id": foundation.manifest["id"],
         "version": foundation.version,
+        "approval_digest": foundation.approval_digest,
         "passed": passed,
         "scope": scope.strip(),
         "recorded_by": recorded_by.strip(),

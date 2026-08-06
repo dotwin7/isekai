@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -149,3 +150,117 @@ def test_later_rejected_inception_decision_revokes_envelope_authorization(
 
     assert result["allowed"] is False
     assert "revoked" in result["reason"] or "latest" in result["reason"]
+
+
+def test_replaced_envelope_cannot_reuse_an_earlier_inception_approval(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="approved",
+        summary="Approve the narrow execution scope.",
+        rationale=["The reviewed scope is limited to source and tests."],
+        alternatives=[],
+        tradeoffs=[],
+        risks=[],
+        references=["execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+
+    propose_execution_envelope(
+        unit,
+        scope=["**"],
+        stages=envelope_stages(),
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=99,
+        proposed_by="planner-agent",
+    )
+
+    with pytest.raises(ValueError, match="replaced|changed"):
+        transition_unit(unit, "construction")
+
+
+def test_authorization_rejects_project_escape_and_stage_spoofing(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+
+    traversal = authorize_action(
+        unit, action="edit", target="src/../../outside.txt"
+    )
+    spoofed_stage = authorize_action(
+        unit, action="read", target="src/main.py", stage="inception"
+    )
+
+    assert traversal["allowed"] is False
+    assert "escapes" in traversal["reason"]
+    assert spoofed_stage["allowed"] is False
+    assert "does not match" in spoofed_stage["reason"]
+
+
+def test_authorization_grants_consume_the_iteration_budget(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Iteration Budget", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["src/**"],
+        stages=[
+            {
+                "name": "construction",
+                "depth": "standard",
+                "allowed_actions": ["edit"],
+            }
+        ],
+        allowed_actions=["edit"],
+        forbidden_actions=["remote"],
+        max_iterations=1,
+        proposed_by="planner-agent",
+    )
+    approve_inception(unit)
+
+    first = authorize_action(unit, action="edit", target="src/first.py")
+    second = authorize_action(unit, action="edit", target="src/second.py")
+    ledger = json.loads(
+        (unit / "execution-authorizations.json").read_text(encoding="utf-8")
+    )
+
+    assert first["allowed"] is True
+    assert first["remaining_iterations"] == 0
+    assert second["allowed"] is False
+    assert "exhausted" in second["reason"]
+    assert len(ledger["grants"]) == 1
+
+
+def test_authorization_cannot_edit_its_own_control_ledger(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Protected Ledger", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["**"],
+        stages=[
+            {
+                "name": "construction",
+                "depth": "standard",
+                "allowed_actions": ["edit"],
+            }
+        ],
+        allowed_actions=["edit"],
+        forbidden_actions=["remote"],
+        max_iterations=2,
+        proposed_by="planner-agent",
+    )
+    approve_inception(unit)
+    ledger_target = str(
+        (unit / "execution-authorizations.json").relative_to(project.parent)
+    )
+
+    result = authorize_action(unit, action="edit", target=ledger_target)
+
+    assert result["allowed"] is False
+    assert "control artifact" in result["reason"]

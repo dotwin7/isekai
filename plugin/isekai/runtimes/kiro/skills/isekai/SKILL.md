@@ -47,7 +47,7 @@ resume --project PATH [--unit PATH]
 unit-init --project PATH --title TITLE [--output PATH] [--owner OWNER]
 checkpoint --unit PATH --next-action TEXT [--completed ITEM ...] [--pending ITEM ...] [--blocked-by ITEM ...]
 envelope-propose --unit PATH --scope PATH [--scope PATH ...] --stages-json JSON --allowed-action ACTION [--allowed-action ACTION ...] --max-iterations N --proposed-by ACTOR
-authorize --unit PATH --action ACTION [--target PATH] [--stage STAGE]
+authorize --unit PATH --action ACTION --target PROJECT_RELATIVE_PATH [--stage CURRENT_UNIT_PHASE]
 evidence --unit PATH --passed --commands-json JSON --scope TEXT --recorded-by ACTOR [--notes TEXT]
 decision --unit PATH --gate GATE --outcome approved|rejected --summary TEXT --rationale TEXT [--alternatives-json JSON] [--tradeoff TEXT] [--risk TEXT] [--reference TEXT] --decided-by HUMAN
 transition --unit PATH --to STATUS
@@ -68,13 +68,14 @@ rollback [--path PATH] [--register]
 
 1. Start with `status` or `route` before proposing a persistent change.
 2. For `inception`, ask the listed questions and summarize intent, scope, acceptance criteria, risks, and non-goals before writing artifacts.
-3. Ask for explicit user confirmation immediately before `install`, applying `update`, `rollback`, `unit-init`, `checkpoint`, lifecycle transitions, or any other write. `update --check` is read-only and must precede an applied update.
+3. Ask for explicit user confirmation immediately before `install`, applying `update`, `rollback`, `unit-init`, `checkpoint`, lifecycle transitions, or any other user-visible write. A successful `authorize` call only writes the audit grant already covered by the approved Envelope and does not need separate confirmation. `update --check` is read-only and must precede an applied update.
 4. Use `resume` after a new session or context interruption. Treat `checkpoint.json`, `context-receipt.json`, Decisions, and Evidence as authoritative.
 5. Use `verify` after implementation and report its actual result. Do not claim success from an unexecuted command.
 6. If the route is Unit, a human Decision is required before progressing through a consequential gate.
 7. Do not execute arbitrary remote Git, cloud, Kubernetes, customer-data, credential, or high-risk security actions through this skill. Installation may use only a source explicitly supplied by the user; updates must use the Git source pinned in `isekai.lock.json` unless the user explicitly approves a source change.
 8. Do not copy the entire Foundation or conversation into context. Load only the project, Unit, Receipt, Checkpoint, and referenced artifacts needed for the current action.
 9. Preserve the pinned Foundation during ordinary updates. Use `--include-foundation` only after showing the contract change and receiving explicit human approval. Start a new conversation after a Codex or Claude Adapter update.
+10. Call `authorize` immediately before each read, edit, or test action governed by a Unit. Supply a Project-relative target; Core records a successful grant and consumes one approved iteration. Never override the Unit's actual phase with `--stage`.
 
 ## Output discipline
 

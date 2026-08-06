@@ -64,7 +64,7 @@ The promotion command rejects missing approval or failing Evidence and does not 
 
 Verification Evidence can preserve command exit codes and output digests. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record.
 
-Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision must reference the Envelope before Construction. Runtime adapters can call `authorize` before an action, and Core denies actions outside the approved scope or stage.
+Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Runtime adapters call `authorize` with a Project target before an action. Core canonicalizes that target, uses the Unit's actual phase, records each successful grant in `execution-authorizations.json`, and denies work after the iteration budget is exhausted.
 
 The adapters invoke the installed local launcher, which calls the shared Core dispatch contract internally:
 

@@ -310,7 +310,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     plugin_authorize.add_argument("--unit", required=True)
     plugin_authorize.add_argument("--action", dest="requested_action", required=True)
-    plugin_authorize.add_argument("--target")
+    plugin_authorize.add_argument("--target", required=True)
     plugin_authorize.add_argument("--stage")
 
     plugin_evidence = plugin_commands.add_parser("evidence", help="record structured verification Evidence")

@@ -3,7 +3,9 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -54,9 +56,6 @@ def classify_work(request: RouteRequest) -> RouteDecision:
         raise ValueError("change must be one of: none, local, persistent")
     if request.risk not in {"low", "high"}:
         raise ValueError("risk must be one of: low, high")
-    if request.change == "none":
-        return RouteDecision(WorkRoute.QUERY, ("no persistent change",))
-
     reasons: list[str] = []
     if request.change == "persistent":
         reasons.append("persistent change")
@@ -72,6 +71,8 @@ def classify_work(request: RouteRequest) -> RouteDecision:
         reasons.append("sensitive data or credentials")
     if reasons:
         return RouteDecision(WorkRoute.UNIT, tuple(reasons))
+    if request.change == "none":
+        return RouteDecision(WorkRoute.QUERY, ("no persistent change",))
     return RouteDecision(WorkRoute.QUICK_CHANGE, ("small reversible local change",))
 
 
@@ -290,7 +291,21 @@ def _slugify(value: str) -> str:
 
 
 def _write_json(path: Path, value: Any) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, indent=2, ensure_ascii=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def initialize_project(
@@ -529,22 +544,35 @@ def initialize_unit(
         },
     )
     _write_json(unit_dir / "decisions.json", {"unit_id": unit_id, "decisions": []})
+    envelope_now = datetime.now(timezone.utc)
+    initial_envelope = {
+        "id": f"ENV-{unit_id}-INITIAL",
+        "type": "execution-envelope",
+        "schema_version": "1.0.0",
+        "unit_id": unit_id,
+        "status": "proposed",
+        "scope": [],
+        "stages": [],
+        "allowed_actions": [],
+        "forbidden_actions": sorted(AGENT_PROHIBITED_ACTIONS),
+        "max_iterations": 0,
+        "proposed_by": owner,
+        "proposed_at": envelope_now.isoformat(),
+        "expires_at": (envelope_now + timedelta(days=1)).isoformat(),
+    }
+    initial_envelope["approval_digest"] = _execution_envelope_approval_digest(
+        initial_envelope
+    )
+    _write_json(unit_dir / "execution-envelope.json", initial_envelope)
     _write_json(
-        unit_dir / "execution-envelope.json",
+        unit_dir / "execution-authorizations.json",
         {
-            "id": f"ENV-{unit_id}",
-            "type": "execution-envelope",
+            "type": "execution-authorization-ledger",
             "schema_version": "1.0.0",
             "unit_id": unit_id,
-            "status": "proposed",
-            "scope": [],
-            "stages": [],
-            "allowed_actions": [],
-            "forbidden_actions": sorted(AGENT_PROHIBITED_ACTIONS),
-            "max_iterations": 0,
-            "proposed_by": owner,
-            "proposed_at": datetime.now(timezone.utc).isoformat(),
-            "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+            "envelope_id": initial_envelope["id"],
+            "approval_digest": initial_envelope["approval_digest"],
+            "grants": [],
         },
     )
     _write_json(
@@ -577,6 +605,7 @@ UNIT_REQUIRED_FILES = {
     "checkpoint.json",
     "context-receipt.json",
     "execution-envelope.json",
+    "execution-authorizations.json",
 }
 
 
@@ -614,6 +643,7 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         "extensions",
         "foundation_version",
         "foundation_digest",
+        "source_manifest",
     }
     missing_context = sorted(required_context - receipt.keys())
     if missing_context:
@@ -655,8 +685,49 @@ EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
     "proposed_by",
     "proposed_at",
     "expires_at",
+    "approval_digest",
 }
 EXECUTION_ENVELOPE_STATUSES = {"proposed", "approved"}
+EXECUTION_ENVELOPE_APPROVAL_FIELDS = {
+    "id",
+    "type",
+    "schema_version",
+    "unit_id",
+    "scope",
+    "stages",
+    "allowed_actions",
+    "forbidden_actions",
+    "max_iterations",
+    "proposed_by",
+    "proposed_at",
+    "expires_at",
+}
+
+
+def _execution_envelope_approval_digest(envelope: dict[str, Any]) -> str:
+    subject = {
+        field: envelope.get(field)
+        for field in sorted(EXECUTION_ENVELOPE_APPROVAL_FIELDS)
+    }
+    encoded = json.dumps(
+        subject,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _scope_pattern_issue(pattern: str) -> str | None:
+    normalized = pattern.replace("\\", "/")
+    if (
+        not normalized.strip()
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:/", normalized)
+        or ".." in normalized.split("/")
+    ):
+        return f"Execution Envelope scope must be a project-relative pattern: {pattern}"
+    return None
 
 
 def _execution_envelope_issues(
@@ -679,6 +750,13 @@ def _execution_envelope_issues(
         issues.append("Execution Envelope unit_id does not match Unit")
     if envelope.get("status") not in EXECUTION_ENVELOPE_STATUSES:
         issues.append("Execution Envelope has an invalid status")
+    approval_digest = envelope.get("approval_digest")
+    if not isinstance(approval_digest, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", approval_digest
+    ):
+        issues.append("Execution Envelope approval_digest must be a SHA-256 digest")
+    elif approval_digest != _execution_envelope_approval_digest(envelope):
+        issues.append("Execution Envelope approval_digest does not match its approval subject")
     expires_at = envelope.get("expires_at")
     if not isinstance(expires_at, str) or not expires_at.strip():
         issues.append("Execution Envelope requires expires_at")
@@ -701,6 +779,14 @@ def _execution_envelope_issues(
             issues.append(f"Execution Envelope {field} must be a list of strings")
         elif field in {"scope", "allowed_actions"} and not value:
             issues.append(f"Execution Envelope {field} must not be empty")
+        if field == "scope" and isinstance(value, list):
+            issues.extend(
+                issue
+                for item in value
+                if isinstance(item, str)
+                for issue in [_scope_pattern_issue(item)]
+                if issue is not None
+            )
     allowed_actions = envelope.get("allowed_actions")
     forbidden_actions = envelope.get("forbidden_actions")
     if isinstance(allowed_actions, list) and all(
@@ -734,12 +820,17 @@ def _execution_envelope_issues(
     if not isinstance(stages, list) or not stages:
         issues.append("Execution Envelope must define at least one stage")
     else:
+        seen_stage_names: set[str] = set()
         for index, stage in enumerate(stages):
             if not isinstance(stage, dict):
                 issues.append(f"Execution Envelope stage {index} must be an object")
                 continue
             if not isinstance(stage.get("name"), str) or not stage["name"].strip():
                 issues.append(f"Execution Envelope stage {index} needs name")
+            elif stage["name"] in seen_stage_names:
+                issues.append(f"Execution Envelope has duplicate stage: {stage['name']}")
+            else:
+                seen_stage_names.add(stage["name"])
             if not isinstance(stage.get("depth"), str) or not stage["depth"].strip():
                 issues.append(f"Execution Envelope stage {index} needs depth")
             actions = stage.get("allowed_actions")
@@ -785,10 +876,19 @@ def propose_execution_envelope(
     if not unit_dir.is_dir():
         raise ValueError(f"Unit directory does not exist: {unit_dir}")
     unit = _unit_json(unit_dir, "unit.json")
+    if unit.get("status") not in {
+        "proposed",
+        "inception",
+        "awaiting-inception-decision",
+    }:
+        raise ValueError(
+            "Execution Envelope can only be proposed before Construction"
+        )
     if not isinstance(proposed_by, str) or not proposed_by.strip():
         raise ValueError("proposed_by must be a non-empty string")
+    now = datetime.now(timezone.utc)
     envelope = {
-        "id": f"ENV-{unit.get('id')}",
+        "id": f"ENV-{unit.get('id')}-{now.strftime('%Y%m%d%H%M%S%f')}",
         "type": "execution-envelope",
         "schema_version": "1.0.0",
         "unit_id": unit.get("id"),
@@ -799,13 +899,25 @@ def propose_execution_envelope(
         "forbidden_actions": forbidden_actions,
         "max_iterations": max_iterations,
         "proposed_by": proposed_by.strip(),
-        "proposed_at": datetime.now(timezone.utc).isoformat(),
-        "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+        "proposed_at": now.isoformat(),
+        "expires_at": (now + timedelta(days=1)).isoformat(),
     }
+    envelope["approval_digest"] = _execution_envelope_approval_digest(envelope)
     issues = _execution_envelope_issues(envelope, str(unit.get("id")))
     if issues:
         raise ValueError("Execution Envelope rejected: " + "; ".join(issues))
     _write_json(unit_dir / "execution-envelope.json", envelope)
+    _write_json(
+        unit_dir / "execution-authorizations.json",
+        {
+            "type": "execution-authorization-ledger",
+            "schema_version": "1.0.0",
+            "unit_id": unit.get("id"),
+            "envelope_id": envelope["id"],
+            "approval_digest": envelope["approval_digest"],
+            "grants": [],
+        },
+    )
     persisted = _unit_json(unit_dir, "execution-envelope.json")
     if persisted.get("id") != envelope["id"]:
         raise ValueError("Execution Envelope postflight blocked: record was not persisted")
@@ -823,6 +935,15 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
         raise ValueError(
             "Inception Decision must reference execution-envelope.json"
         )
+    approval_subject = decision.get("approval_subject")
+    if not isinstance(approval_subject, dict):
+        raise ValueError("Inception Decision has no bound Execution Envelope subject")
+    if approval_subject.get("type") != "execution-envelope":
+        raise ValueError("Inception Decision approval subject has an invalid type")
+    if approval_subject.get("id") != envelope.get("id"):
+        raise ValueError("Execution Envelope was replaced after the Inception Decision")
+    if approval_subject.get("digest") != envelope.get("approval_digest"):
+        raise ValueError("Execution Envelope changed after the Inception Decision")
     envelope["status"] = "approved"
     envelope["approval_decision_id"] = decision["id"]
     envelope["approved_at"] = datetime.now(timezone.utc).isoformat()
@@ -830,6 +951,137 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
     persisted = _unit_json(unit_dir, "execution-envelope.json")
     if persisted.get("status") != "approved":
         raise ValueError("Execution Envelope approval postflight blocked")
+
+
+AUTHORIZATION_LEDGER_REQUIRED_FIELDS = {
+    "type",
+    "schema_version",
+    "unit_id",
+    "envelope_id",
+    "approval_digest",
+    "grants",
+}
+AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
+    "id",
+    "action",
+    "target",
+    "stage",
+    "iteration",
+    "decision_id",
+    "envelope_digest",
+    "authorized_at",
+}
+
+
+def _authorization_ledger_issues(
+    ledger: Any,
+    unit: dict[str, Any],
+    envelope: dict[str, Any],
+) -> list[str]:
+    if not isinstance(ledger, dict):
+        return ["Execution authorization ledger must be an object"]
+    issues: list[str] = []
+    missing = sorted(AUTHORIZATION_LEDGER_REQUIRED_FIELDS - ledger.keys())
+    if missing:
+        issues.append(
+            "Execution authorization ledger missing fields: " + ", ".join(missing)
+        )
+    if ledger.get("type") != "execution-authorization-ledger":
+        issues.append("Execution authorization ledger has an invalid type")
+    if ledger.get("schema_version") != "1.0.0":
+        issues.append("Execution authorization ledger has an unsupported schema_version")
+    if ledger.get("unit_id") != unit.get("id"):
+        issues.append("Execution authorization ledger unit_id does not match Unit")
+    if ledger.get("envelope_id") != envelope.get("id"):
+        issues.append("Execution authorization ledger does not match the active Envelope")
+    if ledger.get("approval_digest") != envelope.get("approval_digest"):
+        issues.append("Execution authorization ledger digest does not match the active Envelope")
+    grants = ledger.get("grants")
+    if not isinstance(grants, list):
+        issues.append("Execution authorization ledger grants must be a list")
+        return issues
+    max_iterations = envelope.get("max_iterations")
+    if isinstance(max_iterations, int) and not isinstance(max_iterations, bool):
+        if len(grants) > max_iterations:
+            issues.append("Execution authorization ledger exceeds max_iterations")
+    for index, grant in enumerate(grants):
+        if not isinstance(grant, dict):
+            issues.append(f"Execution authorization grant {index} must be an object")
+            continue
+        missing_grant = sorted(AUTHORIZATION_GRANT_REQUIRED_FIELDS - grant.keys())
+        if missing_grant:
+            issues.append(
+                f"Execution authorization grant {index} missing fields: "
+                + ", ".join(missing_grant)
+            )
+        if grant.get("iteration") != index + 1:
+            issues.append(f"Execution authorization grant {index} has invalid iteration")
+        if grant.get("envelope_digest") != envelope.get("approval_digest"):
+            issues.append(f"Execution authorization grant {index} has invalid Envelope digest")
+        if not _is_iso_timestamp(grant.get("authorized_at")):
+            issues.append(f"Execution authorization grant {index} has invalid timestamp")
+    return issues
+
+
+def _normalize_authorization_target(
+    unit_dir: Path,
+    target: str,
+) -> tuple[str | None, str | None]:
+    if not isinstance(target, str) or not target.strip():
+        return None, "Authorization requires a non-empty target"
+    try:
+        receipt = _unit_json(unit_dir, "context-receipt.json")
+    except ValueError as exc:
+        return None, str(exc)
+    source_manifest = receipt.get("source_manifest")
+    if not isinstance(source_manifest, str) or not source_manifest.strip():
+        return None, "Context Receipt has no source_manifest for target authorization"
+    manifest_path = Path(source_manifest).expanduser().resolve()
+    if manifest_path.name != "project.json":
+        return None, "Context Receipt source_manifest is not project.json"
+    project_root = manifest_path.parent
+    requested = Path(target).expanduser()
+    candidate = requested.resolve() if requested.is_absolute() else (project_root / requested).resolve()
+    try:
+        relative = candidate.relative_to(project_root)
+    except ValueError:
+        return None, f"Target escapes the selected Project: {target}"
+    if relative == Path("."):
+        return None, "Authorization target must identify a path inside the Project"
+    return relative.as_posix(), None
+
+
+def _authorization_target_protection_issue(
+    unit_dir: Path,
+    action: str,
+    normalized_target: str,
+) -> str | None:
+    if action != "edit":
+        return None
+    target_parts = Path(normalized_target).parts
+    if normalized_target in {"project.json", "isekai.lock.json"}:
+        return f"Core control artifact cannot be edited through authorize: {normalized_target}"
+    if target_parts and target_parts[0] in {".git", ".isekai"}:
+        return f"Managed control path cannot be edited through authorize: {normalized_target}"
+    receipt = _unit_json(unit_dir, "context-receipt.json")
+    project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
+    try:
+        unit_relative = unit_dir.relative_to(project_root).as_posix()
+    except ValueError:
+        return None
+    protected_unit_artifacts = {
+        "unit.json",
+        "context-receipt.json",
+        "decisions.json",
+        "execution-envelope.json",
+        "execution-authorizations.json",
+    }
+    protected_targets = {
+        f"{unit_relative}/{relative}" for relative in protected_unit_artifacts
+    }
+    if normalized_target in protected_targets:
+        return f"Unit control artifact cannot be edited through authorize: {normalized_target}"
+    return None
 
 
 def authorize_action(
@@ -877,24 +1129,100 @@ def authorize_action(
         return {"allowed": False, "reason": f"Action is forbidden by the Execution Envelope: {action}"}
     if action not in envelope["allowed_actions"]:
         return {"allowed": False, "reason": f"Action is not allowed by the Execution Envelope: {action}"}
-    current_stage = stage or unit.get("phase")
+    current_stage = unit.get("phase")
+    if stage is not None and stage != current_stage:
+        return {
+            "allowed": False,
+            "reason": (
+                f"Requested stage {stage} does not match the Unit phase: {current_stage}"
+            ),
+        }
     stage_matches = [item for item in envelope["stages"] if item.get("name") == current_stage]
     if not stage_matches:
         return {"allowed": False, "reason": f"No approved Envelope stage for: {current_stage}"}
     if action not in stage_matches[0].get("allowed_actions", []):
         return {"allowed": False, "reason": f"Action is not allowed in stage {current_stage}: {action}"}
-    if target is not None and not any(
-        fnmatch.fnmatch(target, pattern) for pattern in envelope["scope"]
+    normalized_target, target_issue = _normalize_authorization_target(
+        unit_dir, str(target) if target is not None else ""
+    )
+    if target_issue is not None:
+        return {"allowed": False, "reason": target_issue}
+    assert normalized_target is not None  # narrowed by the fail-closed result above
+    protection_issue = _authorization_target_protection_issue(
+        unit_dir, action, normalized_target
+    )
+    if protection_issue is not None:
+        return {"allowed": False, "reason": protection_issue}
+    if not any(
+        fnmatch.fnmatchcase(normalized_target, pattern.replace("\\", "/"))
+        for pattern in envelope["scope"]
     ):
-        return {"allowed": False, "reason": f"Target is outside the approved Envelope scope: {target}"}
-    return {
-        "allowed": True,
-        "reason": "Action is within the approved Execution Envelope",
-        "unit_id": unit.get("id"),
-        "stage": current_stage,
-        "action": action,
-        "target": target,
-    }
+        return {
+            "allowed": False,
+            "reason": f"Target is outside the approved Envelope scope: {normalized_target}",
+        }
+
+    ledger_path = unit_dir / "execution-authorizations.json"
+    lock_path = unit_dir / ".execution-authorizations.lock"
+    try:
+        lock_descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return {
+            "allowed": False,
+            "reason": "Authorization is already being evaluated; retry after it completes",
+        }
+    os.close(lock_descriptor)
+    try:
+        try:
+            ledger = _unit_json(unit_dir, "execution-authorizations.json")
+        except ValueError as exc:
+            return {"allowed": False, "reason": str(exc)}
+        ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+        if ledger_issues:
+            return {
+                "allowed": False,
+                "reason": "Action blocked: " + "; ".join(ledger_issues),
+            }
+        grants = ledger["grants"]
+        if len(grants) >= envelope["max_iterations"]:
+            return {
+                "allowed": False,
+                "reason": "Execution Envelope max_iterations budget is exhausted",
+            }
+        now = datetime.now(timezone.utc)
+        iteration = len(grants) + 1
+        grant = {
+            "id": "AUTH-" + now.strftime("%Y%m%d%H%M%S%f"),
+            "action": action,
+            "target": normalized_target,
+            "stage": current_stage,
+            "iteration": iteration,
+            "decision_id": envelope.get("approval_decision_id"),
+            "envelope_digest": envelope.get("approval_digest"),
+            "authorized_at": now.isoformat(),
+        }
+        grants.append(grant)
+        _write_json(ledger_path, ledger)
+        persisted = _unit_json(unit_dir, "execution-authorizations.json")
+        persisted_issues = _authorization_ledger_issues(persisted, unit, envelope)
+        if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
+            return {
+                "allowed": False,
+                "reason": "Authorization receipt postflight failed",
+            }
+        return {
+            "allowed": True,
+            "reason": "Action is within the approved Execution Envelope",
+            "unit_id": unit.get("id"),
+            "stage": current_stage,
+            "action": action,
+            "target": normalized_target,
+            "iteration": iteration,
+            "remaining_iterations": envelope["max_iterations"] - iteration,
+            "authorization_id": grant["id"],
+        }
+    finally:
+        lock_path.unlink(missing_ok=True)
 
 
 LIFECYCLE_STATUSES = (
@@ -1041,6 +1369,21 @@ def _decision_record_issues(
         issues.append("Decision scope does not match Unit")
     if not _is_iso_timestamp(decision.get("decided_at")):
         issues.append("Decision decided_at must be an ISO-8601 timestamp")
+    if decision.get("gate") == "inception" and decision.get("outcome") == "approved":
+        approval_subject = decision.get("approval_subject")
+        if not isinstance(approval_subject, dict):
+            issues.append("approved Inception Decision requires approval_subject")
+        else:
+            if approval_subject.get("type") != "execution-envelope":
+                issues.append("Inception Decision approval_subject type is invalid")
+            if not isinstance(approval_subject.get("id"), str) or not approval_subject.get(
+                "id", ""
+            ).strip():
+                issues.append("Inception Decision approval_subject requires id")
+            if not isinstance(approval_subject.get("digest"), str) or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}", approval_subject.get("digest", "")
+            ):
+                issues.append("Inception Decision approval_subject requires SHA-256 digest")
     issues.extend(_decision_packet_issues(decision))
     return issues
 
@@ -1092,8 +1435,17 @@ def _approved_envelope_decision_issues(
     )
     if latest.get("outcome") != "approved":
         issues.append("approved Execution Envelope was revoked by the latest Inception Decision")
-    if latest.get("id") != envelope.get("approval_decision_id"):
-        issues.append("Execution Envelope approval does not match the latest Inception Decision")
+    else:
+        approval_subject = latest.get("approval_subject")
+        if not isinstance(approval_subject, dict):
+            issues.append("latest Inception Decision has no bound Execution Envelope subject")
+        else:
+            if approval_subject.get("id") != envelope.get("id"):
+                issues.append("Execution Envelope id does not match its Inception Decision")
+            if approval_subject.get("digest") != envelope.get("approval_digest"):
+                issues.append("Execution Envelope digest does not match its Inception Decision")
+        if latest.get("id") != envelope.get("approval_decision_id"):
+            issues.append("Execution Envelope approval does not match the latest Inception Decision")
     return issues
 
 
@@ -1349,6 +1701,27 @@ def record_decision(
                 f"existing Decision {index} is invalid: " + "; ".join(existing_issues)
             )
 
+    approval_subject: dict[str, str] | None = None
+    if gate == "inception" and outcome == "approved":
+        if "execution-envelope.json" not in references:
+            raise ValueError(
+                "approved Inception Decision must reference execution-envelope.json"
+            )
+        envelope = _unit_json(unit_dir, "execution-envelope.json")
+        envelope_issues = _execution_envelope_issues(
+            envelope, str(unit.get("id"))
+        )
+        if envelope_issues:
+            raise ValueError(
+                "Inception Decision cannot bind an invalid Execution Envelope: "
+                + "; ".join(envelope_issues)
+            )
+        approval_subject = {
+            "type": "execution-envelope",
+            "id": str(envelope["id"]),
+            "digest": str(envelope["approval_digest"]),
+        }
+
     now = datetime.now(timezone.utc)
     decision = {
         "id": "DEC-" + now.strftime("%Y%m%d%H%M%S%f"),
@@ -1368,6 +1741,8 @@ def record_decision(
         "decided_by": decided_by.strip(),
         "decided_at": now.isoformat(),
     }
+    if approval_subject is not None:
+        decision["approval_subject"] = approval_subject
     entries.append(decision)
     decisions["unit_id"] = unit.get("id")
     _write_json(unit_dir / "decisions.json", decisions)
@@ -1465,11 +1840,17 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     checkpoint = read_artifact("checkpoint.json")
     issues.extend(_unit_preflight_issues(unit_dir))
     envelope_path = unit_dir / "execution-envelope.json"
+    envelope: dict[str, Any] | None = None
     if envelope_path.is_file():
         envelope = read_artifact("execution-envelope.json")
         if envelope is not None:
             issues.extend(_execution_envelope_issues(envelope, str(unit.get("id"))))
             issues.extend(_approved_envelope_decision_issues(unit_dir, envelope, unit))
+    ledger_path = unit_dir / "execution-authorizations.json"
+    if ledger_path.is_file() and envelope is not None:
+        ledger = read_artifact("execution-authorizations.json")
+        if ledger is not None:
+            issues.extend(_authorization_ledger_issues(ledger, unit, envelope))
 
     decision_entries = decisions.get("decisions") if decisions is not None else None
     if decisions is not None:

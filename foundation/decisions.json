@@ -12,6 +12,18 @@
       "summary": "Foundation v0.1.0을 현재 검증된 최소 계약 기준선으로 릴리스하고 실제 적용에서 발견한 gap은 후속 버전으로 보완한다.",
       "decided_by": "user",
       "decided_at": "2026-08-05T11:09:09.440545+00:00"
+    },
+    {
+      "id": "DEC-FND-20260806051711261003",
+      "type": "foundation-release-decision",
+      "schema_version": "1.0.0",
+      "foundation_id": "isekai-foundation",
+      "version": "0.1.0",
+      "approval_digest": "sha256:d96f493ee9ba3d5046387179da4456d23be794a8fd562174fdcc9e99309a1bfd",
+      "outcome": "approved",
+      "summary": "사용자 요청에 따라 Envelope 승인 결박, canonical scope, 실제 Unit phase와 iteration budget을 Foundation v0.1 기준선에 반영한다.",
+      "decided_by": "user",
+      "decided_at": "2026-08-06T05:17:11.261003+00:00"
     }
   ]
 }
