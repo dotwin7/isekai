@@ -23,6 +23,7 @@ EXPECTED_ACTIONS = {
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "envelope-approve",
     "authorize",
     "evidence",
     "decision",
@@ -34,6 +35,7 @@ EXPECTED_WRITES = {
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "envelope-approve",
     "authorize",
     "evidence",
     "decision",
@@ -59,6 +61,17 @@ def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
     assert set(manifest["writes"]) == EXPECTED_WRITES
     assert set(manifest["writes"]) <= set(manifest["actions"])
     assert manifest["high_risk_actions"] == []
+    # Core records these as human judgments but cannot verify a human made
+    # them, so adapters must obtain real user confirmation before invoking.
+    human = set(manifest["human_decision_actions"])
+    assert human == {
+        "decision",
+        "envelope-approve",
+        "transition",
+        "foundation-decision",
+        "foundation-promote",
+    }
+    assert human <= set(manifest["writes"])
 
 
 def test_all_runtime_adapter_surfaces_exist_and_parse() -> None:

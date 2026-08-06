@@ -10,4 +10,6 @@ build/
 .isekai-backup-*/
 .isekai-kiro-backup-*/
 units/**/evidence/raw/
+.isekai-unit.lock*
+.isekai-foundation.lock*
 .kiro/

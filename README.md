@@ -183,6 +183,19 @@ Inception → Human Decision → Construction → Validation
 - Release와 Operations에서는 사람이 배포·롤백·고위험 결정을 승인하고 결과를 다음 Unit에 반영합니다.
 - Execution Envelope 밖의 action, canonical Project scope 또는 실제 Unit stage는 Core가 거부합니다. 승인 grant는 Unit ledger에 기록되고 iteration 예산을 소모합니다.
 
+### Execution Envelope 갱신
+
+Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최대 720시간)과 iteration 예산이 있습니다. 둘 중 하나가 소진되면 Unit을 새로 만들지 않고 Envelope를 갱신합니다.
+
+```bash
+./.isekai/bin/isekai envelope-propose --unit units/<unit-id> ...
+./.isekai/bin/isekai decision --unit units/<unit-id> --gate inception \
+  --outcome approved --reference execution-envelope.json ...
+./.isekai/bin/isekai envelope-approve --unit units/<unit-id>
+```
+
+교체 Envelope는 `proposed` 상태로 시작하므로 새 Decision이 승인하기 전까지 Unit은 아무 action도 authorize받지 못합니다. 만료는 authorize 시점에만 판정하며, `verify`는 승인 창이 닫힌 뒤에도 Unit을 계속 검증합니다.
+
 ## 버전 관리와 업데이트
 
 배포 단위는 immutable Git tag와 resolved commit입니다. 먼저 변경 내용을 확인한 다음 적용합니다.
@@ -207,6 +220,22 @@ Inception → Human Decision → Construction → Validation
 - 쓰기 action과 lifecycle Decision은 명시적 사용자 의도 또는 사람 승인을 요구합니다.
 - 고객 데이터나 민감한 원본 Evidence는 Git에서 제외되는 `units/**/evidence/raw/` 아래에 둡니다.
 - 일반 update는 Foundation을 자동으로 교체하지 않습니다.
+
+### Core가 강제하는 것과 강제하지 않는 것
+
+Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
+
+Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 사람의 개입은 호스트 런타임의 승인 UI(도구 실행 승인)에서 집행되며, ISEKAI가 제공하는 것은 그 판단을 감사 가능하게 기록하고 이후의 무단 변경을 탐지하는 계층입니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
+
+Plugin manifest의 `human_decision_actions`가 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
+
+```text
+decision  envelope-approve  transition  foundation-decision  foundation-promote
+```
+
+Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 파일 락으로 직렬화됩니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰는 대신 실패합니다. 락을 쥔 채 죽은 프로세스의 락은 5분 뒤 회수됩니다.
+
+릴리스 digest 검증도 같은 성격입니다. `distribution/release.json`은 태그 안의 component가 서로 일치하는지 확인하며, 서명 검증이 아니므로 신뢰 기준점은 지정한 Git 원격과 immutable tag입니다.
 
 ## 호환성 기준
 

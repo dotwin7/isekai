@@ -166,11 +166,15 @@ else
 fi
 git -C "$checkout" checkout --quiet --detach "$resolved_commit"
 
+# Hand the resolved checkout to Core instead of letting it clone again. A second
+# clone would re-resolve the tag, so a tag that moved in between would install a
+# different commit than the one verified above.
 install_args=(
   -m isekai install
   --source "$source_url"
   --ref "$release_ref"
   --path "$project_path"
+  --checkout "$checkout"
 )
 if ((${#runtimes[@]} == 0)); then
   runtimes=(all)

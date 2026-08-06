@@ -48,6 +48,7 @@
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "envelope-approve",
     "authorize",
     "evidence",
     "decision",
@@ -59,6 +60,7 @@
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "envelope-approve",
     "authorize",
     "evidence",
     "decision",
@@ -68,5 +70,12 @@
     "foundation-promote"
   ],
   "high_risk_actions": [],
+  "human_decision_actions": [
+    "decision",
+    "envelope-approve",
+    "transition",
+    "foundation-decision",
+    "foundation-promote"
+  ],
   "dependencies": []
 }

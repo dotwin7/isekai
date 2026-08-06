@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .workflow import WorkRoute, resolve_context, unit_status
+from .jsonio import write_json_atomic
+from .workflow import (
+    UNIT_LOCK_NAME,
+    WorkRoute,
+    resolve_context,
+    unit_lock,
+    unit_status,
+)
 
 
 class SessionError(ValueError):
@@ -28,11 +36,14 @@ PROJECT_DISCOVERY_EXCLUDES = {
 
 def _descendant_project_candidates(root: Path) -> list[Path]:
     matches: list[Path] = []
-    for path in root.rglob("project.json"):
-        relative = path.relative_to(root)
-        if any(part in PROJECT_DISCOVERY_EXCLUDES for part in relative.parts[:-1]):
-            continue
-        matches.append(path.resolve())
+    for current, directories, files in os.walk(root):
+        # Prune excluded trees during the walk. Filtering matches afterwards
+        # still descends into node_modules and other large vendored trees.
+        directories[:] = sorted(
+            name for name in directories if name not in PROJECT_DISCOVERY_EXCLUDES
+        )
+        if "project.json" in files:
+            matches.append(Path(current, "project.json").resolve())
     return sorted(set(matches))
 
 
@@ -229,7 +240,9 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
             "artifact_references": sorted(
                 str(path.relative_to(selected))
                 for path in selected.rglob("*")
-                if path.is_file() and "__pycache__" not in path.parts
+                if path.is_file()
+                and "__pycache__" not in path.parts
+                and not path.name.startswith(UNIT_LOCK_NAME)
             ),
         },
     }
@@ -268,7 +281,6 @@ def update_checkpoint(
     path = Path(unit_dir).expanduser().resolve()
     if not path.is_dir():
         raise SessionError(f"Unit directory does not exist: {path}")
-    unit = _read_object(path / "unit.json")
     if not isinstance(next_action, str) or not next_action.strip():
         raise SessionError("next_action must be a non-empty string")
     for field, values in (
@@ -280,7 +292,21 @@ def update_checkpoint(
             not isinstance(item, str) or not item.strip() for item in values
         ):
             raise SessionError(f"{field} must be a list of non-empty strings")
-    checkpoint = {
+    with unit_lock(path):
+        unit = _read_object(path / "unit.json")
+        checkpoint = _checkpoint_record(unit, completed, pending, blocked_by, next_action)
+        write_json_atomic(path / "checkpoint.json", checkpoint)
+    return {"path": str(path / "checkpoint.json"), "checkpoint": checkpoint}
+
+
+def _checkpoint_record(
+    unit: dict[str, Any],
+    completed: list[str],
+    pending: list[str],
+    blocked_by: list[str],
+    next_action: str,
+) -> dict[str, Any]:
+    return {
         "unit_id": unit.get("id"),
         "completed": completed,
         "pending": pending,
@@ -288,8 +314,3 @@ def update_checkpoint(
         "next_action": next_action,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    (path / "checkpoint.json").write_text(
-        json.dumps(checkpoint, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path / "checkpoint.json"), "checkpoint": checkpoint}

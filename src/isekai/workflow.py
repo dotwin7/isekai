@@ -3,16 +3,24 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
-import os
 import re
-import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .foundation import FoundationError, FoundationRelease, load_foundation, _validate_condition, _validate_provenance, _validate_rule_metadata
+from .foundation import (
+    FoundationError,
+    FoundationRelease,
+    load_foundation,
+    validate_asset_provenance,
+    validate_condition_definition,
+    validate_rule_definition,
+)
+from .jsonio import write_json_atomic
+from .locking import LockUnavailable, file_lock
 
 
 class WorkRoute(str, Enum):
@@ -121,7 +129,7 @@ def _load_project_extension(
         raise FoundationError(
             f"project extension {asset_id} missing fields: {', '.join(missing)}"
         )
-    _validate_provenance(asset)
+    validate_asset_provenance(asset)
     if asset["id"] != asset_id:
         raise FoundationError(f"project extension descriptor mismatch: {asset_id}")
     if asset["kind"] != "extension":
@@ -139,11 +147,11 @@ def _load_project_extension(
     for rule in extension_rules:
         if not isinstance(rule, dict) or not isinstance(rule.get("id"), str) or rule.get("level") not in level_strength:
             raise FoundationError(f"project extension {asset_id} has an invalid rule")
-        _validate_rule_metadata(rule, f"{asset_id} rule {rule.get('id', '<unknown>')}")
+        validate_rule_definition(rule, f"{asset_id} rule {rule.get('id', '<unknown>')}")
         condition = rule.get("condition")
         if not isinstance(condition, dict) or condition.get("type") != "extension-cannot-weaken-must":
             raise FoundationError(f"project extension {asset_id} rules require extension integrity condition")
-        _validate_condition(condition, rule.get("id", "extension-rule"))
+        validate_condition_definition(condition, rule.get("id", "extension-rule"))
         parent_asset = foundation.assets.get(condition.get("parent_asset"))
         if parent_asset is None or condition.get("parent_level") != "MUST":
             raise FoundationError(f"project extension {asset_id} has an invalid parent MUST reference")
@@ -151,11 +159,10 @@ def _load_project_extension(
         parent_rule = next((item for item in parent_rules if isinstance(item, dict) and item.get("id") == condition.get("parent_rule_id")), None)
         if parent_rule is None or level_strength[rule["level"]] < level_strength["MUST"]:
             raise FoundationError(f"project extension {asset_id} weakens an inherited MUST rule")
-    asset["source_path"] = str(extension_path)
     if not isinstance(extends, list):
         raise FoundationError(f"project extension {asset_id} extends must be a list")
     for parent in extends:
-        if isinstance(parent, str) or not isinstance(parent, dict):
+        if not isinstance(parent, dict):
             raise FoundationError(
                 f"project extension {asset_id} extends must pin parent versions"
             )
@@ -291,21 +298,7 @@ def _slugify(value: str) -> str:
 
 
 def _write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
+    write_json_atomic(path, value)
 
 
 def initialize_project(
@@ -558,7 +551,9 @@ def initialize_unit(
         "max_iterations": 0,
         "proposed_by": owner,
         "proposed_at": envelope_now.isoformat(),
-        "expires_at": (envelope_now + timedelta(days=1)).isoformat(),
+        "expires_at": (
+            envelope_now + timedelta(hours=EXECUTION_ENVELOPE_DEFAULT_HOURS)
+        ).isoformat(),
     }
     initial_envelope["approval_digest"] = _execution_envelope_approval_digest(
         initial_envelope
@@ -587,6 +582,29 @@ def initialize_unit(
     )
     _write_json(unit_dir / "context-receipt.json", receipt)
     return unit_dir
+
+
+PROTECTED_UNIT_ARTIFACTS = {
+    "unit.json",
+    "context-receipt.json",
+    "decisions.json",
+    "execution-envelope.json",
+    "execution-authorizations.json",
+}
+UNIT_LOCK_NAME = ".isekai-unit.lock"
+
+
+@contextmanager
+def unit_lock(unit_dir: Path):
+    """Serialize every mutation of one Unit.
+
+    ``decisions.json`` and ``unit.json`` are read-modify-write ledgers. Without a
+    shared lock two agents working the same Unit overwrite each other's records,
+    and the loser's postflight cannot tell, because it only sees that its own
+    record landed.
+    """
+    with file_lock(unit_dir / UNIT_LOCK_NAME, subject=f"Unit {unit_dir.name}"):
+        yield
 
 
 UNIT_REQUIRED_FILES = {
@@ -688,6 +706,20 @@ EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
     "approval_digest",
 }
 EXECUTION_ENVELOPE_STATUSES = {"proposed", "approved"}
+# An Envelope bounds how long an approval keeps authorizing actions. Units are
+# meant to span sessions, so the default is a working week rather than a day,
+# and an expired Envelope is renewed through a fresh human Decision.
+EXECUTION_ENVELOPE_DEFAULT_HOURS = 168
+EXECUTION_ENVELOPE_MAX_HOURS = 720
+# Statuses in which an Envelope may be proposed or re-proposed. Re-proposing
+# revokes the active approval until a new Inception Decision approves it.
+EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
+    "proposed",
+    "inception",
+    "awaiting-inception-decision",
+    "construction",
+    "awaiting-release-decision",
+}
 EXECUTION_ENVELOPE_APPROVAL_FIELDS = {
     "id",
     "type",
@@ -735,7 +767,16 @@ def _execution_envelope_issues(
     unit_id: str | None = None,
     *,
     require_approved: bool = False,
+    check_expiry: bool = True,
 ) -> list[str]:
+    """Report structural problems with an Envelope.
+
+    ``check_expiry`` separates the two questions an Envelope answers. Structure
+    and binding are permanent properties, so ``verify_unit`` checks them for the
+    whole life of a Unit. Expiry only decides whether the approval still
+    authorizes new actions, so it is checked when granting or binding an
+    approval - never when auditing a Unit that has already moved on.
+    """
     if not isinstance(envelope, dict):
         return ["Execution Envelope must be an object"]
     issues: list[str] = []
@@ -765,8 +806,11 @@ def _execution_envelope_issues(
             expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
             if expiry.tzinfo is None:
                 expiry = expiry.replace(tzinfo=timezone.utc)
-            if expiry <= datetime.now(timezone.utc):
-                issues.append("Execution Envelope is expired")
+            if check_expiry and expiry <= datetime.now(timezone.utc):
+                issues.append(
+                    "Execution Envelope is expired; propose a new Envelope and "
+                    "record a new approved inception Decision to renew it"
+                )
         except ValueError:
             issues.append("Execution Envelope expires_at must be an ISO-8601 timestamp")
     if require_approved and envelope.get("status") != "approved":
@@ -871,21 +915,58 @@ def propose_execution_envelope(
     forbidden_actions: list[str],
     max_iterations: int,
     proposed_by: str,
+    expires_in_hours: int = EXECUTION_ENVELOPE_DEFAULT_HOURS,
 ) -> dict[str, Any]:
+    """Propose an Execution Envelope, replacing any Envelope the Unit already has.
+
+    Re-proposing during Construction is how an expired Envelope or an exhausted
+    iteration budget is renewed. The replacement starts as ``proposed``, so the
+    Unit holds no authorization until a new approved inception Decision binds it.
+    """
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise ValueError(f"Unit directory does not exist: {unit_dir}")
+    with unit_lock(unit_dir):
+        return _propose_execution_envelope_locked(
+            unit_dir,
+            scope=scope,
+            stages=stages,
+            allowed_actions=allowed_actions,
+            forbidden_actions=forbidden_actions,
+            max_iterations=max_iterations,
+            proposed_by=proposed_by,
+            expires_in_hours=expires_in_hours,
+        )
+
+
+def _propose_execution_envelope_locked(
+    unit_dir: Path,
+    *,
+    scope: list[str],
+    stages: list[dict[str, Any]],
+    allowed_actions: list[str],
+    forbidden_actions: list[str],
+    max_iterations: int,
+    proposed_by: str,
+    expires_in_hours: int,
+) -> dict[str, Any]:
     unit = _unit_json(unit_dir, "unit.json")
-    if unit.get("status") not in {
-        "proposed",
-        "inception",
-        "awaiting-inception-decision",
-    }:
+    if unit.get("status") not in EXECUTION_ENVELOPE_PROPOSABLE_STATUSES:
         raise ValueError(
-            "Execution Envelope can only be proposed before Construction"
+            "Execution Envelope can only be proposed before Release; current status: "
+            + str(unit.get("status"))
         )
     if not isinstance(proposed_by, str) or not proposed_by.strip():
         raise ValueError("proposed_by must be a non-empty string")
+    if (
+        not isinstance(expires_in_hours, int)
+        or isinstance(expires_in_hours, bool)
+        or not 0 < expires_in_hours <= EXECUTION_ENVELOPE_MAX_HOURS
+    ):
+        raise ValueError(
+            "expires_in_hours must be a positive integer of at most "
+            f"{EXECUTION_ENVELOPE_MAX_HOURS}"
+        )
     now = datetime.now(timezone.utc)
     envelope = {
         "id": f"ENV-{unit.get('id')}-{now.strftime('%Y%m%d%H%M%S%f')}",
@@ -900,7 +981,7 @@ def propose_execution_envelope(
         "max_iterations": max_iterations,
         "proposed_by": proposed_by.strip(),
         "proposed_at": now.isoformat(),
-        "expires_at": (now + timedelta(days=1)).isoformat(),
+        "expires_at": (now + timedelta(hours=expires_in_hours)).isoformat(),
     }
     envelope["approval_digest"] = _execution_envelope_approval_digest(envelope)
     issues = _execution_envelope_issues(envelope, str(unit.get("id")))
@@ -930,6 +1011,15 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
     issues = _execution_envelope_issues(envelope, str(unit.get("id")))
     if issues:
         raise ValueError("Execution Envelope approval blocked: " + "; ".join(issues))
+    decision_issues = _decision_record_issues(
+        decision,
+        unit_id=str(unit.get("id")),
+        scope=str(unit.get("scope")),
+    )
+    if decision_issues:
+        raise ValueError(
+            "Execution Envelope approval blocked: " + "; ".join(decision_issues)
+        )
     references = decision.get("references", [])
     if "execution-envelope.json" not in references:
         raise ValueError(
@@ -951,6 +1041,38 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
     persisted = _unit_json(unit_dir, "execution-envelope.json")
     if persisted.get("status") != "approved":
         raise ValueError("Execution Envelope approval postflight blocked")
+
+
+def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
+    """Bind the Unit's current Envelope to its latest approved inception Decision.
+
+    The initial approval happens as part of the transition into Construction.
+    This is the renewal path: after a replacement Envelope is proposed and a new
+    inception Decision approves it, this activates it without another transition.
+    """
+    unit_dir = Path(path).expanduser().resolve()
+    if not unit_dir.is_dir():
+        raise ValueError(f"Unit directory does not exist: {unit_dir}")
+    with unit_lock(unit_dir):
+        preflight_issues = _unit_preflight_issues(unit_dir)
+        if preflight_issues:
+            raise ValueError(
+                "Execution Envelope approval blocked: " + "; ".join(preflight_issues)
+            )
+        decisions = _unit_json(unit_dir, "decisions.json")
+        unit = _unit_json(unit_dir, "unit.json")
+        if decisions.get("unit_id") != unit.get("id"):
+            raise ValueError("decisions.json unit_id does not match Unit")
+        decision = _latest_decision(decisions, "inception")
+        if decision is None or decision.get("outcome") != "approved":
+            raise ValueError("Execution Envelope needs an approved inception Decision")
+        _approve_execution_envelope(unit_dir, decision)
+        envelope = _unit_json(unit_dir, "execution-envelope.json")
+    return {
+        "path": str(unit_dir / "execution-envelope.json"),
+        "envelope": envelope,
+        "approval_decision_id": decision["id"],
+    }
 
 
 AUTHORIZATION_LEDGER_REQUIRED_FIELDS = {
@@ -1059,28 +1181,25 @@ def _authorization_target_protection_issue(
     if action != "edit":
         return None
     target_parts = Path(normalized_target).parts
+    if not target_parts:
+        return "Authorization target must identify a path inside the Project"
     if normalized_target in {"project.json", "isekai.lock.json"}:
         return f"Core control artifact cannot be edited through authorize: {normalized_target}"
     if target_parts and target_parts[0] in {".git", ".isekai"}:
         return f"Managed control path cannot be edited through authorize: {normalized_target}"
     receipt = _unit_json(unit_dir, "context-receipt.json")
     project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
-    try:
-        unit_relative = unit_dir.relative_to(project_root).as_posix()
-    except ValueError:
-        return None
-    protected_unit_artifacts = {
-        "unit.json",
-        "context-receipt.json",
-        "decisions.json",
-        "execution-envelope.json",
-        "execution-authorizations.json",
-    }
-    protected_targets = {
-        f"{unit_relative}/{relative}" for relative in protected_unit_artifacts
-    }
-    if normalized_target in protected_targets:
+    candidate = (project_root / normalized_target).resolve()
+    # Identify a Unit control artifact by what it is, not by where the active
+    # Unit happens to sit. This protects sibling Units in the same Project and
+    # stays correct when a Unit is stored outside the Project it governs.
+    if (
+        candidate.name in PROTECTED_UNIT_ARTIFACTS
+        and (candidate.parent / "unit.json").is_file()
+    ):
         return f"Unit control artifact cannot be edited through authorize: {normalized_target}"
+    if candidate.name == UNIT_LOCK_NAME:
+        return f"Unit lock cannot be edited through authorize: {normalized_target}"
     return None
 
 
@@ -1163,66 +1282,58 @@ def authorize_action(
         }
 
     ledger_path = unit_dir / "execution-authorizations.json"
-    lock_path = unit_dir / ".execution-authorizations.lock"
     try:
-        lock_descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        return {
-            "allowed": False,
-            "reason": "Authorization is already being evaluated; retry after it completes",
-        }
-    os.close(lock_descriptor)
-    try:
-        try:
-            ledger = _unit_json(unit_dir, "execution-authorizations.json")
-        except ValueError as exc:
-            return {"allowed": False, "reason": str(exc)}
-        ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
-        if ledger_issues:
-            return {
-                "allowed": False,
-                "reason": "Action blocked: " + "; ".join(ledger_issues),
+        with unit_lock(unit_dir):
+            try:
+                ledger = _unit_json(unit_dir, "execution-authorizations.json")
+            except ValueError as exc:
+                return {"allowed": False, "reason": str(exc)}
+            ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+            if ledger_issues:
+                return {
+                    "allowed": False,
+                    "reason": "Action blocked: " + "; ".join(ledger_issues),
+                }
+            grants = ledger["grants"]
+            if len(grants) >= envelope["max_iterations"]:
+                return {
+                    "allowed": False,
+                    "reason": "Execution Envelope max_iterations budget is exhausted",
+                }
+            now = datetime.now(timezone.utc)
+            iteration = len(grants) + 1
+            grant = {
+                "id": "AUTH-" + now.strftime("%Y%m%d%H%M%S%f"),
+                "action": action,
+                "target": normalized_target,
+                "stage": current_stage,
+                "iteration": iteration,
+                "decision_id": envelope.get("approval_decision_id"),
+                "envelope_digest": envelope.get("approval_digest"),
+                "authorized_at": now.isoformat(),
             }
-        grants = ledger["grants"]
-        if len(grants) >= envelope["max_iterations"]:
+            grants.append(grant)
+            _write_json(ledger_path, ledger)
+            persisted = _unit_json(unit_dir, "execution-authorizations.json")
+            persisted_issues = _authorization_ledger_issues(persisted, unit, envelope)
+            if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
+                return {
+                    "allowed": False,
+                    "reason": "Authorization receipt postflight failed",
+                }
             return {
-                "allowed": False,
-                "reason": "Execution Envelope max_iterations budget is exhausted",
+                "allowed": True,
+                "reason": "Action is within the approved Execution Envelope",
+                "unit_id": unit.get("id"),
+                "stage": current_stage,
+                "action": action,
+                "target": normalized_target,
+                "iteration": iteration,
+                "remaining_iterations": envelope["max_iterations"] - iteration,
+                "authorization_id": grant["id"],
             }
-        now = datetime.now(timezone.utc)
-        iteration = len(grants) + 1
-        grant = {
-            "id": "AUTH-" + now.strftime("%Y%m%d%H%M%S%f"),
-            "action": action,
-            "target": normalized_target,
-            "stage": current_stage,
-            "iteration": iteration,
-            "decision_id": envelope.get("approval_decision_id"),
-            "envelope_digest": envelope.get("approval_digest"),
-            "authorized_at": now.isoformat(),
-        }
-        grants.append(grant)
-        _write_json(ledger_path, ledger)
-        persisted = _unit_json(unit_dir, "execution-authorizations.json")
-        persisted_issues = _authorization_ledger_issues(persisted, unit, envelope)
-        if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
-            return {
-                "allowed": False,
-                "reason": "Authorization receipt postflight failed",
-            }
-        return {
-            "allowed": True,
-            "reason": "Action is within the approved Execution Envelope",
-            "unit_id": unit.get("id"),
-            "stage": current_stage,
-            "action": action,
-            "target": normalized_target,
-            "iteration": iteration,
-            "remaining_iterations": envelope["max_iterations"] - iteration,
-            "authorization_id": grant["id"],
-        }
-    finally:
-        lock_path.unlink(missing_ok=True)
+    except LockUnavailable as exc:
+        return {"allowed": False, "reason": str(exc)}
 
 
 LIFECYCLE_STATUSES = (
@@ -1592,6 +1703,26 @@ def record_evidence(
     if not isinstance(recorded_by, str) or not recorded_by.strip():
         raise ValueError("recorded_by must be a non-empty string")
 
+    with unit_lock(unit_dir):
+        return _record_evidence_locked(
+            unit_dir,
+            passed=passed,
+            commands=commands,
+            scope=scope,
+            recorded_by=recorded_by,
+            notes=notes,
+        )
+
+
+def _record_evidence_locked(
+    unit_dir: Path,
+    *,
+    passed: bool,
+    commands: list[dict[str, Any]],
+    scope: str,
+    recorded_by: str,
+    notes: str,
+) -> dict[str, Any]:
     unit = _unit_json(unit_dir, "unit.json")
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
@@ -1680,76 +1811,82 @@ def record_decision(
     if packet_issues:
         raise ValueError("Decision Packet rejected: " + "; ".join(packet_issues))
 
-    unit = _unit_json(unit_dir, "unit.json")
-    preflight_issues = _unit_preflight_issues(unit_dir)
-    if preflight_issues:
-        raise ValueError("Decision preflight blocked: " + "; ".join(preflight_issues))
-    decisions = _unit_json(unit_dir, "decisions.json")
-    entries = decisions.get("decisions")
-    if not isinstance(entries, list):
-        raise ValueError("decisions.json decisions must be a list")
-    if decisions.get("unit_id") != unit.get("id"):
-        raise ValueError("decisions.json unit_id does not match Unit")
-    for index, existing in enumerate(entries):
-        existing_issues = _decision_record_issues(
-            existing,
-            unit_id=str(unit.get("id")),
-            scope=str(unit.get("scope")),
-        )
-        if existing_issues:
-            raise ValueError(
-                f"existing Decision {index} is invalid: " + "; ".join(existing_issues)
+    with unit_lock(unit_dir):
+        unit = _unit_json(unit_dir, "unit.json")
+        preflight_issues = _unit_preflight_issues(unit_dir)
+        if preflight_issues:
+            raise ValueError("Decision preflight blocked: " + "; ".join(preflight_issues))
+        decisions = _unit_json(unit_dir, "decisions.json")
+        entries = decisions.get("decisions")
+        if not isinstance(entries, list):
+            raise ValueError("decisions.json decisions must be a list")
+        if decisions.get("unit_id") != unit.get("id"):
+            raise ValueError("decisions.json unit_id does not match Unit")
+        for index, existing in enumerate(entries):
+            existing_issues = _decision_record_issues(
+                existing,
+                unit_id=str(unit.get("id")),
+                scope=str(unit.get("scope")),
             )
+            if existing_issues:
+                raise ValueError(
+                    f"existing Decision {index} is invalid: " + "; ".join(existing_issues)
+                )
+        preceding_ids = [entry.get("id") for entry in entries]
 
-    approval_subject: dict[str, str] | None = None
-    if gate == "inception" and outcome == "approved":
-        if "execution-envelope.json" not in references:
-            raise ValueError(
-                "approved Inception Decision must reference execution-envelope.json"
+        approval_subject: dict[str, str] | None = None
+        if gate == "inception" and outcome == "approved":
+            if "execution-envelope.json" not in references:
+                raise ValueError(
+                    "approved Inception Decision must reference execution-envelope.json"
+                )
+            envelope = _unit_json(unit_dir, "execution-envelope.json")
+            envelope_issues = _execution_envelope_issues(
+                envelope, str(unit.get("id"))
             )
-        envelope = _unit_json(unit_dir, "execution-envelope.json")
-        envelope_issues = _execution_envelope_issues(
-            envelope, str(unit.get("id"))
-        )
-        if envelope_issues:
-            raise ValueError(
-                "Inception Decision cannot bind an invalid Execution Envelope: "
-                + "; ".join(envelope_issues)
-            )
-        approval_subject = {
-            "type": "execution-envelope",
-            "id": str(envelope["id"]),
-            "digest": str(envelope["approval_digest"]),
+            if envelope_issues:
+                raise ValueError(
+                    "Inception Decision cannot bind an invalid Execution Envelope: "
+                    + "; ".join(envelope_issues)
+                )
+            approval_subject = {
+                "type": "execution-envelope",
+                "id": str(envelope["id"]),
+                "digest": str(envelope["approval_digest"]),
+            }
+
+        now = datetime.now(timezone.utc)
+        decision = {
+            "id": "DEC-" + now.strftime("%Y%m%d%H%M%S%f"),
+            "type": "human-decision",
+            "schema_version": "1.0.0",
+            "unit_id": unit.get("id"),
+            "gate": gate,
+            "outcome": outcome,
+            "summary": summary.strip(),
+            "scope": unit["scope"],
+            "decision_packet_version": DECISION_PACKET_VERSION,
+            "rationale": rationale,
+            "alternatives": alternatives,
+            "tradeoffs": tradeoffs,
+            "risks": risks,
+            "references": references,
+            "decided_by": decided_by.strip(),
+            "decided_at": now.isoformat(),
         }
-
-    now = datetime.now(timezone.utc)
-    decision = {
-        "id": "DEC-" + now.strftime("%Y%m%d%H%M%S%f"),
-        "type": "human-decision",
-        "schema_version": "1.0.0",
-        "unit_id": unit.get("id"),
-        "gate": gate,
-        "outcome": outcome,
-        "summary": summary.strip(),
-        "scope": unit["scope"],
-        "decision_packet_version": DECISION_PACKET_VERSION,
-        "rationale": rationale,
-        "alternatives": alternatives,
-        "tradeoffs": tradeoffs,
-        "risks": risks,
-        "references": references,
-        "decided_by": decided_by.strip(),
-        "decided_at": now.isoformat(),
-    }
-    if approval_subject is not None:
-        decision["approval_subject"] = approval_subject
-    entries.append(decision)
-    decisions["unit_id"] = unit.get("id")
-    _write_json(unit_dir / "decisions.json", decisions)
-    persisted_decisions = _unit_json(unit_dir, "decisions.json")
-    persisted_entries = persisted_decisions.get("decisions", [])
-    if not persisted_entries or persisted_entries[-1].get("id") != decision["id"]:
-        raise ValueError("Decision postflight blocked: record was not persisted")
+        if approval_subject is not None:
+            decision["approval_subject"] = approval_subject
+        entries.append(decision)
+        decisions["unit_id"] = unit.get("id")
+        _write_json(unit_dir / "decisions.json", decisions)
+        persisted_entries = _unit_json(unit_dir, "decisions.json").get("decisions", [])
+        persisted_ids = [entry.get("id") for entry in persisted_entries]
+        # Check that no earlier record was dropped, not merely that this one
+        # landed. A lost update leaves the winner's record last and looks fine.
+        if persisted_ids != [*preceding_ids, decision["id"]]:
+            raise ValueError(
+                "Decision postflight blocked: the Decision ledger changed during the write"
+            )
     return {"path": str(unit_dir / "decisions.json"), "decision": decision}
 
 
@@ -1757,6 +1894,11 @@ def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise ValueError(f"Unit directory does not exist: {unit_dir}")
+    with unit_lock(unit_dir):
+        return _transition_unit_locked(unit_dir, target_status)
+
+
+def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any]:
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
         raise ValueError("Unit preflight blocked: " + "; ".join(preflight_issues))
@@ -1823,7 +1965,9 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     present = {
         str(file.relative_to(unit_dir))
         for file in unit_dir.rglob("*")
-        if file.is_file() and "__pycache__" not in file.parts
+        if file.is_file()
+        and "__pycache__" not in file.parts
+        and not file.name.startswith(UNIT_LOCK_NAME)
     }
     missing = sorted(UNIT_REQUIRED_FILES - present)
     issues: list[str] = []
@@ -1844,7 +1988,14 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     if envelope_path.is_file():
         envelope = read_artifact("execution-envelope.json")
         if envelope is not None:
-            issues.extend(_execution_envelope_issues(envelope, str(unit.get("id"))))
+            # Verification audits structure and binding, not whether the
+            # approval window is still open, so a Unit stays verifiable after
+            # its Envelope lapses.
+            issues.extend(
+                _execution_envelope_issues(
+                    envelope, str(unit.get("id")), check_expiry=False
+                )
+            )
             issues.extend(_approved_envelope_decision_issues(unit_dir, envelope, unit))
     ledger_path = unit_dir / "execution-authorizations.json"
     if ledger_path.is_file() and envelope is not None:

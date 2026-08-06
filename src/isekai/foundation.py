@@ -11,8 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .jsonio import write_json_atomic
+from .locking import file_lock
+
 
 ALLOWED_STATUSES = {"draft", "approved", "deprecated"}
+# Evaluation fixtures are graded against a fixed instant so that a released
+# Foundation keeps the same verdict regardless of when it is re-checked.
+EVALUATION_CLOCK = datetime(2026, 8, 5, tzinfo=timezone.utc)
+FOUNDATION_LOCK_NAME = ".isekai-foundation.lock"
 ALLOWED_ASSET_KINDS = {
     "schema", "profile", "extension", "rule-set", "policy", "semantic-mapping", "knowledge", "evaluation",
     "gate-matrix", "agent-execution-contract", "human-gate-contract", "exception-contract",
@@ -159,16 +166,15 @@ class FoundationRelease:
                 blockers.append(
                     f"asset {asset['id']} status is {asset['status']}; human approval is required"
                 )
-        blockers.extend(_approval_blockers(self))
-        evaluations = evaluate_all_evaluations(self.root)
-        for evaluation_id, result in evaluations["evaluations"].items():
-            if result["passed"] is not True:
-                blockers.append(f"evaluation group {evaluation_id} did not pass")
+        # Grade the evaluation matrix once and reuse it; approval blockers report
+        # the same failures, so the results must not be recomputed per consumer.
+        evaluations = evaluate_all_evaluations(self)
+        blockers.extend(_approval_blockers(self, evaluations=evaluations))
         return {
             "ready": not blockers,
             "summary": self.summary(),
             "evaluations": evaluations,
-            "blockers": blockers,
+            "blockers": list(dict.fromkeys(blockers)),
         }
 
 
@@ -185,8 +191,7 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json_atomic(path, value)
 
 
 def _optional_json(path: Path) -> dict[str, Any] | None:
@@ -244,6 +249,8 @@ def _latest_foundation_decision(
 def _foundation_evidence_issues(
     foundation: FoundationRelease,
     evidence: dict[str, Any] | None,
+    *,
+    evaluations: dict[str, Any] | None = None,
 ) -> list[str]:
     if evidence is None:
         return ["missing Foundation release Evidence"]
@@ -304,7 +311,8 @@ def _foundation_evidence_issues(
             except FoundationError as exc:
                 issues.append(str(exc))
         try:
-            expected = set(evaluate_all_evaluations(foundation.root)["evaluations"])
+            graded = evaluations if evaluations is not None else evaluate_all_evaluations(foundation)
+            expected = set(graded["evaluations"])
             actual = {check.get("id") for check in checks if isinstance(check, dict)}
             missing_groups = sorted(expected - actual)
             if missing_groups:
@@ -314,7 +322,11 @@ def _foundation_evidence_issues(
     return issues
 
 
-def _approval_blockers(foundation: FoundationRelease) -> list[str]:
+def _approval_blockers(
+    foundation: FoundationRelease,
+    *,
+    evaluations: dict[str, Any] | None = None,
+) -> list[str]:
     decision, decision_issues = _latest_foundation_decision(foundation)
     blockers = list(decision_issues)
     if decision is not None and decision.get("outcome") != "approved":
@@ -325,14 +337,17 @@ def _approval_blockers(foundation: FoundationRelease) -> list[str]:
     except FoundationError as exc:
         evidence = None
         blockers.append(str(exc))
-    blockers.extend(_foundation_evidence_issues(foundation, evidence))
-    try:
-        evaluations = evaluate_all_evaluations(foundation.root)
-        for evaluation_id, result in evaluations["evaluations"].items():
+    graded = evaluations
+    if graded is None:
+        try:
+            graded = evaluate_all_evaluations(foundation)
+        except FoundationError as exc:
+            blockers.append(str(exc))
+    blockers.extend(_foundation_evidence_issues(foundation, evidence, evaluations=graded))
+    if graded is not None:
+        for evaluation_id, result in graded["evaluations"].items():
             if result["passed"] is not True:
                 blockers.append(f"evaluation group {evaluation_id} did not pass")
-    except FoundationError as exc:
-        blockers.append(str(exc))
     return blockers
 
 
@@ -354,34 +369,44 @@ def record_foundation_decision(
         raise FoundationError("Foundation Decision decided_by must be non-empty")
 
     path = foundation.root / "decisions.json"
-    document = _optional_json(path) or {
-        "foundation_id": foundation.manifest["id"],
-        "version": foundation.version,
-        "decisions": [],
-    }
-    if document.get("foundation_id") != foundation.manifest["id"]:
-        raise FoundationError("Foundation Decision foundation_id does not match release")
-    if document.get("version") != foundation.version:
-        raise FoundationError("Foundation Decision document version does not match release")
-    entries = document.get("decisions")
-    if not isinstance(entries, list):
-        raise FoundationError("Foundation decisions must be a list")
-    now = datetime.now(timezone.utc)
-    decision = {
-        "id": "DEC-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
-        "type": "foundation-release-decision",
-        "schema_version": "1.0.0",
-        "foundation_id": foundation.manifest["id"],
-        "version": foundation.version,
-        "approval_digest": foundation.approval_digest,
-        "outcome": outcome,
-        "summary": summary.strip(),
-        "decided_by": decided_by.strip(),
-        "decided_at": now.isoformat(),
-    }
-    entries.append(decision)
-    document["version"] = foundation.version
-    _write_json(path, document)
+    # decisions.json is an append-only ledger, so concurrent recorders would
+    # otherwise silently drop each other's Decisions.
+    with file_lock(foundation.root / FOUNDATION_LOCK_NAME, subject="Foundation release"):
+        document = _optional_json(path) or {
+            "foundation_id": foundation.manifest["id"],
+            "version": foundation.version,
+            "decisions": [],
+        }
+        if document.get("foundation_id") != foundation.manifest["id"]:
+            raise FoundationError("Foundation Decision foundation_id does not match release")
+        if document.get("version") != foundation.version:
+            raise FoundationError("Foundation Decision document version does not match release")
+        entries = document.get("decisions")
+        if not isinstance(entries, list):
+            raise FoundationError("Foundation decisions must be a list")
+        preceding_ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
+        now = datetime.now(timezone.utc)
+        decision = {
+            "id": "DEC-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
+            "type": "foundation-release-decision",
+            "schema_version": "1.0.0",
+            "foundation_id": foundation.manifest["id"],
+            "version": foundation.version,
+            "approval_digest": foundation.approval_digest,
+            "outcome": outcome,
+            "summary": summary.strip(),
+            "decided_by": decided_by.strip(),
+            "decided_at": now.isoformat(),
+        }
+        entries.append(decision)
+        document["version"] = foundation.version
+        _write_json(path, document)
+        persisted = _load_json(path).get("decisions", [])
+        persisted_ids = [entry.get("id") for entry in persisted if isinstance(entry, dict)]
+        if persisted_ids != [*preceding_ids, decision["id"]]:
+            raise FoundationError(
+                "Foundation Decision postflight blocked: the ledger changed during the write"
+            )
     return {"path": str(path), "decision": decision}
 
 
@@ -1138,8 +1163,15 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
     return False
 
 
-def evaluate_routing_cases(root: str | Path) -> dict[str, Any]:
-    foundation = load_foundation(root)
+def _as_release(root: str | Path | FoundationRelease) -> FoundationRelease:
+    """Accept an already validated release so callers can avoid re-reading it."""
+    if isinstance(root, FoundationRelease):
+        return root
+    return load_foundation(root)
+
+
+def evaluate_routing_cases(root: str | Path | FoundationRelease) -> dict[str, Any]:
+    foundation = _as_release(root)
     asset = foundation.assets.get("routing-evaluation")
     if asset is None:
         raise FoundationError("missing routing-evaluation asset")
@@ -1153,8 +1185,16 @@ def evaluate_routing_cases(root: str | Path) -> dict[str, Any]:
 
 def validate_foundation(root: str | Path) -> dict[str, Any]:
     foundation = load_foundation(root)
-    routing = evaluate_routing_cases(root)
+    routing = evaluate_routing_cases(foundation)
     return {"valid": True, "summary": foundation.summary(), "evaluations": {"routing": routing}}
+
+
+# Public names for the structural validators that Project-owned assets reuse.
+# Project extensions are held to the same rule, provenance, and condition
+# contract as Foundation assets, so these are part of the supported surface.
+validate_condition_definition = _validate_condition
+validate_asset_provenance = _validate_provenance
+validate_rule_definition = _validate_rule_metadata
 
 
 
@@ -1184,13 +1224,13 @@ def _evaluate_case(foundation: FoundationRelease, asset: dict[str, Any], case: d
         if not any(item.get("id") == gate for item in matrix):
             return False
     condition = case.get("condition", _evaluation_condition(foundation, asset))
-    return evaluate_condition(condition, subject, now=datetime(2026, 8, 5, tzinfo=timezone.utc))
+    return evaluate_condition(condition, subject, now=EVALUATION_CLOCK)
 
 
-def evaluate_all_evaluations(root: str | Path) -> dict[str, Any]:
+def evaluate_all_evaluations(root: str | Path | FoundationRelease) -> dict[str, Any]:
     """Run every versioned evaluation fixture through its declared evaluator."""
-    foundation = load_foundation(root)
-    evaluations: dict[str, Any] = {"routing": evaluate_routing_cases(root)}
+    foundation = _as_release(root)
+    evaluations: dict[str, Any] = {"routing": evaluate_routing_cases(foundation)}
     for asset in sorted(foundation.assets_by_kind("evaluation"), key=lambda item: item["id"]):
         if asset["id"] == "routing-evaluation":
             continue
@@ -1206,5 +1246,5 @@ def evaluate_all_evaluations(root: str | Path) -> dict[str, Any]:
 def evaluate_foundation(root: str | Path) -> dict[str, Any]:
     """Validate the Foundation and execute its complete evaluation matrix."""
     foundation = load_foundation(root)
-    evaluations = evaluate_all_evaluations(root)
+    evaluations = evaluate_all_evaluations(foundation)
     return {"valid": True, "evaluations_passed": evaluations["passed"], "summary": foundation.summary(), "evaluations": evaluations["evaluations"]}

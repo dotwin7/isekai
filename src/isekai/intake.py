@@ -33,6 +33,24 @@ def _strings(value: Any, field: str) -> list[str]:
     return [item.strip() for item in value]
 
 
+def _matches(text: str, markers: tuple[str, ...]) -> bool:
+    """Match markers as whole words where the script has word boundaries.
+
+    Substring matching made ``deploy`` inside a filename look like a deployment
+    request. Korean has no word boundaries, so those markers stay substrings.
+    """
+    for marker in markers:
+        marker = marker.strip()
+        if not marker:
+            continue
+        if marker.isascii() and re.search(r"\w", marker):
+            if re.search(rf"(?<!\w){re.escape(marker)}(?!\w)", text):
+                return True
+        elif marker in text:
+            return True
+    return False
+
+
 def _infer_change(text: str, source: str) -> str:
     if source == "host-goal":
         return "persistent"
@@ -104,14 +122,16 @@ def _infer_change(text: str, source: str) -> str:
         "can you implement",
     )
     quick_markers = ("오타", "typo", "문구", "format", "whitespace")
-    if any(marker in lowered for marker in question_markers) and not any(
-        marker in lowered for marker in requested_change_markers
+    if _matches(lowered, question_markers) and not _matches(
+        lowered, requested_change_markers
     ):
         return "none"
-    if any(marker in lowered for marker in quick_markers):
+    if _matches(lowered, quick_markers):
         return "local"
-    if any(marker in lowered for marker in change_markers):
+    if _matches(lowered, change_markers):
         return "persistent"
+    # Unrecognized phrasing falls through to the safest route: a Unit asks for
+    # explicit intent and human approval rather than acting on a guess.
     return "persistent"
 
 

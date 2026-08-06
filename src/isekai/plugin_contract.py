@@ -8,7 +8,6 @@ from . import __version__
 from .distribution import PROTOCOL_VERSION, verify_adapter_handshake
 from .intake import intake
 from .foundation import (
-    FoundationError,
     load_foundation,
     promote_foundation,
     record_foundation_decision,
@@ -21,10 +20,11 @@ from .session import (
     update_checkpoint,
 )
 from .workflow import (
+    EXECUTION_ENVELOPE_DEFAULT_HOURS,
     RouteRequest,
-    WorkRoute,
     classify_work,
     initialize_unit,
+    approve_execution_envelope,
     authorize_action,
     propose_execution_envelope,
     record_decision,
@@ -211,7 +211,15 @@ def dispatch(action: str, payload: Mapping[str, Any] | None = None) -> dict[str,
                 forbidden_actions=list(values.get("forbidden_actions", [])),
                 max_iterations=int(values.get("max_iterations", 0)),
                 proposed_by=str(_required(values, "proposed_by")),
+                expires_in_hours=int(
+                    values.get("expires_in_hours") or EXECUTION_ENVELOPE_DEFAULT_HOURS
+                ),
             ),
+        )
+    if action == "envelope-approve":
+        return _envelope(
+            action,
+            approve_execution_envelope(_required(values, "unit")),
         )
     if action == "authorize":
         return _envelope(

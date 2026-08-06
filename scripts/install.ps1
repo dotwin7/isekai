@@ -95,11 +95,15 @@ try {
     Assert-LastExitCode "Git checkout"
 
     $env:PYTHONPATH = Join-Path $checkout "src"
+    # Hand the resolved checkout to Core instead of letting it clone again. A
+    # second clone would re-resolve the tag, so a tag that moved in between
+    # would install a different commit than the one verified above.
     $installArgs = @(
         "-m", "isekai", "install",
         "--source", $Source,
         "--ref", $Ref,
-        "--path", $resolvedProject
+        "--path", $resolvedProject,
+        "--checkout", $checkout
     )
     foreach ($selectedRuntime in $Runtime) {
         $installArgs += @("--runtime", $selectedRuntime)

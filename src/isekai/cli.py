@@ -9,6 +9,7 @@ from typing import Sequence
 from .distribution import (
     MANIFEST_PATH,
     doctor_install,
+    install_from_bootstrap_checkout,
     install_from_git,
     load_install_lock,
     plan_git_update,
@@ -16,19 +17,12 @@ from .distribution import (
     verify_distribution,
     write_distribution_manifest,
 )
-from .foundation import (
-    FoundationError,
-    load_foundation,
-    promote_foundation,
-    record_foundation_decision,
-    record_foundation_evidence,
-)
+from .foundation import FoundationError, load_foundation
 from .plugin_contract import dispatch
 from .workflow import (
-    RouteRequest,
+    EXECUTION_ENVELOPE_DEFAULT_HOURS,
+    EXECUTION_ENVELOPE_MAX_HOURS,
     WorkRoute,
-    classify_work,
-    initialize_unit,
     resolve_context,
     unit_status,
     verify_unit,
@@ -39,6 +33,9 @@ def _json(value: object) -> None:
     print(json.dumps(value, indent=2, ensure_ascii=False))
 
 
+# Typing one of these as the first argument runs the plugin action of the same
+# name, so no top-level command may reuse one: the alias would shadow it and
+# leave the top-level parser unreachable.
 DIRECT_PLUGIN_ACTIONS = {
     "init",
     "handshake",
@@ -57,6 +54,7 @@ DIRECT_PLUGIN_ACTIONS = {
     "unit-init",
     "checkpoint",
     "envelope-propose",
+    "envelope-approve",
     "authorize",
     "evidence",
     "decision",
@@ -83,6 +81,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     install.add_argument("--adopt-foundation", action="store_true")
     install.add_argument("--register", action="store_true")
+    install.add_argument(
+        "--checkout",
+        help=(
+            "install from a Git checkout the bootstrap script already resolved "
+            "instead of cloning again; the checkout must have --ref checked out"
+        ),
+    )
 
     update = commands.add_parser(
         "update", help="update Core and adapters from a new immutable Git ref"
@@ -126,50 +131,9 @@ def _parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate", help="validate a Foundation release")
     validate.add_argument("--foundation", default="foundation")
 
-    release_check = commands.add_parser(
-        "release-check", help="report Foundation release-readiness blockers"
-    )
-    release_check.add_argument("--foundation", default="foundation")
-
-    foundation_decision = commands.add_parser(
-        "foundation-decision", help="record a Foundation release Decision"
-    )
-    foundation_decision.add_argument("--foundation", default="foundation")
-    foundation_decision.add_argument("--outcome", choices=("approved", "rejected"), required=True)
-    foundation_decision.add_argument("--summary", required=True)
-    foundation_decision.add_argument("--decided-by", dest="decided_by", required=True)
-
-    foundation_evidence = commands.add_parser(
-        "foundation-evidence", help="record Foundation release Evidence"
-    )
-    foundation_evidence.add_argument("--foundation", default="foundation")
-    foundation_evidence.add_argument("--passed", action="store_true")
-    foundation_evidence.add_argument("--checks-json", required=True)
-    foundation_evidence.add_argument("--scope", required=True)
-    foundation_evidence.add_argument("--recorded-by", dest="recorded_by", required=True)
-
-    foundation_promote = commands.add_parser(
-        "foundation-promote", help="promote a Foundation only after approval gates pass"
-    )
-    foundation_promote.add_argument("--foundation", default="foundation")
-
-    route = commands.add_parser("route", help="classify work as query, quick change, or unit")
-    route.add_argument("--change", choices=("none", "local", "persistent"), required=True)
-    route.add_argument("--risk", choices=("low", "high"), default="low")
-    route.add_argument("--ambiguous", action="store_true")
-    route.add_argument("--multi-party", action="store_true")
-    route.add_argument("--remote", action="store_true")
-    route.add_argument("--sensitive", action="store_true")
-
     resolve = commands.add_parser("resolve", help="resolve a project Context Receipt")
     resolve.add_argument("project")
     resolve.add_argument("--route", choices=tuple(item.value for item in WorkRoute), default="unit")
-
-    unit = commands.add_parser("unit-init", help="create a minimal AI-DLC Unit")
-    unit.add_argument("project")
-    unit.add_argument("--title", required=True)
-    unit.add_argument("--output")
-    unit.add_argument("--owner", default="unassigned")
 
     status = commands.add_parser("unit-status", help="show Unit lifecycle and artifact status")
     status.add_argument("unit_dir")
@@ -304,6 +268,23 @@ def _parser() -> argparse.ArgumentParser:
     plugin_envelope_propose.add_argument("--forbidden-action", action="append", default=[])
     plugin_envelope_propose.add_argument("--max-iterations", type=int, required=True)
     plugin_envelope_propose.add_argument("--proposed-by", required=True)
+    plugin_envelope_propose.add_argument(
+        "--expires-in-hours",
+        dest="expires_in_hours",
+        type=int,
+        default=EXECUTION_ENVELOPE_DEFAULT_HOURS,
+        help=(
+            "approval window in hours "
+            f"(default {EXECUTION_ENVELOPE_DEFAULT_HOURS}, "
+            f"maximum {EXECUTION_ENVELOPE_MAX_HOURS})"
+        ),
+    )
+
+    plugin_envelope_approve = plugin_commands.add_parser(
+        "envelope-approve",
+        help="activate a proposed Execution Envelope from its approved inception Decision",
+    )
+    plugin_envelope_approve.add_argument("--unit", required=True)
 
     plugin_authorize = plugin_commands.add_parser(
         "authorize", help="check an action against the approved Execution Envelope"
@@ -369,16 +350,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(arguments)
     try:
         if args.command == "install":
-            _json(
-                install_from_git(
-                    args.source,
-                    args.ref,
-                    args.path,
-                    runtimes=args.runtime or ("all",),
-                    adopt_foundation=args.adopt_foundation,
-                    register=args.register,
+            if args.checkout:
+                _json(
+                    install_from_bootstrap_checkout(
+                        args.checkout,
+                        args.source,
+                        args.ref,
+                        args.path,
+                        runtimes=args.runtime or ("all",),
+                        adopt_foundation=args.adopt_foundation,
+                        register=args.register,
+                    )
                 )
-            )
+            else:
+                _json(
+                    install_from_git(
+                        args.source,
+                        args.ref,
+                        args.path,
+                        runtimes=args.runtime or ("all",),
+                        adopt_foundation=args.adopt_foundation,
+                        register=args.register,
+                    )
+                )
         elif args.command == "update":
             lock = load_install_lock(args.path)
             if lock is None:
@@ -425,49 +419,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0 if result["valid"] else 1
         elif args.command == "validate":
             _json({"valid": True, "foundation": load_foundation(args.foundation).summary()})
-        elif args.command == "release-check":
-            result = load_foundation(args.foundation).readiness()
-            _json(result)
-            return 0 if result["ready"] else 1
-        elif args.command == "foundation-decision":
-            _json(
-                record_foundation_decision(
-                    args.foundation,
-                    outcome=args.outcome,
-                    summary=args.summary,
-                    decided_by=args.decided_by,
-                )
-            )
-        elif args.command == "foundation-evidence":
-            checks = json.loads(args.checks_json)
-            _json(
-                record_foundation_evidence(
-                    args.foundation,
-                    passed=args.passed,
-                    checks=checks,
-                    scope=args.scope,
-                    recorded_by=args.recorded_by,
-                )
-            )
-        elif args.command == "foundation-promote":
-            _json(promote_foundation(args.foundation))
-        elif args.command == "route":
-            decision = classify_work(
-                RouteRequest(
-                    change=args.change,
-                    risk=args.risk,
-                    ambiguous=args.ambiguous,
-                    multi_party=args.multi_party,
-                    remote=args.remote,
-                    sensitive=args.sensitive,
-                )
-            )
-            _json(decision.as_dict())
         elif args.command == "resolve":
             _json(resolve_context(args.project, WorkRoute(args.route)))
-        elif args.command == "unit-init":
-            path = initialize_unit(args.project, args.title, args.output, args.owner)
-            _json({"created": str(path)})
         elif args.command == "unit-status":
             _json(unit_status(args.unit_dir))
         elif args.command == "unit-verify":
@@ -580,7 +533,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "forbidden_actions": args.forbidden_action,
                     "max_iterations": args.max_iterations,
                     "proposed_by": args.proposed_by,
+                    "expires_in_hours": args.expires_in_hours,
                 }
+            elif action == "envelope-approve":
+                payload = {"unit": args.unit}
             elif action == "authorize":
                 payload = {
                     "unit": args.unit,

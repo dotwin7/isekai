@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -14,6 +13,7 @@ from typing import Any, Iterable
 
 from . import __version__
 from .foundation import FoundationError, load_foundation
+from .jsonio import write_json_atomic
 
 
 DISTRIBUTION_SCHEMA_VERSION = "1.0.0"
@@ -43,16 +43,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, indent=2, ensure_ascii=False)
-            stream.write("\n")
-        os.replace(temporary, path)
-    except Exception:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+    write_json_atomic(path, value)
 
 
 def _safe_relative_path(value: object, *, label: str) -> Path:
@@ -76,6 +67,15 @@ def _component_root(root: Path, value: object, *, label: str) -> Path:
     return candidate
 
 
+def _is_transient(candidate: Path) -> bool:
+    """Report build output and short-lived lock files that are not release content."""
+    if "__pycache__" in candidate.parts:
+        return True
+    return any(
+        part.startswith(".isekai-") and ".lock" in part for part in candidate.parts
+    )
+
+
 def tree_digest(path: str | Path) -> str:
     """Return a deterministic SHA-256 for a directory without following symlinks."""
     root = Path(path).resolve()
@@ -83,11 +83,16 @@ def tree_digest(path: str | Path) -> str:
         raise DistributionError(f"digest target is not a directory: {root}")
     digest = hashlib.sha256()
     files: list[Path] = []
+    directories: list[Path] = []
     for candidate in root.rglob("*"):
         if candidate.is_symlink():
             raise DistributionError(f"release components cannot contain symlinks: {candidate}")
-        if candidate.is_file() and "__pycache__" not in candidate.parts:
+        if _is_transient(candidate):
+            continue
+        if candidate.is_file():
             files.append(candidate)
+        elif candidate.is_dir():
+            directories.append(candidate)
     for candidate in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
         relative = candidate.relative_to(root).as_posix().encode("utf-8")
         content = candidate.read_bytes()
@@ -96,6 +101,14 @@ def tree_digest(path: str | Path) -> str:
         digest.update(str(len(content)).encode("ascii"))
         digest.update(b"\0")
         digest.update(content)
+        digest.update(b"\0")
+    # A directory holding no files anywhere beneath it leaves no trace in the
+    # loop above, so removing it would be invisible to doctor. Record those.
+    populated = {parent for file in files for parent in file.parents}
+    empty = [candidate for candidate in directories if candidate not in populated]
+    for candidate in sorted(empty, key=lambda item: item.relative_to(root).as_posix()):
+        digest.update(b"dir\0")
+        digest.update(candidate.relative_to(root).as_posix().encode("utf-8"))
         digest.update(b"\0")
     return "sha256:" + digest.hexdigest()
 
@@ -912,7 +925,17 @@ def install_from_checkout(
     commands = _registration_commands(
         project_root, marketplace_name, selected, update=current_lock is not None
     )
-    registration = _run_registration(commands) if register else []
+    try:
+        registration = _run_registration(commands) if register else []
+    except DistributionError as exc:
+        # The project-local install is committed and verified at this point;
+        # only the host-side registration failed, so say so rather than let the
+        # caller read this as a failed installation.
+        rerun = " && ".join(" ".join(command) for command in commands)
+        raise DistributionError(
+            f"ISEKAI is installed in {project_root} but host registration failed: {exc}. "
+            f"The installation is complete and verified; rerun manually: {rerun}"
+        ) from exc
     result = {
         "installed": True,
         "updated": current_lock is not None,
@@ -932,6 +955,18 @@ def install_from_checkout(
             f"{foundation_entry['path']}"
         )
     return result
+
+
+def _validate_git_source(source: str) -> str:
+    if not isinstance(source, str) or not source.strip() or source.startswith("-"):
+        raise DistributionError("Git source must be a non-empty path or URL")
+    # `git clone ext::sh -c ...` runs the payload through a transport helper.
+    # Only real locations are accepted; helper syntax never is.
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*::", source):
+        raise DistributionError(
+            f"Git source must not use a transport helper: {source}"
+        )
+    return source
 
 
 def _git(command: list[str], *, cwd: Path | None = None) -> str:
@@ -971,6 +1006,21 @@ def _resolve_immutable_git_ref(checkout: Path, ref: str) -> str:
         ) from exc
 
 
+def _reject_moved_ref(project: str | Path, source: str, ref: str, commit: str) -> None:
+    current = load_install_lock(project)
+    if not current:
+        return
+    locked_source = current.get("source", {})
+    if (
+        locked_source.get("git") == source
+        and locked_source.get("ref") == ref
+        and locked_source.get("commit") not in {None, commit}
+    ):
+        raise DistributionError(
+            "Git ref moved to a different commit; use a new immutable tag"
+        )
+
+
 def install_from_git(
     source: str,
     ref: str,
@@ -982,8 +1032,7 @@ def install_from_git(
     adopt_foundation: bool = False,
     register: bool = False,
 ) -> dict[str, Any]:
-    if not isinstance(source, str) or not source.strip() or source.startswith("-"):
-        raise DistributionError("Git source must be a non-empty path or URL")
+    _validate_git_source(source)
     if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
         raise DistributionError("Git ref must be a non-empty immutable tag or full commit")
     with tempfile.TemporaryDirectory(prefix="isekai-release-") as temporary:
@@ -991,17 +1040,7 @@ def install_from_git(
         _git(["clone", "--quiet", "--no-checkout", source, str(checkout)])
         commit = _resolve_immutable_git_ref(checkout, ref)
         _git(["checkout", "--quiet", "--detach", commit], cwd=checkout)
-        current = load_install_lock(project)
-        if current:
-            locked_source = current.get("source", {})
-            if (
-                locked_source.get("git") == source
-                and locked_source.get("ref") == ref
-                and locked_source.get("commit") not in {None, commit}
-            ):
-                raise DistributionError(
-                    "Git ref moved to a different commit; use a new immutable tag"
-                )
+        _reject_moved_ref(project, source, ref, commit)
         return install_from_checkout(
             checkout,
             project,
@@ -1016,6 +1055,62 @@ def install_from_git(
         )
 
 
+def install_from_bootstrap_checkout(
+    checkout: str | Path,
+    source: str,
+    ref: str,
+    project: str | Path,
+    *,
+    runtimes: Iterable[str] = ("all",),
+    update: bool = False,
+    include_foundation: bool = False,
+    adopt_foundation: bool = False,
+    register: bool = False,
+) -> dict[str, Any]:
+    """Install from the checkout the bootstrap script already resolved.
+
+    The bootstrap script must clone the release to obtain this Core, so cloning
+    again would both waste the transfer and open a window in which the tag moves
+    between the two clones. Instead the checkout is re-verified locally: ``ref``
+    must still resolve inside it, and it must be the commit that is checked out.
+    """
+    _validate_git_source(source)
+    if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
+        raise DistributionError("Git ref must be a non-empty immutable tag or full commit")
+    release_root = Path(checkout).expanduser().resolve()
+    if not (release_root / ".git").exists():
+        raise DistributionError(f"bootstrap checkout is not a Git checkout: {release_root}")
+    commit = _resolve_immutable_git_ref(release_root, ref)
+    head = _git(["rev-parse", "--verify", "HEAD^{commit}"], cwd=release_root)
+    if head != commit:
+        raise DistributionError(
+            "bootstrap checkout does not have the requested immutable ref checked out"
+        )
+    # Release digests are recorded inside the release itself, so a modified
+    # working tree that is re-signed still verifies. Requiring a clean tree is
+    # what actually ties the installed files to the recorded commit.
+    dirty = _git(["status", "--porcelain", "--untracked-files=normal"], cwd=release_root)
+    if dirty:
+        raise DistributionError(
+            "bootstrap checkout has uncommitted changes; refusing to install files "
+            "that do not match the recorded commit: "
+            + "; ".join(sorted(dirty.splitlines())[:5])
+        )
+    _reject_moved_ref(project, source, ref, commit)
+    return install_from_checkout(
+        release_root,
+        project,
+        source=source,
+        ref=ref,
+        commit=commit,
+        runtimes=runtimes,
+        update=update,
+        include_foundation=include_foundation,
+        adopt_foundation=adopt_foundation,
+        register=register,
+    )
+
+
 def plan_git_update(
     source: str,
     ref: str,
@@ -1028,6 +1123,7 @@ def plan_git_update(
     current = load_install_lock(project_root)
     if current is None:
         raise DistributionError("cannot plan an update before ISEKAI is installed")
+    _validate_git_source(source)
     selected = _normalize_runtimes(runtimes)
     with tempfile.TemporaryDirectory(prefix="isekai-release-plan-") as temporary:
         checkout = Path(temporary) / "checkout"
@@ -1271,6 +1367,11 @@ def verify_adapter_handshake(
     root = requested.parent if requested.is_file() else requested
     for candidate in (root, *root.parents):
         if (candidate / LOCK_NAME).is_file():
+            root = candidate
+            break
+        if (candidate / "project.json").is_file():
+            # Stop at the nearest Project. An uninstalled Project must not
+            # borrow an unrelated ancestor's lock and report itself as healthy.
             root = candidate
             break
     lock = load_install_lock(root)
