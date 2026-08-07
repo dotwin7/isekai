@@ -10,9 +10,12 @@ from typing import Any
 from ...support.locking import LockUnavailable
 from ...support.scope import scope_pattern_matches
 from ..routing import AGENT_ALLOWED_ACTIONS, AGENT_PROHIBITED_ACTIONS
+from .authorization import (
+    _authorization_ledger_issues,
+    _authorization_target_protection_issue,
+    _normalize_authorization_target,
+)
 from .common import (
-    PROTECTED_UNIT_ARTIFACTS,
-    UNIT_LOCK_NAME,
     _unit_json,
     _unit_preflight_issues,
     _write_json,
@@ -21,7 +24,6 @@ from .common import (
 from .decisions import (
     _approved_envelope_decision_issues,
     _decision_record_issues,
-    _is_iso_timestamp,
     _latest_decision,
 )
 
@@ -423,144 +425,6 @@ def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
     }
 
 
-AUTHORIZATION_LEDGER_REQUIRED_FIELDS = {
-    "type",
-    "schema_version",
-    "unit_id",
-    "envelope_id",
-    "approval_digest",
-    "grants",
-}
-AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
-    "id",
-    "action",
-    "target",
-    "stage",
-    "iteration",
-    "decision_id",
-    "envelope_digest",
-    "authorized_at",
-}
-
-
-def _authorization_ledger_digest(ledger: dict[str, Any]) -> str:
-    encoded = json.dumps(
-        ledger,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _authorization_ledger_issues(
-    ledger: Any,
-    unit: dict[str, Any],
-    envelope: dict[str, Any],
-) -> list[str]:
-    if not isinstance(ledger, dict):
-        return ["Execution authorization ledger must be an object"]
-    issues: list[str] = []
-    missing = sorted(AUTHORIZATION_LEDGER_REQUIRED_FIELDS - ledger.keys())
-    if missing:
-        issues.append(
-            "Execution authorization ledger missing fields: " + ", ".join(missing)
-        )
-    if ledger.get("type") != "execution-authorization-ledger":
-        issues.append("Execution authorization ledger has an invalid type")
-    if ledger.get("schema_version") != "1.0.0":
-        issues.append("Execution authorization ledger has an unsupported schema_version")
-    if ledger.get("unit_id") != unit.get("id"):
-        issues.append("Execution authorization ledger unit_id does not match Unit")
-    if ledger.get("envelope_id") != envelope.get("id"):
-        issues.append("Execution authorization ledger does not match the active Envelope")
-    if ledger.get("approval_digest") != envelope.get("approval_digest"):
-        issues.append("Execution authorization ledger digest does not match the active Envelope")
-    grants = ledger.get("grants")
-    if not isinstance(grants, list):
-        issues.append("Execution authorization ledger grants must be a list")
-        return issues
-    max_iterations = envelope.get("max_iterations")
-    if isinstance(max_iterations, int) and not isinstance(max_iterations, bool):
-        if len(grants) > max_iterations:
-            issues.append("Execution authorization ledger exceeds max_iterations")
-    for index, grant in enumerate(grants):
-        if not isinstance(grant, dict):
-            issues.append(f"Execution authorization grant {index} must be an object")
-            continue
-        missing_grant = sorted(AUTHORIZATION_GRANT_REQUIRED_FIELDS - grant.keys())
-        if missing_grant:
-            issues.append(
-                f"Execution authorization grant {index} missing fields: "
-                + ", ".join(missing_grant)
-            )
-        if grant.get("iteration") != index + 1:
-            issues.append(f"Execution authorization grant {index} has invalid iteration")
-        if grant.get("envelope_digest") != envelope.get("approval_digest"):
-            issues.append(f"Execution authorization grant {index} has invalid Envelope digest")
-        if not _is_iso_timestamp(grant.get("authorized_at")):
-            issues.append(f"Execution authorization grant {index} has invalid timestamp")
-    return issues
-
-
-def _normalize_authorization_target(
-    unit_dir: Path,
-    target: str,
-) -> tuple[str | None, str | None]:
-    if not isinstance(target, str) or not target.strip():
-        return None, "Authorization requires a non-empty target"
-    try:
-        receipt = _unit_json(unit_dir, "context-receipt.json")
-    except ValueError as exc:
-        return None, str(exc)
-    source_manifest = receipt.get("source_manifest")
-    if not isinstance(source_manifest, str) or not source_manifest.strip():
-        return None, "Context Receipt has no source_manifest for target authorization"
-    manifest_path = Path(source_manifest).expanduser().resolve()
-    if manifest_path.name != "project.json":
-        return None, "Context Receipt source_manifest is not project.json"
-    project_root = manifest_path.parent
-    requested = Path(target).expanduser()
-    candidate = requested.resolve() if requested.is_absolute() else (project_root / requested).resolve()
-    try:
-        relative = candidate.relative_to(project_root)
-    except ValueError:
-        return None, f"Target escapes the selected Project: {target}"
-    if relative == Path("."):
-        return None, "Authorization target must identify a path inside the Project"
-    return relative.as_posix(), None
-
-
-def _authorization_target_protection_issue(
-    unit_dir: Path,
-    action: str,
-    normalized_target: str,
-) -> str | None:
-    if action != "edit":
-        return None
-    target_parts = Path(normalized_target).parts
-    if not target_parts:
-        return "Authorization target must identify a path inside the Project"
-    if normalized_target in {"project.json", "isekai.lock.json"}:
-        return f"Core control artifact cannot be edited through authorize: {normalized_target}"
-    if target_parts and target_parts[0] in {".git", ".isekai"}:
-        return f"Managed control path cannot be edited through authorize: {normalized_target}"
-    receipt = _unit_json(unit_dir, "context-receipt.json")
-    project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
-    candidate = (project_root / normalized_target).resolve()
-    # Identify a Unit control artifact by what it is, not by where the active
-    # Unit happens to sit. This protects sibling Units in the same Project and
-    # stays correct when a Unit is stored outside the Project it governs.
-    if (
-        candidate.name in PROTECTED_UNIT_ARTIFACTS
-        and (candidate.parent / "unit.json").is_file()
-    ):
-        return f"Unit control artifact cannot be edited through authorize: {normalized_target}"
-    if candidate.name == UNIT_LOCK_NAME:
-        return f"Unit lock cannot be edited through authorize: {normalized_target}"
-    return None
-
-
 def authorize_action(
     path: str | Path,
     *,
@@ -671,7 +535,9 @@ def authorize_action(
                         f"{normalized_target}"
                     ),
                 }
-            ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+            ledger_issues = _authorization_ledger_issues(
+                ledger, unit, envelope, unit_dir=unit_dir
+            )
             if ledger_issues:
                 return {
                     "allowed": False,
@@ -698,7 +564,9 @@ def authorize_action(
             grants.append(grant)
             _write_json(unit_dir / "execution-authorizations.json", ledger)
             persisted = _unit_json(unit_dir, "execution-authorizations.json")
-            persisted_issues = _authorization_ledger_issues(persisted, unit, envelope)
+            persisted_issues = _authorization_ledger_issues(
+                persisted, unit, envelope, unit_dir=unit_dir
+            )
             if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
                 return {
                     "allowed": False,

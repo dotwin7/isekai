@@ -120,6 +120,11 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
             return False
         if not isinstance(evidence, list) or not evidence or any(not isinstance(item, dict) or item.get("id") not in condition["evidence_refs"] or item.get("passed") is not True for item in evidence):
             return False
+        provided_evidence_refs = {
+            item["id"] for item in evidence if isinstance(item, dict)
+        }
+        if not set(condition["evidence_refs"]) <= provided_evidence_refs:
+            return False
         if not isinstance(review, dict) or review.get("entry_ref") != condition["entry_ref"] or review.get("reviewed_by") != condition["reviewed_by"] or review.get("duplicate_checked") is not True or review.get("evidence_ref") not in condition["evidence_refs"]:
             return False
         return any(isinstance(decision, dict) and decision.get("id") == condition["promotion_decision_ref"] and decision.get("outcome") == "approved" and decision.get("gate") == "knowledge" and _not_expired(decision.get("expires_at"), current) for decision in (decisions if isinstance(decisions, list) else []))

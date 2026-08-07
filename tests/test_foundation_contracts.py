@@ -143,6 +143,19 @@ def test_reviewer_probes_fail_closed_for_envelope_lineage_exception_and_knowledg
     promotion_subject = {"entry": {"id": "entry-1", "provenance": {"source": "body.md", "recorded_by": "owner", "recorded_at": "2026-08-05T00:00:00Z"}, "effective_from": promotion["effective_from"], "expires_at": promotion["expires_at"]}, "evidence": [{"id": "evidence-1", "passed": True}], "review": {"entry_ref": "entry-1", "reviewed_by": "reviewer", "duplicate_checked": True, "evidence_ref": "evidence-1"}, "decisions": [{"id": "promotion-1", "gate": "knowledge", "outcome": "approved", "expires_at": "2027-08-05T00:00:00Z"}]}
     assert evaluate_condition(promotion, promotion_subject, now=now)
     assert not evaluate_condition(promotion, {**promotion_subject, "evidence": []}, now=now)
+    multiple_evidence = {**promotion, "evidence_refs": ["evidence-1", "evidence-2"]}
+    assert not evaluate_condition(multiple_evidence, promotion_subject, now=now)
+    assert evaluate_condition(
+        multiple_evidence,
+        {
+            **promotion_subject,
+            "evidence": [
+                *promotion_subject["evidence"],
+                {"id": "evidence-2", "passed": True},
+            ],
+        },
+        now=now,
+    )
 
 
 def test_rule_metadata_requires_complete_provenance_and_applies_to(tmp_path: Path) -> None:

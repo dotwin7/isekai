@@ -197,12 +197,12 @@ def _current_authorization_context(
     *,
     check_expiry: bool,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    from .decisions import _approved_envelope_decision_issues
-    from .execution import (
+    from .authorization import (
         _authorization_ledger_digest,
         _authorization_ledger_issues,
-        _execution_envelope_issues,
     )
+    from .decisions import _approved_envelope_decision_issues
+    from .execution import _execution_envelope_issues
 
     envelope = _unit_json(unit_dir, "execution-envelope.json")
     ledger = _unit_json(unit_dir, "execution-authorizations.json")
@@ -219,7 +219,9 @@ def _current_authorization_context(
         raise ValueError(
             "Execution Envelope blocks Evidence: " + "; ".join(envelope_issues)
         )
-    ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+    ledger_issues = _authorization_ledger_issues(
+        ledger, unit, envelope, unit_dir=unit_dir
+    )
     if ledger_issues:
         raise ValueError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
     grants = {

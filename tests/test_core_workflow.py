@@ -323,6 +323,18 @@ def test_unit_default_and_relative_outputs_are_project_relative(
         initialize_unit(project, "Symlink Escape", Path("linked-units"))
 
 
+def test_unit_default_output_rejects_a_symlink_escape(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    outside = tmp_path / "outside-units"
+    outside.mkdir()
+    (project.parent / "units").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes project root"):
+        initialize_unit(project, "Default Symlink Escape")
+
+    assert list(outside.iterdir()) == []
+
+
 def test_unit_metadata_is_versionable_but_raw_evidence_is_ignored() -> None:
     ignore_lines = {
         line.strip()

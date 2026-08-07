@@ -50,6 +50,7 @@ REQUIRED_DECISIONS_FOR_TRANSITIONS = {
     "construction": "inception",
     "awaiting-release-decision": "architecture",
     "releasing": "release",
+    "operating": "release",
     "learned": "operation",
 }
 STATUS_PHASE = {

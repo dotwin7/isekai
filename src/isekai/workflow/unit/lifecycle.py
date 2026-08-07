@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .authorization import _authorization_ledger_issues
 from .common import (
     UNIT_LOCK_NAME,
     UNIT_REQUIRED_FILES,
@@ -30,7 +31,6 @@ from .evidence import (
 )
 from .execution import (
     _approve_execution_envelope,
-    _authorization_ledger_issues,
     _execution_envelope_issues,
 )
 
@@ -115,11 +115,11 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             raise ValueError("Execution Envelope needs an approved inception Decision")
         _approve_execution_envelope(unit_dir, inception_decision)
 
-    if target_status == "releasing" and not _passing_evidence(unit_dir):
+    if target_status in {"releasing", "operating"} and not _passing_evidence(unit_dir):
         raise ValueError(
-            "transition to releasing requires passing verification Evidence"
+            f"transition to {target_status} requires passing verification Evidence"
         )
-    if target_status == "releasing":
+    if target_status in {"releasing", "operating"}:
         decisions = _unit_json(unit_dir, "decisions.json")
         release_binding_issues = _release_decision_evidence_issues(
             unit_dir, decisions, unit
@@ -199,7 +199,11 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     if ledger_path.is_file() and envelope is not None:
         ledger = read_artifact("execution-authorizations.json")
         if ledger is not None:
-            issues.extend(_authorization_ledger_issues(ledger, unit, envelope))
+            issues.extend(
+                _authorization_ledger_issues(
+                    ledger, unit, envelope, unit_dir=unit_dir
+                )
+            )
 
     decision_entries = decisions.get("decisions") if decisions is not None else None
     if decisions is not None:

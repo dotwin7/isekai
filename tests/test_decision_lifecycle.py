@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from isekai.jsonio import write_json_atomic
 from isekai.workflow import (
     DECISION_REQUIRED_FIELDS,
     authorize_action,
@@ -280,6 +281,51 @@ def test_evidence_requires_a_current_test_authorization(tmp_path: Path) -> None:
         )
 
 
+def test_evidence_rejects_a_forged_out_of_scope_authorization_grant(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    envelope = json.loads(
+        (unit / "execution-envelope.json").read_text(encoding="utf-8")
+    )
+    ledger_path = unit / "execution-authorizations.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["grants"].append(
+        {
+            "id": "AUTH-FORGED",
+            "action": "test",
+            "target": "secrets/outside.txt",
+            "stage": "construction",
+            "iteration": 1,
+            "decision_id": "DEC-WRONG",
+            "envelope_digest": envelope["approval_digest"],
+            "authorized_at": "2026-08-05T00:00:00+00:00",
+        }
+    )
+    write_json_atomic(ledger_path, ledger)
+
+    with pytest.raises(ValueError, match="Action ledger blocks Evidence") as error:
+        record_evidence(
+            unit,
+            passed=True,
+            scope="forged ledger probe",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "not actually run",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": "2026-08-05T00:00:00+00:00",
+                    "authorization_id": "AUTH-FORGED",
+                }
+            ],
+        )
+
+    assert "outside the Execution Envelope scope" in str(error.value)
+    assert "approval Decision" in str(error.value)
+
+
 def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)
@@ -409,6 +455,53 @@ def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
     )
 
     assert result["evidence"]["commands"][0]["output_digest"] == command["output_digest"]
+
+
+def test_operating_transition_rejects_evidence_staled_during_release(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Release Mutation", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["src/**", "tests/**"],
+        stages=[
+            {"name": "inception", "depth": "standard", "allowed_actions": ["read"]},
+            {
+                "name": "construction",
+                "depth": "standard",
+                "allowed_actions": ["read", "edit", "test"],
+            },
+            {
+                "name": "release",
+                "depth": "standard",
+                "allowed_actions": ["read", "edit", "test"],
+            },
+        ],
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=5,
+        proposed_by="planner-agent",
+    )
+    start_construction(unit)
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    passing_evidence(unit)
+    approve(unit, "release")
+    complete_acceptance(unit)
+    transition_unit(unit, "releasing")
+
+    authorization = authorize_action(
+        unit,
+        action="edit",
+        target="src/after-release.py",
+    )
+
+    assert authorization["allowed"] is True
+    assert any("stale" in issue for issue in verify_unit(unit)["issues"])
+    with pytest.raises(ValueError, match="passing verification Evidence"):
+        transition_unit(unit, "operating")
+    assert json.loads((unit / "unit.json").read_text(encoding="utf-8"))["status"] == "releasing"
 
 
 def test_decision_packet_requires_rationale_and_explained_alternatives(tmp_path: Path) -> None:

@@ -8,10 +8,10 @@ from typing import Any
 
 from ..project import resolve_context
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
+from .authorization import _authorization_ledger_digest
 from .common import _write_json
 from .execution import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
-    _authorization_ledger_digest,
     _execution_envelope_approval_digest,
 )
 
@@ -33,19 +33,24 @@ def initialize_unit(
     manifest_path = Path(str(receipt["source_manifest"])).resolve()
     project_root = manifest_path.parent.resolve()
     if output_root is None:
-        resolved_output_root = project_root / "units"
+        requested_output_root = Path("units")
+        resolved_output_root = (project_root / requested_output_root).resolve()
+        output_label: str | Path = requested_output_root
     else:
         requested_output_root = Path(output_root).expanduser()
         if requested_output_root.is_absolute():
             resolved_output_root = requested_output_root.resolve()
+            output_label = output_root
         else:
             resolved_output_root = (project_root / requested_output_root).resolve()
-            try:
-                resolved_output_root.relative_to(project_root)
-            except ValueError as exc:
-                raise ValueError(
-                    f"relative Unit output escapes project root: {output_root}"
-                ) from exc
+            output_label = output_root
+    if output_root is None or not requested_output_root.is_absolute():
+        try:
+            resolved_output_root.relative_to(project_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"relative Unit output escapes project root: {output_label}"
+            ) from exc
     intent_values = dict(intent or {})
     goal = str(intent_values.get("goal") or title).strip()
     intent_source = str(intent_values.get("source") or "direct-request")

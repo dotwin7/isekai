@@ -18,6 +18,11 @@ from .routing import (
     WorkRoute,
     classify_work,
 )
+from .unit.authorization import (
+    AUTHORIZATION_GRANT_REQUIRED_FIELDS,
+    AUTHORIZATION_LEDGER_REQUIRED_FIELDS,
+    _authorization_ledger_issues,
+)
 from .unit.common import (
     PROTECTED_UNIT_ARTIFACTS,
     UNIT_LOCK_NAME,
@@ -50,14 +55,11 @@ from .unit.evidence import (
     record_evidence,
 )
 from .unit.execution import (
-    AUTHORIZATION_GRANT_REQUIRED_FIELDS,
-    AUTHORIZATION_LEDGER_REQUIRED_FIELDS,
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
     EXECUTION_ENVELOPE_MAX_HOURS,
     EXECUTION_ENVELOPE_REQUIRED_FIELDS,
     EXECUTION_ENVELOPE_STATUSES,
     _approve_execution_envelope,
-    _authorization_ledger_issues,
     _execution_envelope_approval_digest,
     _execution_envelope_issues,
     approve_execution_envelope,

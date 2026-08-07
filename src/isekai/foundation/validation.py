@@ -155,11 +155,18 @@ def _validate_condition(condition: Any, rule_id: str) -> None:
         _require_condition_strings(condition, {"mapping_ref", "source_ref", "target_ref", "transformation", "raw_reference"}, rule_id)
     elif condition_type == "required-promotion-review":
         _require_condition_fields(condition, {"entry_ref", "evidence_refs", "reviewed_by", "effective_from", "expires_at", "promotion_decision_ref"}, rule_id)
-        _require_condition_strings(condition, {"entry_ref", "reviewed_by", "effective_from", "expires_at"}, rule_id)
+        _require_condition_strings(condition, {"entry_ref", "reviewed_by", "effective_from", "expires_at", "promotion_decision_ref"}, rule_id)
         _parse_timestamp(condition["effective_from"], f"{rule_id} condition effective_from")
         _parse_timestamp(condition["expires_at"], f"{rule_id} condition expires_at")
-        if not isinstance(condition["evidence_refs"], list) or not condition["evidence_refs"]:
-            raise FoundationError(f"{rule_id} evidence_refs must be a non-empty list")
+        evidence_refs = condition["evidence_refs"]
+        if not isinstance(evidence_refs, list) or not evidence_refs or any(
+            not isinstance(item, str) or not item.strip() for item in evidence_refs
+        ):
+            raise FoundationError(
+                f"{rule_id} evidence_refs must be a non-empty list of strings"
+            )
+        if len(set(evidence_refs)) != len(evidence_refs):
+            raise FoundationError(f"{rule_id} evidence_refs must not contain duplicates")
     elif condition_type == "required-exception-controls":
         _require_condition_fields(condition, {"rule_ref", "reason", "owner", "scope", "compensating_controls", "expires_at", "review_ref", "decision_ref"}, rule_id)
         _require_condition_strings(condition, {"rule_ref", "reason", "owner", "scope", "expires_at", "review_ref", "decision_ref"}, rule_id)
