@@ -33,6 +33,23 @@ if ($Source.StartsWith("-")) {
 if ($Source -match "^[A-Za-z][A-Za-z0-9+.-]*::") {
     throw "Source must not use a Git transport helper"
 }
+if ($Source.Contains("://")) {
+    try {
+        $sourceUri = [Uri]::new($Source, [UriKind]::Absolute)
+    }
+    catch {
+        throw "Source must be a valid absolute Git URL"
+    }
+    $httpSource = $sourceUri.Scheme -in @("http", "https")
+    $hasUserInfo = -not [string]::IsNullOrEmpty($sourceUri.UserInfo)
+    $httpAuthorityHasUserInfo = $Source -match "^[Hh][Tt][Tt][Pp][Ss]?://[^/]*@"
+    if (($httpSource -and ($hasUserInfo -or $httpAuthorityHasUserInfo)) -or $sourceUri.UserInfo.Contains(":")) {
+        throw "Source must not contain embedded credentials"
+    }
+    if ($sourceUri.Query -or $sourceUri.Fragment) {
+        throw "Source must not contain a query or fragment"
+    }
+}
 if ($Ref.StartsWith("-")) {
     throw "Ref cannot start with '-'"
 }

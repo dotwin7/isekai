@@ -607,6 +607,37 @@ def test_post_install_failure_restores_new_project_state(
     assert not (project / "isekai.lock.json").exists()
 
 
+def test_partial_host_configuration_failure_restores_every_host_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from isekai.distribution import marketplace as marketplace_module
+
+    project = _project_with_foundation(tmp_path).resolve()
+    original_write = marketplace_module._write_json_atomic
+
+    def fail_claude_write(path: Path, value: dict[str, object]) -> None:
+        if path == project / ".claude/settings.json":
+            raise OSError("forced second host write failure")
+        original_write(path, value)
+
+    monkeypatch.setattr(marketplace_module, "_write_json_atomic", fail_claude_write)
+
+    with pytest.raises(OSError, match="forced second host write failure"):
+        install_from_checkout(
+            ROOT,
+            project,
+            source="https://example.invalid/isekai.git",
+            ref="v0.1.0",
+            commit="a" * 40,
+            runtimes=("codex", "claude"),
+        )
+
+    assert not (project / ".agents/plugins/marketplace.json").exists()
+    assert not (project / ".claude/settings.json").exists()
+    assert not (project / ".isekai").exists()
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_rollback_failure_restores_current_project_lock_and_adapters(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

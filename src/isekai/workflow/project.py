@@ -17,6 +17,20 @@ from ..foundation import (
 from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
+CONTEXT_RECEIPT_NON_BINDING_FIELDS = {"receipt_id", "generated_at"}
+
+
+def _context_receipt_id(receipt: dict[str, Any]) -> str:
+    """Return the stable fingerprint for the Project context bound to a Unit."""
+    body = {
+        key: value
+        for key, value in receipt.items()
+        if key not in CONTEXT_RECEIPT_NON_BINDING_FIELDS
+    }
+    digest_input = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return "CTX-" + hashlib.sha256(digest_input.encode()).hexdigest()[:16]
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -214,9 +228,8 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
         "source_manifest": str(manifest_path),
     }
     body["policy_ids"] = [item["id"] for item in body["policy_ids"]]
-    digest_input = json.dumps(body, sort_keys=True, separators=(",", ":"))
     receipt = {
-        "receipt_id": "CTX-" + hashlib.sha256(digest_input.encode()).hexdigest()[:16],
+        "receipt_id": _context_receipt_id(body),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         **body,
     }

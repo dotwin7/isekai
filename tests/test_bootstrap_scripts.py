@@ -147,6 +147,35 @@ def test_posix_bootstrap_rejects_transport_helpers_before_clone(
     assert not (project / "isekai.lock.json").exists()
 
 
+def test_posix_bootstrap_rejects_embedded_credentials_before_clone(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(ROOT / "scripts/install.sh"),
+            "--source",
+            "https://user:secret@example.invalid/isekai.git",
+            "--ref",
+            "v0.1.0",
+            "--path",
+            str(project),
+            "--python",
+            sys.executable,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "embedded credentials" in completed.stderr
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_posix_bootstrap_rejects_branch_before_release_code_execution(
     tmp_path: Path,
 ) -> None:
@@ -235,3 +264,13 @@ def test_powershell_bootstrap_rejects_transport_helpers_before_clone() -> None:
 
     assert validation < clone
     assert "^[A-Za-z][A-Za-z0-9+.-]*::" in content
+
+
+def test_powershell_bootstrap_rejects_credentials_before_clone() -> None:
+    content = (ROOT / "scripts/install.ps1").read_text(encoding="utf-8")
+
+    validation = content.index("Source must not contain embedded credentials")
+    clone = content.index("& git clone")
+
+    assert validation < clone
+    assert "$sourceUri.UserInfo" in content

@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 from pathlib import Path
 from typing import Any
 
+from ..support.jsonio import write_bytes_atomic
 from .release import (
     MANAGED_ROOT,
     PLUGIN_ID,
@@ -311,11 +313,72 @@ def _apply_project_host_documents(
     project_root: Path,
     documents: dict[str, dict[str, Any]],
 ) -> None:
-    for relative, document in documents.items():
-        _write_json_atomic(project_root / relative, document)
+    paths = [project_root / relative for relative in documents]
+    snapshots = _host_file_snapshots(paths)
+    try:
+        for relative, document in documents.items():
+            _write_json_atomic(project_root / relative, document)
+    except Exception as exc:
+        _restore_host_file_snapshots(snapshots, cause=exc)
+        raise
 
 
 def _restore_host_slots(
+    project_root: Path,
+    state: dict[str, Any],
+    marketplace_name: str,
+) -> None:
+    paths = []
+    if isinstance(state.get("codex"), dict):
+        paths.append(project_root / CODEX_REPO_MARKETPLACE)
+    if isinstance(state.get("claude"), dict):
+        paths.append(project_root / CLAUDE_PROJECT_SETTINGS)
+    snapshots = _host_file_snapshots(paths)
+    try:
+        _restore_host_slots_unchecked(project_root, state, marketplace_name)
+    except Exception as exc:
+        _restore_host_file_snapshots(snapshots, cause=exc)
+        raise
+
+
+def _host_file_snapshots(
+    paths: list[Path],
+) -> dict[Path, tuple[bytes, int] | None]:
+    snapshots: dict[Path, tuple[bytes, int] | None] = {}
+    for path in paths:
+        if path.is_file():
+            snapshots[path] = (
+                path.read_bytes(),
+                stat.S_IMODE(path.stat().st_mode),
+            )
+        else:
+            snapshots[path] = None
+    return snapshots
+
+
+def _restore_host_file_snapshots(
+    snapshots: dict[Path, tuple[bytes, int] | None],
+    *,
+    cause: Exception,
+) -> None:
+    errors: list[str] = []
+    for path, snapshot in reversed(list(snapshots.items())):
+        try:
+            if snapshot is None:
+                path.unlink(missing_ok=True)
+            else:
+                content, mode = snapshot
+                write_bytes_atomic(path, content, mode=mode)
+        except Exception as exc:  # pragma: no cover - secondary filesystem failure
+            errors.append(f"{path}: {exc}")
+    if errors:
+        raise DistributionError(
+            "host configuration transaction failed and could not be restored: "
+            + "; ".join(errors)
+        ) from cause
+
+
+def _restore_host_slots_unchecked(
     project_root: Path,
     state: dict[str, Any],
     marketplace_name: str,

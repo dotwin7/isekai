@@ -7,6 +7,7 @@ from typing import Any
 
 from ...support.jsonio import write_json_atomic
 from ...support.locking import file_lock
+from ..project import _context_receipt_id
 from ..routing import WorkRoute
 
 
@@ -110,6 +111,9 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         issues.append("Context Receipt foundation_version does not match Unit")
     if receipt.get("foundation_digest") != unit.get("foundation_digest"):
         issues.append("Context Receipt foundation_digest does not match Unit")
+    receipt_id = receipt.get("receipt_id")
+    if not isinstance(receipt_id, str) or receipt_id != _context_receipt_id(receipt):
+        issues.append("Context Receipt receipt_id does not match its bound context")
     rules = receipt.get("rules")
     if not isinstance(rules, list) or not rules:
         issues.append("Context Receipt has no full applied rules")

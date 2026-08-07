@@ -110,6 +110,14 @@ done
 [[ "$source_url" != -* ]] || fail "--source cannot start with '-'"
 [[ ! "$source_url" =~ ^[A-Za-z][A-Za-z0-9+.-]*:: ]] \
   || fail "--source must not use a Git transport helper"
+if [[ "$source_url" == *"://"* ]]; then
+  [[ ! "$source_url" =~ ^[Hh][Tt][Tt][Pp][Ss]?://[^/@]*@ ]] \
+    || fail "--source must not contain embedded credentials"
+  [[ ! "$source_url" =~ ^[A-Za-z][A-Za-z0-9+.-]*://[^/@]*:[^/@]*@ ]] \
+    || fail "--source must not contain embedded credentials"
+  [[ "$source_url" != *\?* && "$source_url" != *\#* ]] \
+    || fail "--source must not contain a query or fragment"
+fi
 [[ "$release_ref" != -* ]] || fail "--ref cannot start with '-'"
 [[ -d "$project_path" ]] || fail "project directory does not exist: $project_path"
 if ((${#profiles[@]} > 0 && initialize == 0)); then

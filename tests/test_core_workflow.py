@@ -156,6 +156,33 @@ def test_resume_rejects_foundation_contract_drift_with_same_version(
         resume_session(project)
 
 
+def test_resume_rejects_project_contract_drift(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Project Contract Drift", project.parent / "units")
+    manifest = json.loads(project.read_text(encoding="utf-8"))
+    manifest["version"] = "0.2.0"
+    manifest["profiles"] = ["software-delivery-profile"]
+    project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(SessionError, match="Project fields: profiles, project_version"):
+        resume_session(project, unit)
+
+
+def test_verify_rejects_a_tampered_context_receipt_fingerprint(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Receipt Tamper", project.parent / "units")
+    receipt_path = unit / "context-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["rules"] = receipt["rules"][:1]
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    result = verify_unit(unit)
+
+    assert "Context Receipt receipt_id does not match its bound context" in result["issues"]
+
+
 def test_resume_rejects_unit_bound_to_a_different_project(tmp_path: Path) -> None:
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"

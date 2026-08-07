@@ -58,6 +58,8 @@ EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
     "awaiting-inception-decision",
     "construction",
     "awaiting-release-decision",
+    "releasing",
+    "operating",
 }
 EXECUTION_ENVELOPE_APPROVAL_FIELDS = {
     "id",
@@ -269,7 +271,7 @@ def propose_execution_envelope(
 ) -> dict[str, Any]:
     """Propose an Execution Envelope, replacing any Envelope the Unit already has.
 
-    Re-proposing during Construction is how an expired Envelope or an exhausted
+    Re-proposing during active work is how an expired Envelope or an exhausted
     iteration budget is renewed. The replacement starts as ``proposed``, so the
     Unit holds no authorization until a new approved inception Decision binds it.
     """
@@ -303,7 +305,7 @@ def _propose_execution_envelope_locked(
     unit = _unit_json(unit_dir, "unit.json")
     if unit.get("status") not in EXECUTION_ENVELOPE_PROPOSABLE_STATUSES:
         raise ValueError(
-            "Execution Envelope can only be proposed before Release; current status: "
+            "Execution Envelope cannot be proposed in the current Unit status: "
             + str(unit.get("status"))
         )
     if not isinstance(proposed_by, str) or not proposed_by.strip():

@@ -40,9 +40,14 @@ DECISION_ALLOWED_STATUSES = {
         "awaiting-inception-decision",
         "construction",
         "awaiting-release-decision",
+        "releasing",
+        "operating",
     },
     "architecture": {"construction"},
-    "release": {"awaiting-release-decision"},
+    # Release-stage work can stale the Evidence that the original Release
+    # Decision approved. A fresh Decision in ``releasing`` is the recovery path
+    # before entering Operations; it still has to bind the current Evidence.
+    "release": {"awaiting-release-decision", "releasing"},
     "operation": {"operating"},
     "knowledge": {"operating", "learned"},
 }

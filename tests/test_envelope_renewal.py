@@ -14,10 +14,18 @@ from isekai.workflow import (
     authorize_action,
     propose_execution_envelope,
     record_decision,
+    transition_unit,
     verify_unit,
 )
+from isekai.session import update_checkpoint
 
 from test_core_workflow import make_project
+from test_decision_lifecycle import (
+    approve,
+    complete_acceptance,
+    make_unit,
+    passing_evidence,
+)
 from test_execution_envelope import (
     approve_inception,
     envelope_stages,
@@ -140,6 +148,113 @@ def test_exhausted_iteration_budget_is_recoverable_by_renewal(tmp_path: Path) ->
     recovered = authorize_action(unit, action="edit", target="src/second.py")
     assert recovered["allowed"] is True
     assert recovered["iteration"] == 1
+
+
+def test_operating_unit_can_renew_an_exhausted_envelope_and_finish(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    passing_evidence(unit)
+    approve(unit, "release")
+    complete_acceptance(unit)
+    transition_unit(unit, "releasing")
+    transition_unit(unit, "operating")
+
+    # The release Evidence becomes stale after Operations grants consume the
+    # remaining budget. Before renewal was available here, this was terminal.
+    for index in range(4):
+        grant = authorize_action(
+            unit,
+            action="read",
+            target=f"src/operations-{index}.py",
+        )
+        assert grant["allowed"] is True
+    exhausted = authorize_action(unit, action="test", target="tests/operations.py")
+    assert exhausted["allowed"] is False
+    assert "exhausted" in exhausted["reason"]
+
+    propose_execution_envelope(
+        unit,
+        scope=["src/**", "tests/**"],
+        stages=[
+            {
+                "name": "operations",
+                "depth": "standard",
+                "allowed_actions": ["read", "edit", "test"],
+            }
+        ],
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=2,
+        proposed_by="planner-agent",
+    )
+    approve(unit, "inception")
+    approve_execution_envelope(unit)
+    passing_evidence(unit)
+    approve(unit, "operation")
+    update_checkpoint(
+        unit,
+        completed=["Operations verification"],
+        pending=[],
+        blocked_by=[],
+        next_action="Unit complete",
+    )
+
+    assert transition_unit(unit, "learned")["to"] == "learned"
+
+
+def test_releasing_unit_can_refresh_envelope_evidence_and_release_decision(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    passing_evidence(unit)
+    approve(unit, "release")
+    complete_acceptance(unit)
+    transition_unit(unit, "releasing")
+
+    # The original Envelope has no Release stage, so the Unit needs a reviewed
+    # replacement before it can produce fresh release Evidence.
+    blocked = authorize_action(
+        unit,
+        action="test",
+        target="tests/release.py",
+    )
+    assert blocked["allowed"] is False
+    assert "stage" in blocked["reason"]
+
+    propose_execution_envelope(
+        unit,
+        scope=["src/**", "tests/**"],
+        stages=[
+            {
+                "name": "release",
+                "depth": "standard",
+                "allowed_actions": ["read", "edit", "test"],
+            }
+        ],
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=2,
+        proposed_by="planner-agent",
+    )
+    approve(unit, "inception")
+    approve_execution_envelope(unit)
+    passing_evidence(unit)
+    approve(unit, "release")
+
+    assert transition_unit(unit, "operating")["to"] == "operating"
 
 
 def test_renewed_envelope_is_inert_until_the_new_decision_approves_it(

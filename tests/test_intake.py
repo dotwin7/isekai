@@ -135,3 +135,24 @@ def test_unit_init_persists_normalized_intent_metadata(tmp_path: Path) -> None:
     assert unit_json["work_scope"] == ["src/events/**"]
     assert "Add event classifier" in intent_markdown
     assert "Classify events" in intent_markdown
+
+
+def test_unit_init_rejects_non_normalized_intent_fields(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+
+    with pytest.raises(ValueError, match="source must be one of"):
+        initialize_unit(
+            project,
+            "Invalid source",
+            intent={"source": "not-a-source", "goal": "Build it"},
+        )
+    with pytest.raises(ValueError, match="scope"):
+        initialize_unit(
+            project,
+            "Invalid scope",
+            intent={
+                "source": "direct-request",
+                "goal": "Build it",
+                "scope": "src/**",
+            },
+        )

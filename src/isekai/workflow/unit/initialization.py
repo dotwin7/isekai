@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ..intake import normalize_intent
 from ..project import resolve_context
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
 from .authorization import _authorization_ledger_digest
@@ -53,12 +54,14 @@ def initialize_unit(
                 f"relative Unit output escapes project root: {output_label}"
             ) from exc
     intent_values = dict(intent or {})
-    goal = str(intent_values.get("goal") or title).strip()
-    intent_source = str(intent_values.get("source") or "direct-request")
-    expected_outcome = str(intent_values.get("expected_outcome") or "").strip()
-    work_scope = list(intent_values.get("scope") or [])
-    constraints = list(intent_values.get("constraints") or [])
-    acceptance_criteria = list(intent_values.get("acceptance_criteria") or [])
+    intent_values.setdefault("goal", title)
+    normalized_intent = normalize_intent(intent_values)
+    goal = normalized_intent["goal"]
+    intent_source = normalized_intent["source"]
+    expected_outcome = normalized_intent["expected_outcome"]
+    work_scope = normalized_intent["scope"]
+    constraints = normalized_intent["constraints"]
+    acceptance_criteria = normalized_intent["acceptance_criteria"]
     document_language = receipt["document_language"]
     slug = _slugify(title)
     unit_id = (

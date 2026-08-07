@@ -222,6 +222,23 @@ def build_session(
                 "Unit Foundation contract digest does not match the selected Project; "
                 "migrate the Unit explicitly before resuming it"
             )
+        binding_fields = sorted(
+            set(context) - {"generated_at", "receipt_id", "source_manifest"}
+        )
+        changed_fields = [
+            field for field in binding_fields if receipt.get(field) != context.get(field)
+        ]
+        if changed_fields:
+            raise SessionError(
+                "Unit Context Receipt does not match the selected Project fields: "
+                + ", ".join(changed_fields)
+                + "; migrate the Unit explicitly before resuming it"
+            )
+        if receipt.get("receipt_id") != context.get("receipt_id"):
+            raise SessionError(
+                "Unit Context Receipt fingerprint does not match the selected Project; "
+                "migrate the Unit explicitly before resuming it"
+            )
         unit = _unit_ref(selected_unit, status)
     return {
         **session,
