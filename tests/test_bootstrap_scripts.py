@@ -118,6 +118,35 @@ def test_posix_bootstrap_preserves_git_failure_exit_code(tmp_path: Path) -> None
     assert not (project / "isekai.lock.json").exists()
 
 
+def test_posix_bootstrap_rejects_transport_helpers_before_clone(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(ROOT / "scripts/install.sh"),
+            "--source",
+            "ext::sh -c true",
+            "--ref",
+            "v0.1.0",
+            "--path",
+            str(project),
+            "--python",
+            sys.executable,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "transport helper" in completed.stderr
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_posix_bootstrap_rejects_branch_before_release_code_execution(
     tmp_path: Path,
 ) -> None:
@@ -196,3 +225,13 @@ def test_powershell_bootstrap_validates_immutable_ref_before_checkout() -> None:
     assert "[0-9a-fA-F]{40}" in content
     assert "[0-9a-fA-F]{64}" in content
     assert "branches and abbreviated commits are not allowed" in content
+
+
+def test_powershell_bootstrap_rejects_transport_helpers_before_clone() -> None:
+    content = (ROOT / "scripts/install.ps1").read_text(encoding="utf-8")
+
+    validation = content.index("Git transport helper")
+    clone = content.index("& git clone")
+
+    assert validation < clone
+    assert "^[A-Za-z][A-Za-z0-9+.-]*::" in content

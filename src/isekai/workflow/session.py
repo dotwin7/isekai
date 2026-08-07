@@ -201,6 +201,16 @@ def build_session(
             raise SessionError(
                 f"Unit project_id does not match selected Project: {selected_unit}"
             )
+        receipt = _read_object(selected_unit / "context-receipt.json")
+        source_manifest = receipt.get("source_manifest")
+        if (
+            not isinstance(source_manifest, str)
+            or not source_manifest.strip()
+            or Path(source_manifest).expanduser().resolve() != project_path.resolve()
+        ):
+            raise SessionError(
+                f"Unit source_manifest does not match selected Project: {selected_unit}"
+            )
         context = session["context"]
         if status.get("foundation_version") != context.get("foundation_version"):
             raise SessionError(

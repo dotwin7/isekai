@@ -118,6 +118,9 @@ def test_reviewer_probes_fail_closed_for_envelope_lineage_exception_and_knowledg
     assert evaluate_condition(envelope, subject, now=now)
     assert not evaluate_condition(envelope, {**subject, "envelope": {**subject["envelope"], "status": "draft"}}, now=now)
     assert not evaluate_condition(envelope, {**subject, "envelope": {**subject["envelope"], "max_iterations": 0}}, now=now)
+    assert not evaluate_condition(
+        envelope, {**subject, "target": "src_evil/secrets.txt"}, now=now
+    )
 
     lineage = {"type": "required-lineage", "mapping_ref": "mapping@0.1.0", "source_ref": "source", "target_ref": "target", "transformation": "field-map", "raw_reference": "raw"}
     assert evaluate_condition(lineage, {key: lineage[key] for key in lineage if key != "type"})

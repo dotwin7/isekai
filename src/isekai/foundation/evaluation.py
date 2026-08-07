@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..support.scope import scope_pattern_matches
 from .types import (
     EVALUATION_CLOCK,
     EVALUATOR_TYPES,
@@ -88,7 +89,10 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
             return False
         if not isinstance(scopes, list) or not isinstance(target, str):
             return False
-        in_scope = any(isinstance(item, str) and (item == target or item == condition["target_scope"] or (item.endswith("/**") and target.startswith(item[:-3]))) for item in scopes)
+        in_scope = any(
+            isinstance(item, str) and scope_pattern_matches(item, target)
+            for item in scopes
+        )
         if not in_scope or stage != condition["stage"]:
             return False
         if not isinstance(stages, list) or not any(isinstance(item, dict) and item.get("name") == stage and action in item.get("allowed_actions", []) for item in stages):

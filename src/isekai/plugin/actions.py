@@ -62,6 +62,13 @@ def _required(payload: Mapping[str, Any], key: str) -> Any:
     return value
 
 
+def _list_field(payload: Mapping[str, Any], key: str) -> list[Any]:
+    value = payload.get(key, [])
+    if not isinstance(value, list):
+        raise PluginError(f"plugin request field {key} must be a list")
+    return list(value)
+
+
 def _handshake(values: Mapping[str, Any]) -> dict[str, Any]:
     try:
         return verify_adapter_handshake(
@@ -83,7 +90,7 @@ def _init(values: Mapping[str, Any]) -> dict[str, Any]:
             if values.get("foundation_path") is not None
             else None
         ),
-        profiles=list(values.get("profiles", [])),
+        profiles=_list_field(values, "profiles"),
         document_language=str(values.get("document_language", "ko")),
         maximum_agent_level=str(values.get("maximum_agent_level", "L0")),
     )
@@ -129,7 +136,7 @@ def _foundation_evidence(values: Mapping[str, Any]) -> dict[str, Any]:
     return record_foundation_evidence(
         values.get("foundation", "foundation"),
         passed=values.get("passed") is True,
-        checks=list(values.get("checks", [])),
+        checks=_list_field(values, "checks"),
         scope=str(_required(values, "scope")),
         recorded_by=str(_required(values, "recorded_by")),
     )
@@ -165,9 +172,9 @@ def _unit_init(values: Mapping[str, Any]) -> dict[str, Any]:
 def _checkpoint(values: Mapping[str, Any]) -> dict[str, Any]:
     return update_checkpoint(
         _required(values, "unit"),
-        completed=list(values.get("completed", [])),
-        pending=list(values.get("pending", [])),
-        blocked_by=list(values.get("blocked_by", [])),
+        completed=_list_field(values, "completed"),
+        pending=_list_field(values, "pending"),
+        blocked_by=_list_field(values, "blocked_by"),
         next_action=str(_required(values, "next_action")),
     )
 
@@ -175,13 +182,13 @@ def _checkpoint(values: Mapping[str, Any]) -> dict[str, Any]:
 def _envelope_propose(values: Mapping[str, Any]) -> dict[str, Any]:
     return propose_execution_envelope(
         _required(values, "unit"),
-        scope=list(values.get("scope", [])),
-        stages=list(values.get("stages", [])),
-        allowed_actions=list(values.get("allowed_actions", [])),
-        forbidden_actions=list(values.get("forbidden_actions", [])),
-        max_iterations=int(values.get("max_iterations", 0)),
+        scope=_list_field(values, "scope"),
+        stages=_list_field(values, "stages"),
+        allowed_actions=_list_field(values, "allowed_actions"),
+        forbidden_actions=_list_field(values, "forbidden_actions"),
+        max_iterations=values.get("max_iterations", 0),
         proposed_by=str(_required(values, "proposed_by")),
-        expires_in_hours=int(
+        expires_in_hours=(
             values.get("expires_in_hours") or EXECUTION_ENVELOPE_DEFAULT_HOURS
         ),
     )
@@ -200,7 +207,7 @@ def _evidence(values: Mapping[str, Any]) -> dict[str, Any]:
     return record_evidence(
         _required(values, "unit"),
         passed=values.get("passed") is True,
-        commands=list(values.get("commands", [])),
+        commands=_list_field(values, "commands"),
         scope=str(_required(values, "scope")),
         recorded_by=str(_required(values, "recorded_by")),
         notes=str(values.get("notes", "")),
@@ -213,11 +220,11 @@ def _decision(values: Mapping[str, Any]) -> dict[str, Any]:
         gate=str(_required(values, "gate")),
         outcome=str(_required(values, "outcome")),
         summary=str(_required(values, "summary")),
-        rationale=list(_required(values, "rationale")),
-        alternatives=list(values.get("alternatives", [])),
-        tradeoffs=list(values.get("tradeoffs", [])),
-        risks=list(values.get("risks", [])),
-        references=list(values.get("references", [])),
+        rationale=_list_field(values, "rationale"),
+        alternatives=_list_field(values, "alternatives"),
+        tradeoffs=_list_field(values, "tradeoffs"),
+        risks=_list_field(values, "risks"),
+        references=_list_field(values, "references"),
         decided_by=str(_required(values, "decided_by")),
     )
 

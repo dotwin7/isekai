@@ -31,6 +31,9 @@ function Assert-LastExitCode {
 if ($Source.StartsWith("-")) {
     throw "Source cannot start with '-'"
 }
+if ($Source -match "^[A-Za-z][A-Za-z0-9+.-]*::") {
+    throw "Source must not use a Git transport helper"
+}
 if ($Ref.StartsWith("-")) {
     throw "Ref cannot start with '-'"
 }

@@ -112,3 +112,29 @@ def test_direct_on_rejects_unit_option(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["on", "--project", str(project), "--unit", "some-unit"])
     assert exc_info.value.code == 2
+
+
+def test_json_array_options_reject_null_without_traceback(capsys) -> None:
+    exit_code = main(
+        [
+            "envelope-propose",
+            "--unit",
+            "/tmp/missing-unit",
+            "--scope",
+            "src/**",
+            "--stages-json",
+            "null",
+            "--allowed-action",
+            "read",
+            "--max-iterations",
+            "1",
+            "--proposed-by",
+            "test-agent",
+        ]
+    )
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+
+    assert exit_code == 2
+    assert captured.out == ""
+    assert error == {"error": "plugin request field stages must be a list"}

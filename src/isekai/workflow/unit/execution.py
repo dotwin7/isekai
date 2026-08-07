@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import json
 import re
@@ -9,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ...support.locking import LockUnavailable
+from ...support.scope import scope_pattern_matches
 from ..routing import AGENT_ALLOWED_ACTIONS, AGENT_PROHIBITED_ACTIONS
 from .common import (
     PROTECTED_UNIT_ARTIFACTS,
@@ -99,22 +99,6 @@ def _scope_pattern_issue(pattern: str) -> str | None:
     return None
 
 
-def _scope_segments_match(segments: list[str], parts: list[str]) -> bool:
-    if not segments:
-        return not parts
-    head, rest = segments[0], segments[1:]
-    if head == "**":
-        return any(
-            _scope_segments_match(rest, parts[index:])
-            for index in range(len(parts) + 1)
-        )
-    return (
-        bool(parts)
-        and fnmatch.fnmatchcase(parts[0], head)
-        and _scope_segments_match(rest, parts[1:])
-    )
-
-
 def _scope_pattern_matches(pattern: str, target: str) -> bool:
     """Match a scope pattern against a project-relative target path.
 
@@ -123,7 +107,7 @@ def _scope_pattern_matches(pattern: str, target: str) -> bool:
     a whole ``**`` segment spans directories. Bare ``fnmatch`` would let
     ``src/*.py`` reach arbitrarily deep paths.
     """
-    return _scope_segments_match(pattern.replace("\\", "/").split("/"), target.split("/"))
+    return scope_pattern_matches(pattern, target)
 
 
 def _execution_envelope_issues(
@@ -598,70 +582,95 @@ def authorize_action(
             "reason": f"Action is not supported by the local Agent contract: {action}",
         }
     try:
-        unit = _unit_json(unit_dir, "unit.json")
-        envelope = _unit_json(unit_dir, "execution-envelope.json")
-    except ValueError as exc:
-        return {"allowed": False, "reason": str(exc)}
-    preflight = _unit_preflight_issues(unit_dir)
-    if preflight:
-        return {"allowed": False, "reason": "Action preflight blocked: " + "; ".join(preflight)}
-    envelope_issues = _execution_envelope_issues(
-        envelope,
-        str(unit.get("id")),
-        require_approved=True,
-    )
-    if envelope_issues:
-        return {"allowed": False, "reason": "Action blocked: " + "; ".join(envelope_issues)}
-    decision_issues = _approved_envelope_decision_issues(unit_dir, envelope, unit)
-    if decision_issues:
-        return {
-            "allowed": False,
-            "reason": "Action blocked: " + "; ".join(decision_issues),
-        }
-    if action in envelope["forbidden_actions"]:
-        return {"allowed": False, "reason": f"Action is forbidden by the Execution Envelope: {action}"}
-    if action not in envelope["allowed_actions"]:
-        return {"allowed": False, "reason": f"Action is not allowed by the Execution Envelope: {action}"}
-    current_stage = unit.get("phase")
-    if stage is not None and stage != current_stage:
-        return {
-            "allowed": False,
-            "reason": (
-                f"Requested stage {stage} does not match the Unit phase: {current_stage}"
-            ),
-        }
-    stage_matches = [item for item in envelope["stages"] if item.get("name") == current_stage]
-    if not stage_matches:
-        return {"allowed": False, "reason": f"No approved Envelope stage for: {current_stage}"}
-    if action not in stage_matches[0].get("allowed_actions", []):
-        return {"allowed": False, "reason": f"Action is not allowed in stage {current_stage}: {action}"}
-    normalized_target, target_issue = _normalize_authorization_target(
-        unit_dir, str(target) if target is not None else ""
-    )
-    if target_issue is not None:
-        return {"allowed": False, "reason": target_issue}
-    assert normalized_target is not None  # narrowed by the fail-closed result above
-    protection_issue = _authorization_target_protection_issue(
-        unit_dir, action, normalized_target
-    )
-    if protection_issue is not None:
-        return {"allowed": False, "reason": protection_issue}
-    if not any(
-        _scope_pattern_matches(pattern, normalized_target)
-        for pattern in envelope["scope"]
-    ):
-        return {
-            "allowed": False,
-            "reason": f"Target is outside the approved Envelope scope: {normalized_target}",
-        }
-
-    ledger_path = unit_dir / "execution-authorizations.json"
-    try:
         with unit_lock(unit_dir):
             try:
+                unit = _unit_json(unit_dir, "unit.json")
+                envelope = _unit_json(unit_dir, "execution-envelope.json")
                 ledger = _unit_json(unit_dir, "execution-authorizations.json")
             except ValueError as exc:
                 return {"allowed": False, "reason": str(exc)}
+            preflight = _unit_preflight_issues(unit_dir)
+            if preflight:
+                return {
+                    "allowed": False,
+                    "reason": "Action preflight blocked: " + "; ".join(preflight),
+                }
+            envelope_issues = _execution_envelope_issues(
+                envelope,
+                str(unit.get("id")),
+                require_approved=True,
+            )
+            if envelope_issues:
+                return {
+                    "allowed": False,
+                    "reason": "Action blocked: " + "; ".join(envelope_issues),
+                }
+            decision_issues = _approved_envelope_decision_issues(
+                unit_dir, envelope, unit
+            )
+            if decision_issues:
+                return {
+                    "allowed": False,
+                    "reason": "Action blocked: " + "; ".join(decision_issues),
+                }
+            if action in envelope["forbidden_actions"]:
+                return {
+                    "allowed": False,
+                    "reason": f"Action is forbidden by the Execution Envelope: {action}",
+                }
+            if action not in envelope["allowed_actions"]:
+                return {
+                    "allowed": False,
+                    "reason": f"Action is not allowed by the Execution Envelope: {action}",
+                }
+            current_stage = unit.get("phase")
+            if stage is not None and stage != current_stage:
+                return {
+                    "allowed": False,
+                    "reason": (
+                        f"Requested stage {stage} does not match the Unit phase: "
+                        f"{current_stage}"
+                    ),
+                }
+            stage_matches = [
+                item
+                for item in envelope["stages"]
+                if item.get("name") == current_stage
+            ]
+            if not stage_matches:
+                return {
+                    "allowed": False,
+                    "reason": f"No approved Envelope stage for: {current_stage}",
+                }
+            if action not in stage_matches[0].get("allowed_actions", []):
+                return {
+                    "allowed": False,
+                    "reason": (
+                        f"Action is not allowed in stage {current_stage}: {action}"
+                    ),
+                }
+            normalized_target, target_issue = _normalize_authorization_target(
+                unit_dir, str(target) if target is not None else ""
+            )
+            if target_issue is not None:
+                return {"allowed": False, "reason": target_issue}
+            assert normalized_target is not None
+            protection_issue = _authorization_target_protection_issue(
+                unit_dir, action, normalized_target
+            )
+            if protection_issue is not None:
+                return {"allowed": False, "reason": protection_issue}
+            if not any(
+                _scope_pattern_matches(pattern, normalized_target)
+                for pattern in envelope["scope"]
+            ):
+                return {
+                    "allowed": False,
+                    "reason": (
+                        "Target is outside the approved Envelope scope: "
+                        f"{normalized_target}"
+                    ),
+                }
             ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
             if ledger_issues:
                 return {
@@ -687,7 +696,7 @@ def authorize_action(
                 "authorized_at": now.isoformat(),
             }
             grants.append(grant)
-            _write_json(ledger_path, ledger)
+            _write_json(unit_dir / "execution-authorizations.json", ledger)
             persisted = _unit_json(unit_dir, "execution-authorizations.json")
             persisted_issues = _authorization_ledger_issues(persisted, unit, envelope)
             if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:

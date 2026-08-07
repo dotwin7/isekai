@@ -156,6 +156,19 @@ def test_resume_rejects_foundation_contract_drift_with_same_version(
         resume_session(project)
 
 
+def test_resume_rejects_unit_bound_to_a_different_project(tmp_path: Path) -> None:
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first = make_project(first_root)
+    second = make_project(second_root)
+    unit = initialize_unit(first, "First Project Unit", first.parent / "units")
+
+    with pytest.raises(SessionError, match="source_manifest does not match"):
+        resume_session(second, unit)
+
+
 def test_foundation_readiness_reports_approved_baseline() -> None:
     foundation = load_foundation(ROOT / "foundation")
 

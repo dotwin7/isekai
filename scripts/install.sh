@@ -114,6 +114,8 @@ done
 [[ -n "$source_url" ]] || fail "--source is required"
 [[ -n "$release_ref" ]] || fail "--ref is required"
 [[ "$source_url" != -* ]] || fail "--source cannot start with '-'"
+[[ ! "$source_url" =~ ^[A-Za-z][A-Za-z0-9+.-]*:: ]] \
+  || fail "--source must not use a Git transport helper"
 [[ "$release_ref" != -* ]] || fail "--ref cannot start with '-'"
 [[ -d "$project_path" ]] || fail "project directory does not exist: $project_path"
 if ((${#profiles[@]} > 0 && initialize == 0)); then

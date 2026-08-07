@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+import isekai.workflow.unit.execution as execution_module
+from isekai.jsonio import write_json_atomic
 from isekai.workflow import (
     authorize_action,
     initialize_unit,
@@ -186,6 +189,44 @@ def test_later_rejected_inception_decision_revokes_envelope_authorization(
 
     assert result["allowed"] is False
     assert "revoked" in result["reason"] or "latest" in result["reason"]
+
+
+def test_authorization_rechecks_approval_after_acquiring_unit_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    original_lock = execution_module.unit_lock
+
+    @contextmanager
+    def lock_after_revocation(unit_dir: Path):
+        with original_lock(unit_dir):
+            path = unit_dir / "decisions.json"
+            decisions = json.loads(path.read_text(encoding="utf-8"))
+            revoked = dict(decisions["decisions"][-1])
+            revoked.update(
+                {
+                    "id": "DEC-REVOKED-BEFORE-GRANT",
+                    "outcome": "rejected",
+                    "summary": "Approval was revoked before the grant lock was acquired.",
+                }
+            )
+            decisions["decisions"].append(revoked)
+            write_json_atomic(path, decisions)
+            yield
+
+    monkeypatch.setattr(execution_module, "unit_lock", lock_after_revocation)
+
+    result = execution_module.authorize_action(
+        unit, action="edit", target="src/raced.py"
+    )
+    ledger = json.loads(
+        (unit / "execution-authorizations.json").read_text(encoding="utf-8")
+    )
+
+    assert result["allowed"] is False
+    assert "revoked" in result["reason"] or "latest" in result["reason"]
+    assert ledger["grants"] == []
 
 
 def test_replaced_envelope_cannot_reuse_an_earlier_inception_approval(
