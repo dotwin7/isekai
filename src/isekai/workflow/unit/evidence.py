@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ EVIDENCE_REQUIRED_FIELDS = {
     "type",
     "schema_version",
     "unit_id",
+    "stage",
     "passed",
     "scope",
     "recorded_by",
@@ -30,6 +32,13 @@ EVIDENCE_COMMAND_REQUIRED_FIELDS = {
     "exit_code",
     "output_digest",
     "observed_at",
+    "authorization_id",
+}
+EVIDENCE_ALLOWED_STATUSES = {
+    "construction",
+    "awaiting-release-decision",
+    "releasing",
+    "operating",
 }
 
 
@@ -39,6 +48,7 @@ def _evidence_issues(
     *,
     require_passing: bool = True,
     authorization_binding: dict[str, Any] | None = None,
+    authorization_grants: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
     if not isinstance(evidence, dict):
         return ["verification evidence must be an object"]
@@ -54,6 +64,10 @@ def _evidence_issues(
         issues.append("verification evidence has an invalid type")
     if evidence.get("schema_version") != "1.0.0":
         issues.append("verification evidence has an unsupported schema_version")
+    if not isinstance(evidence.get("stage"), str) or not evidence.get(
+        "stage", ""
+    ).strip():
+        issues.append("verification evidence requires stage")
     if not isinstance(evidence.get("passed"), bool):
         issues.append("verification evidence passed must be boolean")
     if not isinstance(evidence.get("scope"), str) or not evidence.get("scope", "").strip():
@@ -85,6 +99,7 @@ def _evidence_issues(
                 break
 
     commands = evidence.get("commands")
+    used_authorizations: set[str] = set()
     if not isinstance(commands, list) or not commands:
         issues.append("verification evidence has no commands")
     else:
@@ -115,6 +130,38 @@ def _evidence_issues(
                 issues.append(
                     f"evidence command {index} observed_at must be an ISO-8601 timestamp"
                 )
+            authorization_id = command.get("authorization_id")
+            if not isinstance(authorization_id, str) or not authorization_id.strip():
+                issues.append(
+                    f"evidence command {index} requires authorization_id"
+                )
+            elif authorization_id in used_authorizations:
+                issues.append(
+                    f"evidence command {index} reuses authorization_id: {authorization_id}"
+                )
+            else:
+                used_authorizations.add(authorization_id)
+                if authorization_grants is not None:
+                    grant = authorization_grants.get(authorization_id)
+                    if grant is None or grant.get("action") != "test":
+                        issues.append(
+                            f"evidence command {index} is not bound to a current test authorization"
+                        )
+                    else:
+                        if isinstance(authorization_count, int) and not isinstance(
+                            authorization_count, bool
+                        ):
+                            expected_iteration = (
+                                authorization_count - len(commands) + index + 1
+                            )
+                            if grant.get("iteration") != expected_iteration:
+                                issues.append(
+                                    f"evidence command {index} must use the latest authorized test actions"
+                                )
+                        if grant.get("stage") != evidence.get("stage"):
+                            issues.append(
+                                f"evidence command {index} authorization stage does not match Evidence stage"
+                            )
             if evidence.get("passed") is True and exit_code != 0:
                 issues.append(
                     f"passing verification evidence has non-zero command {index} exit_code"
@@ -131,33 +178,72 @@ def _passing_evidence(unit_dir: Path) -> bool:
     try:
         evidence = _unit_json(unit_dir, "evidence/verification.json")
         unit = _unit_json(unit_dir, "unit.json")
-        binding = _current_authorization_binding(unit_dir, unit)
+        binding, grants = _current_authorization_context(
+            unit_dir, unit, check_expiry=False
+        )
     except ValueError:
         return False
     return not _evidence_issues(
         evidence,
         str(unit.get("id")),
         authorization_binding=binding,
+        authorization_grants=grants,
     )
+
+
+def _current_authorization_context(
+    unit_dir: Path,
+    unit: dict[str, Any],
+    *,
+    check_expiry: bool,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    from .decisions import _approved_envelope_decision_issues
+    from .execution import (
+        _authorization_ledger_digest,
+        _authorization_ledger_issues,
+        _execution_envelope_issues,
+    )
+
+    envelope = _unit_json(unit_dir, "execution-envelope.json")
+    ledger = _unit_json(unit_dir, "execution-authorizations.json")
+    envelope_issues = _execution_envelope_issues(
+        envelope,
+        str(unit.get("id")),
+        require_approved=True,
+        check_expiry=check_expiry,
+    )
+    envelope_issues.extend(
+        _approved_envelope_decision_issues(unit_dir, envelope, unit)
+    )
+    if envelope_issues:
+        raise ValueError(
+            "Execution Envelope blocks Evidence: " + "; ".join(envelope_issues)
+        )
+    ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+    if ledger_issues:
+        raise ValueError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
+    grants = {
+        str(grant.get("id")): grant
+        for grant in ledger["grants"]
+        if isinstance(grant, dict) and isinstance(grant.get("id"), str)
+    }
+    binding = {
+        "envelope_id": envelope.get("id"),
+        "envelope_digest": envelope.get("approval_digest"),
+        "authorization_ledger_digest": _authorization_ledger_digest(ledger),
+        "authorization_count": len(ledger["grants"]),
+    }
+    return binding, grants
 
 
 def _current_authorization_binding(
     unit_dir: Path,
     unit: dict[str, Any],
 ) -> dict[str, Any]:
-    from .execution import _authorization_ledger_digest, _authorization_ledger_issues
-
-    envelope = _unit_json(unit_dir, "execution-envelope.json")
-    ledger = _unit_json(unit_dir, "execution-authorizations.json")
-    ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
-    if ledger_issues:
-        raise ValueError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
-    return {
-        "envelope_id": envelope.get("id"),
-        "envelope_digest": envelope.get("approval_digest"),
-        "authorization_ledger_digest": _authorization_ledger_digest(ledger),
-        "authorization_count": len(ledger["grants"]),
-    }
+    binding, _grants = _current_authorization_context(
+        unit_dir, unit, check_expiry=False
+    )
+    return binding
 
 
 def build_command_evidence(
@@ -180,6 +266,16 @@ def build_command_evidence(
         "output_digest": hashlib.sha256(output.encode("utf-8")).hexdigest(),
         "observed_at": observed_at.strip(),
     }
+
+
+def _verification_evidence_digest(evidence: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def record_evidence(
@@ -227,6 +323,14 @@ def _record_evidence_locked(
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
         raise ValueError("Evidence preflight blocked: " + "; ".join(preflight_issues))
+    if unit.get("status") not in EVIDENCE_ALLOWED_STATUSES:
+        raise ValueError(
+            "Evidence can only be recorded after Construction begins; current status: "
+            + str(unit.get("status"))
+        )
+    authorization_binding, authorization_grants = _current_authorization_context(
+        unit_dir, unit, check_expiry=True
+    )
     normalized_commands: list[dict[str, Any]] = []
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
@@ -241,18 +345,21 @@ def _record_evidence_locked(
                 str(item.get("observed_at", "")),
             )
             supplied_digest = item.get("output_digest")
-            if supplied_digest is not None and supplied_digest != computed["output_digest"]:
+            if (
+                supplied_digest is not None
+                and supplied_digest != computed["output_digest"]
+            ):
                 raise ValueError(f"command {index} output_digest does not match output")
             item.update(computed)
         normalized_commands.append(item)
 
-    authorization_binding = _current_authorization_binding(unit_dir, unit)
     now = datetime.now(timezone.utc)
     evidence = {
         "id": "EVD-" + now.strftime("%Y%m%d%H%M%S%f"),
         "type": "verification-evidence",
         "schema_version": "1.0.0",
         "unit_id": unit.get("id"),
+        "stage": unit.get("phase"),
         "passed": passed,
         "scope": scope.strip(),
         "recorded_by": recorded_by.strip(),
@@ -266,6 +373,8 @@ def _record_evidence_locked(
         evidence,
         str(unit.get("id")),
         require_passing=False,
+        authorization_binding=authorization_binding,
+        authorization_grants=authorization_grants,
     )
     if issues:
         raise ValueError("; ".join(issues))

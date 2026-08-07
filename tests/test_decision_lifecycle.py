@@ -16,6 +16,7 @@ from isekai.workflow import (
     transition_unit,
     verify_unit,
 )
+from isekai.session import update_checkpoint
 
 from test_core_workflow import make_project
 
@@ -44,6 +45,9 @@ def make_unit(tmp_path: Path) -> Path:
 
 
 def approve(unit: Path, gate: str) -> None:
+    references = ["tests/test_decision_lifecycle.py", "execution-envelope.json"]
+    if gate == "release":
+        references.append("evidence/verification.json")
     record_decision(
         unit,
         gate=gate,
@@ -53,12 +57,37 @@ def approve(unit: Path, gate: str) -> None:
         alternatives=[{"option": "Defer the gate", "reason": "Rejected because the test gate is ready."}],
         tradeoffs=["The test records a minimal but explicit Decision Packet."],
         risks=["This is test-only evidence."],
-        references=["tests/test_decision_lifecycle.py", "execution-envelope.json"],
+        references=references,
         decided_by="human-reviewer",
     )
 
 
+def start_construction(unit: Path) -> None:
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+
+
+def authorize_test(unit: Path) -> str:
+    authorization = authorize_action(
+        unit,
+        action="test",
+        target="tests/test_decision_lifecycle.py",
+    )
+    assert authorization["allowed"] is True
+    return str(authorization["authorization_id"])
+
+
+def complete_acceptance(unit: Path) -> None:
+    (unit / "acceptance.md").write_text(
+        "# Acceptance Criteria\n\n- [x] Lifecycle behavior is verified.\n",
+        encoding="utf-8",
+    )
+
+
 def passing_evidence(unit: Path) -> None:
+    authorization_id = authorize_test(unit)
     record_evidence(
         unit,
         passed=True,
@@ -70,6 +99,7 @@ def passing_evidence(unit: Path) -> None:
                 "exit_code": 0,
                 "output_digest": "a" * 64,
                 "observed_at": "2026-08-04T00:00:00+00:00",
+                "authorization_id": authorization_id,
             }
         ],
     )
@@ -93,14 +123,36 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     with pytest.raises(ValueError, match="approved release Decision"):
         transition_unit(unit, "releasing")
 
-    approve(unit, "release")
     passing_evidence(unit)
+    approve(unit, "release")
+    with pytest.raises(ValueError, match="acceptance criteria remain unchecked"):
+        transition_unit(unit, "releasing")
+    complete_acceptance(unit)
+    architecture = unit / "architecture.md"
+    architecture_content = architecture.read_text(encoding="utf-8")
+    architecture.unlink()
+    with pytest.raises(ValueError, match="required Unit artifacts are missing"):
+        transition_unit(unit, "releasing")
+    architecture.write_text(architecture_content, encoding="utf-8")
     transition_unit(unit, "releasing")
     transition_unit(unit, "operating")
     with pytest.raises(ValueError, match="approved operation Decision"):
         transition_unit(unit, "learned")
 
+    # Operations may add new authorized work and replace the current Evidence.
+    # The historical Release Decision stays bound to the release Evidence, while
+    # the learned transition validates the new, current operations Evidence.
+    passing_evidence(unit)
     approve(unit, "operation")
+    with pytest.raises(ValueError, match="pending work"):
+        transition_unit(unit, "learned")
+    update_checkpoint(
+        unit,
+        completed=["Lifecycle implementation and verification"],
+        pending=[],
+        blocked_by=[],
+        next_action="Unit complete",
+    )
     result = transition_unit(unit, "learned")
 
     assert result["from"] == "operating"
@@ -122,8 +174,8 @@ def test_release_rejects_evidence_made_stale_by_a_later_authorization(
     transition_unit(unit, "construction")
     approve(unit, "architecture")
     transition_unit(unit, "awaiting-release-decision")
-    approve(unit, "release")
     passing_evidence(unit)
+    approve(unit, "release")
 
     authorization = authorize_action(
         unit,
@@ -137,6 +189,10 @@ def test_release_rejects_evidence_made_stale_by_a_later_authorization(
     assert any("stale" in issue for issue in verify_unit(unit)["issues"])
 
     passing_evidence(unit)
+    with pytest.raises(ValueError, match="Release Decision"):
+        transition_unit(unit, "releasing")
+    approve(unit, "release")
+    complete_acceptance(unit)
     assert transition_unit(unit, "releasing")["to"] == "releasing"
 
 
@@ -173,8 +229,92 @@ def test_invalid_skip_transition_is_rejected(tmp_path: Path) -> None:
         transition_unit(unit, "construction")
 
 
+@pytest.mark.parametrize("gate", ["architecture", "release", "operation", "knowledge"])
+def test_decisions_cannot_be_preapproved_before_their_gate(
+    tmp_path: Path,
+    gate: str,
+) -> None:
+    unit = make_unit(tmp_path)
+
+    with pytest.raises(ValueError, match=f"{gate} Decision cannot be recorded"):
+        approve(unit, gate)
+
+
+def test_evidence_requires_a_current_test_authorization(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    with pytest.raises(ValueError, match="after Construction"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="premature evidence",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "not actually run",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": "2026-08-04T00:00:00+00:00",
+                    "authorization_id": "AUTH-NOT-GRANTED",
+                }
+            ],
+        )
+    start_construction(unit)
+    read_authorization = authorize_action(unit, action="read", target="src/main.py")
+    assert read_authorization["allowed"] is True
+
+    with pytest.raises(ValueError, match="current test authorization"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="forged evidence",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "not actually run",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": "2026-08-04T00:00:00+00:00",
+                    "authorization_id": read_authorization["authorization_id"],
+                }
+            ],
+        )
+
+
+def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+    command = {
+        "command": "pytest -q",
+        "exit_code": 0,
+        "output_digest": "a" * 64,
+        "observed_at": "2026-08-04T00:00:00+00:00",
+        "authorization_id": authorization_id,
+    }
+    record_evidence(
+        unit,
+        passed=True,
+        scope="initial verification",
+        recorded_by="test-validator",
+        commands=[command],
+    )
+    edit = authorize_action(unit, action="edit", target="src/after-test.py")
+    assert edit["allowed"] is True
+
+    with pytest.raises(ValueError, match="latest authorized test actions"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="stale verification",
+            recorded_by="test-validator",
+            commands=[command],
+        )
+
+
 def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
     result = record_evidence(
         unit,
         passed=False,
@@ -186,6 +326,7 @@ def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path
                 "exit_code": 1,
                 "output_digest": "b" * 64,
                 "observed_at": "2026-08-04T00:00:00+00:00",
+                "authorization_id": authorization_id,
             }
         ],
     )
@@ -197,6 +338,8 @@ def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path
 
 def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
 
     with pytest.raises(ValueError, match="output_digest"):
         record_evidence(
@@ -210,6 +353,7 @@ def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> No
                     "exit_code": 0,
                     "output_digest": "not-a-digest",
                     "observed_at": "2026-08-04T00:00:00+00:00",
+                    "authorization_id": authorization_id,
                 }
             ],
         )
@@ -217,6 +361,8 @@ def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> No
 
 def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
 
     with pytest.raises(ValueError, match="observed_at"):
         record_evidence(
@@ -230,6 +376,7 @@ def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
                     "exit_code": 0,
                     "output_digest": "a" * 64,
                     "observed_at": "not-a-timestamp",
+                    "authorization_id": authorization_id,
                 }
             ],
         )
@@ -243,6 +390,8 @@ def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
         "2026-08-04T00:00:00+00:00",
     )
     unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
     result = record_evidence(
         unit,
         passed=True,
@@ -254,6 +403,7 @@ def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
                 "exit_code": command["exit_code"],
                 "output": "all tests passed",
                 "observed_at": command["observed_at"],
+                "authorization_id": authorization_id,
             }
         ],
     )

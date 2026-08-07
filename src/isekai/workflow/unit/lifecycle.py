@@ -21,9 +21,10 @@ from .decisions import (
     _decision_record_issues,
     _has_approved_decision,
     _latest_decision,
+    _release_decision_evidence_issues,
 )
 from .evidence import (
-    _current_authorization_binding,
+    _current_authorization_context,
     _evidence_issues,
     _passing_evidence,
 )
@@ -32,6 +33,39 @@ from .execution import (
     _authorization_ledger_issues,
     _execution_envelope_issues,
 )
+
+
+def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[str]:
+    if target_status not in {"releasing", "learned"}:
+        return []
+    present = {
+        str(file.relative_to(unit_dir))
+        for file in unit_dir.rglob("*")
+        if file.is_file()
+        and "__pycache__" not in file.parts
+        and not file.name.startswith(UNIT_LOCK_NAME)
+    }
+    missing = sorted(UNIT_REQUIRED_FILES - present)
+    issues = (
+        ["required Unit artifacts are missing: " + ", ".join(missing)]
+        if missing
+        else []
+    )
+    acceptance_path = unit_dir / "acceptance.md"
+    if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(
+        encoding="utf-8"
+    ):
+        issues.append("acceptance criteria remain unchecked")
+    try:
+        checkpoint = _unit_json(unit_dir, "checkpoint.json")
+    except ValueError as exc:
+        issues.append(str(exc))
+        return issues
+    if checkpoint.get("blocked_by"):
+        issues.append("checkpoint has blockers")
+    if target_status == "learned" and checkpoint.get("pending"):
+        issues.append("learned Unit cannot have pending work")
+    return issues
 
 
 def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
@@ -84,6 +118,26 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
     if target_status == "releasing" and not _passing_evidence(unit_dir):
         raise ValueError(
             "transition to releasing requires passing verification Evidence"
+        )
+    if target_status == "releasing":
+        decisions = _unit_json(unit_dir, "decisions.json")
+        release_binding_issues = _release_decision_evidence_issues(
+            unit_dir, decisions, unit
+        )
+        if release_binding_issues:
+            raise ValueError(
+                f"transition to {target_status} blocked: "
+                + "; ".join(release_binding_issues)
+            )
+    if target_status == "learned" and not _passing_evidence(unit_dir):
+        raise ValueError(
+            "transition to learned requires current passing verification Evidence"
+        )
+
+    completion_issues = _transition_completion_issues(unit_dir, target_status)
+    if completion_issues:
+        raise ValueError(
+            f"transition to {target_status} blocked: " + "; ".join(completion_issues)
         )
 
     unit["status"] = target_status
@@ -165,6 +219,8 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
                     scope=str(unit.get("scope")),
                 )
             )
+        if unit.get("status") in {"awaiting-release-decision", "releasing"}:
+            issues.extend(_release_decision_evidence_issues(unit_dir, decisions, unit))
 
     status = unit.get("status")
     if status not in LIFECYCLE_STATUSES:
@@ -186,7 +242,9 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
             issues.append("learned Unit cannot have pending work")
 
     acceptance_path = unit_dir / "acceptance.md"
-    if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(encoding="utf-8"):
+    if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(
+        encoding="utf-8"
+    ):
         issues.append("acceptance criteria remain unchecked")
 
     criteria_path = unit_dir / "evaluations/criteria.json"
@@ -201,15 +259,19 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
         evidence = read_artifact("evidence/verification.json")
         if evidence is not None:
             try:
-                binding = _current_authorization_binding(unit_dir, unit)
+                binding, grants = _current_authorization_context(
+                    unit_dir, unit, check_expiry=False
+                )
             except ValueError as exc:
                 issues.append(str(exc))
                 binding = None
+                grants = None
             issues.extend(
                 _evidence_issues(
                     evidence,
                     str(unit.get("id")),
                     authorization_binding=binding,
+                    authorization_grants=grants,
                 )
             )
 

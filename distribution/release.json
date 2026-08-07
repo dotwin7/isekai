@@ -15,7 +15,7 @@
     "package": "isekai-agent-plugin",
     "version": "0.1.0",
     "path": "src/isekai",
-    "digest": "sha256:a3b2377fc2db8977540a4c30f7c8780a78ed8af26d5273797383ccbf27235adc"
+    "digest": "sha256:7fa4ef951246d9fb4082c43103f750da93a1a8f657dcbe530db535e16113f769"
   },
   "bootstrap": {
     "id": "bootstrap",
@@ -34,19 +34,19 @@
       "id": "claude",
       "version": "0.1.0",
       "path": "plugin/isekai/runtimes/claude",
-      "digest": "sha256:b7606b15bd83543a7da19c357fae33186509ba301eba93d4a0668f51ceedc093"
+      "digest": "sha256:79fe1707de704b2d2e54dba76dc31bd24d58f02f9a36e110c029515880da4b90"
     },
     {
       "id": "codex",
       "version": "0.1.0",
       "path": "plugin/isekai/runtimes/codex",
-      "digest": "sha256:50b25598e45fa03ef2a350caa55bba8e09ca46599485474479f9e393f0c3215f"
+      "digest": "sha256:bbbfdeeffb7e82bd1db1342d4f93ce7554a6540b67f5d38a396666779997659f"
     },
     {
       "id": "kiro",
       "version": "0.1.0",
       "path": "plugin/isekai/runtimes/kiro/skills/isekai",
-      "digest": "sha256:3f1fe3bc4f4e4eb1cf5e58ee4c634efd76e5c4d336fd3e799bfead1c943cea8b"
+      "digest": "sha256:011a5d17d5471448d3c5e8f4e9f6f1a0dcf656af2ce8e54569b93039c0ee46a1"
     }
   ]
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from isekai import foundation as foundation_module
+from isekai.foundation.validation import _parse_timestamp
 from isekai.foundation import (
     CONDITION_TYPES,
     FoundationError,
@@ -21,6 +22,12 @@ from test_core_workflow import make_project
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_naive_foundation_timestamp_is_normalized_to_utc() -> None:
+    parsed = _parse_timestamp("2026-08-05T00:00:00", "test timestamp")
+
+    assert parsed.tzinfo == timezone.utc
 
 
 def test_architecture_a_contract_assets_are_independent_versioned_approved_assets() -> None:

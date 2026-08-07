@@ -7,7 +7,8 @@ import pytest
 from isekai.plugin_contract import PluginError, dispatch
 
 from test_core_workflow import make_project
-from isekai.workflow import initialize_unit
+from test_execution_envelope import approve_inception, make_enveloped_unit
+from isekai.workflow import authorize_action, initialize_unit
 
 
 def test_plugin_golden_path_exposes_core_session_contract(tmp_path: Path) -> None:
@@ -195,8 +196,14 @@ def test_plugin_decision_and_transition_actions_enforce_gate(
 
 
 def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> None:
-    project = make_project(tmp_path)
-    unit = initialize_unit(project, "Plugin Evidence", project.parent / "units")
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    authorization = authorize_action(
+        unit,
+        action="test",
+        target="tests/test_plugin_contract.py",
+    )
+    assert authorization["allowed"] is True
 
     evidence = dispatch(
         "evidence",
@@ -211,6 +218,7 @@ def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> Non
                     "exit_code": 0,
                     "output_digest": "c" * 64,
                     "observed_at": "2026-08-04T00:00:00+00:00",
+                    "authorization_id": authorization["authorization_id"],
                 }
             ],
         },

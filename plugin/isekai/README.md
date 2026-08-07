@@ -62,7 +62,7 @@ isekai plugin foundation-promote --foundation foundation
 
 The promotion command rejects missing approval or failing Evidence and does not mutate the Foundation on failure.
 
-Verification Evidence can preserve command exit codes and output digests. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record.
+Verification Evidence preserves command exit codes and output digests. Each command must reference the unique `authorization_id` returned by its immediately preceding `test` authorization in the same stage. Core rejects pre-Construction, unapproved, non-test, reused, or stale grants. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
 
 Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Runtime adapters call `authorize` with a Project target before an action. Core canonicalizes that target, uses the Unit's actual phase, records each successful grant in `execution-authorizations.json`, and denies work after the iteration budget is exhausted.
 

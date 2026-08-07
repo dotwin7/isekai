@@ -32,6 +32,20 @@ ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
 
 DECISION_GATES = ("inception", "architecture", "release", "operation", "knowledge")
 DECISION_OUTCOMES = ("approved", "rejected")
+DECISION_ALLOWED_STATUSES = {
+    # Inception Decisions are also used to revoke or renew an Execution Envelope
+    # while work is underway. Other gates are only meaningful immediately before
+    # the lifecycle edge they govern, so they cannot be pre-approved.
+    "inception": {
+        "awaiting-inception-decision",
+        "construction",
+        "awaiting-release-decision",
+    },
+    "architecture": {"construction"},
+    "release": {"awaiting-release-decision"},
+    "operation": {"operating"},
+    "knowledge": {"operating", "learned"},
+}
 REQUIRED_DECISIONS_FOR_TRANSITIONS = {
     "construction": "inception",
     "awaiting-release-decision": "architecture",
@@ -152,21 +166,34 @@ def _decision_record_issues(
         issues.append("Decision scope does not match Unit")
     if not _is_iso_timestamp(decision.get("decided_at")):
         issues.append("Decision decided_at must be an ISO-8601 timestamp")
-    if decision.get("gate") == "inception" and decision.get("outcome") == "approved":
+    approval_subject_types = {
+        "inception": "execution-envelope",
+        "release": "verification-evidence",
+    }
+    expected_subject_type = approval_subject_types.get(str(decision.get("gate")))
+    if expected_subject_type is not None and decision.get("outcome") == "approved":
         approval_subject = decision.get("approval_subject")
         if not isinstance(approval_subject, dict):
-            issues.append("approved Inception Decision requires approval_subject")
+            issues.append(
+                f"approved {decision.get('gate')} Decision requires approval_subject"
+            )
         else:
-            if approval_subject.get("type") != "execution-envelope":
-                issues.append("Inception Decision approval_subject type is invalid")
+            if approval_subject.get("type") != expected_subject_type:
+                issues.append(
+                    f"{decision.get('gate')} Decision approval_subject type is invalid"
+                )
             if not isinstance(approval_subject.get("id"), str) or not approval_subject.get(
                 "id", ""
             ).strip():
-                issues.append("Inception Decision approval_subject requires id")
+                issues.append(
+                    f"{decision.get('gate')} Decision approval_subject requires id"
+                )
             if not isinstance(approval_subject.get("digest"), str) or not re.fullmatch(
                 r"sha256:[0-9a-f]{64}", approval_subject.get("digest", "")
             ):
-                issues.append("Inception Decision approval_subject requires SHA-256 digest")
+                issues.append(
+                    f"{decision.get('gate')} Decision approval_subject requires SHA-256 digest"
+                )
     issues.extend(_decision_packet_issues(decision))
     return issues
 
@@ -231,6 +258,36 @@ def _approved_envelope_decision_issues(
             issues.append("Execution Envelope approval does not match the latest Inception Decision")
     return issues
 
+
+def _release_decision_evidence_issues(
+    unit_dir: Path,
+    decisions: dict[str, Any],
+    unit: dict[str, Any],
+) -> list[str]:
+    latest = _latest_decision(decisions, "release")
+    if latest is None or latest.get("outcome") != "approved":
+        return []
+    issues = _decision_record_issues(
+        latest,
+        unit_id=str(unit.get("id")),
+        scope=str(unit.get("scope")),
+    )
+    try:
+        evidence = _unit_json(unit_dir, "evidence/verification.json")
+    except ValueError as exc:
+        return issues + [str(exc)]
+    from .evidence import _verification_evidence_digest
+
+    approval_subject = latest.get("approval_subject")
+    if not isinstance(approval_subject, dict):
+        return issues
+    if approval_subject.get("id") != evidence.get("id"):
+        issues.append("Release Decision does not reference the current verification Evidence")
+    if approval_subject.get("digest") != _verification_evidence_digest(evidence):
+        issues.append("Release Decision digest does not match current verification Evidence")
+    return issues
+
+
 def record_decision(
     path: str | Path,
     *,
@@ -273,6 +330,14 @@ def record_decision(
         preflight_issues = _unit_preflight_issues(unit_dir)
         if preflight_issues:
             raise ValueError("Decision preflight blocked: " + "; ".join(preflight_issues))
+        current_status = unit.get("status")
+        allowed_statuses = DECISION_ALLOWED_STATUSES[gate]
+        if current_status not in allowed_statuses:
+            raise ValueError(
+                f"{gate} Decision cannot be recorded while Unit status is "
+                f"{current_status}; allowed statuses: "
+                + ", ".join(sorted(allowed_statuses))
+            )
         decisions = _unit_json(unit_dir, "decisions.json")
         entries = decisions.get("decisions")
         if not isinstance(entries, list):
@@ -312,6 +377,23 @@ def record_decision(
                 "type": "execution-envelope",
                 "id": str(envelope["id"]),
                 "digest": str(envelope["approval_digest"]),
+            }
+        elif gate == "release" and outcome == "approved":
+            from .evidence import _passing_evidence, _verification_evidence_digest
+
+            if "evidence/verification.json" not in references:
+                raise ValueError(
+                    "approved Release Decision must reference evidence/verification.json"
+                )
+            if not _passing_evidence(unit_dir):
+                raise ValueError(
+                    "approved Release Decision requires current passing verification Evidence"
+                )
+            evidence = _unit_json(unit_dir, "evidence/verification.json")
+            approval_subject = {
+                "type": "verification-evidence",
+                "id": str(evidence["id"]),
+                "digest": _verification_evidence_digest(evidence),
             }
 
         now = datetime.now(timezone.utc)

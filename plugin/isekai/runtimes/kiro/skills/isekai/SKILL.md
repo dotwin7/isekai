@@ -76,7 +76,7 @@ rollback [--path PATH] [--register]
 7. Do not execute arbitrary remote Git, cloud, Kubernetes, customer-data, credential, or high-risk security actions through this skill. Installation may use only a source explicitly supplied by the user; updates must use the Git source pinned in `isekai.lock.json` unless the user explicitly approves a source change.
 8. Do not copy the entire Foundation or conversation into context. Load only the project, Unit, Receipt, Checkpoint, and referenced artifacts needed for the current action.
 9. Preserve the pinned Foundation during ordinary updates. Use `--include-foundation` only after showing the contract change and receiving explicit human approval. Start a new conversation after a Codex or Claude Adapter update.
-10. Call `authorize` immediately before each read, edit, or test action governed by a Unit. Supply a Project-relative target; Core records a successful grant and consumes one approved iteration. Never override the Unit's actual phase with `--stage`.
+10. Call `authorize` immediately before each read, edit, or test action governed by a Unit. Supply a Project-relative target; Core records a successful grant and consumes one approved iteration. Never override the Unit's actual phase with `--stage`. For Evidence, include each immediately preceding `test` grant's returned `authorization_id` in the matching command record; older, reused, non-test, and cross-stage grants are rejected.
 
 ## Output discipline
 

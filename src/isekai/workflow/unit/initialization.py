@@ -214,6 +214,7 @@ def initialize_unit(
             "type": "verification-evidence",
             "schema_version": "1.0.0",
             "unit_id": unit_id,
+            "stage": "inception",
             "passed": False,
             "scope": "",
             "recorded_by": "",
