@@ -135,6 +135,45 @@ def test_approved_decision_and_passing_evidence_promote_all_assets(
     assert release["status"] == "approved"
 
 
+def test_foundation_mutations_fail_closed_while_the_release_lock_is_held(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from isekai.locking import file_lock as real_file_lock
+
+    foundation = make_foundation(tmp_path)
+    lock = foundation / ".isekai-foundation.lock"
+    with real_file_lock(lock, subject="test Foundation holder"):
+        monkeypatch.setattr(
+            foundation_module,
+            "file_lock",
+            lambda path, *, subject: real_file_lock(
+                path, subject=subject, timeout=0
+            ),
+        )
+        with pytest.raises(FoundationError, match="being modified"):
+            record_foundation_decision(
+                foundation,
+                outcome="approved",
+                summary="Blocked concurrent decision.",
+                decided_by="foundation-owner",
+            )
+        with pytest.raises(FoundationError, match="being modified"):
+            record_foundation_evidence(
+                foundation,
+                passed=True,
+                checks=passing_checks(),
+                scope="Blocked concurrent Evidence",
+                recorded_by="release-validator",
+            )
+        with pytest.raises(FoundationError, match="being modified"):
+            promote_foundation(foundation)
+
+    assert not (foundation / "decisions.json").exists()
+    assert not (foundation / "evidence/release.json").exists()
+    assert load_foundation(foundation).manifest["status"] == "draft"
+
+
 def test_content_change_after_approval_invalidates_promotion(tmp_path: Path) -> None:
     foundation = make_foundation(tmp_path)
     approve_and_evidence(foundation)

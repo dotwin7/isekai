@@ -12,4 +12,5 @@ build/
 units/**/evidence/raw/
 .isekai-unit.lock*
 .isekai-foundation.lock*
+.isekai-install.lock*
 .kiro/

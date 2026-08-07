@@ -212,9 +212,27 @@ def test_control_artifacts_of_any_unit_are_protected(tmp_path: Path) -> None:
         action="edit",
         target=str((sibling / "requirements.md").relative_to(project.parent)),
     )
+    protected_nested = [
+        active / "checkpoint.json",
+        active / "evaluations/criteria.json",
+        active / "evidence/verification.json",
+        active / "evidence/records/EVD-20260807000000000000.json",
+    ]
+    protected_results = [
+        authorize_action(
+            active,
+            action="edit",
+            target=str(path.relative_to(project.parent)),
+        )
+        for path in protected_nested
+    ]
 
     assert own["allowed"] is False and "control artifact" in own["reason"]
     assert other["allowed"] is False and "control artifact" in other["reason"]
+    assert all(
+        result["allowed"] is False and "control artifact" in result["reason"]
+        for result in protected_results
+    )
     assert ordinary["allowed"] is True
 
 

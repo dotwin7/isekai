@@ -113,6 +113,32 @@ def test_plugin_route_and_compatibility_are_enveloped() -> None:
     }
 
 
+def test_plugin_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Zero Envelope Lifetime", project.parent / "units")
+
+    with pytest.raises(ValueError, match="expires_in_hours"):
+        dispatch(
+            "envelope-propose",
+            {
+                "unit": str(unit),
+                "scope": ["src/**"],
+                "stages": [
+                    {
+                        "name": "construction",
+                        "depth": "standard",
+                        "allowed_actions": ["edit"],
+                    }
+                ],
+                "allowed_actions": ["edit"],
+                "forbidden_actions": ["remote"],
+                "max_iterations": 1,
+                "proposed_by": "planner-agent",
+                "expires_in_hours": 0,
+            },
+        )
+
+
 def test_plugin_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     with pytest.raises(PluginError, match="installation lock is missing"):

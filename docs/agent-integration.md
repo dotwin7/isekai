@@ -19,7 +19,7 @@ Adapter는 프로젝트·Unit 컨텍스트 전달, Foundation·Profile 버전 �
 
 Adapter는 모델의 추론 방식과 출력 스타일을 과도하게 교정하지 않는다. 상시 규율 주입, 도구 출력 압축·재작성과 코드 folding은 기본 기능이 아니다.
 
-로컬 launcher 이름은 `isekai`이며 직접 CLI는 `isekai <action>`, Runtime Adapter 내부 호환 계약은 `isekai plugin <action>`을 사용한다.
+로컬 launcher는 선택한 Project의 `.isekai/bin/isekai`이며 직접 CLI는 `<PROJECT_ROOT>/.isekai/bin/isekai <action>`, Runtime Adapter 내부 호환 계약은 `<PROJECT_ROOT>/.isekai/bin/isekai plugin <action>`을 사용한다. Adapter는 `PATH`의 전역 executable로 fallback하지 않는다.
 
 ## Adapter 세션 모드
 
@@ -29,7 +29,7 @@ Runtime Adapter는 호스트에서 발견 가능한 상태를 유지하지만 IS
 
 | Runtime | 명시적 호출 형식 | 대화 mode 활성화 |
 |---|---|---|
-| Codex | `$isekai <action>` | `$isekai on` |
+| Codex | `$isekai-agent-plugin:isekai <action>` | `$isekai-agent-plugin:isekai on` |
 | Claude Code | `/isekai-agent-plugin:isekai <action>` | `/isekai-agent-plugin:isekai on` |
 | Kiro | `/isekai <action>` | `/isekai on` |
 
@@ -53,9 +53,9 @@ OFF
 
 `off`는 자동 라우팅을 중단하지만 Unit, Decision, Evidence, Receipt와 Checkpoint를 변경하거나 삭제하지 않는다. 암묵적 checkpoint도 작성하지 않는다. 모드가 off인 상태의 명시적 `/isekai <action>`은 대화 모드를 활성화하지 않는 one-shot action이다.
 
-Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. 실제 Host plugin enable/disable은 각 Agent CLI의 네이티브 기능을 사용한다.
+Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. Project Plugin/Skill의 발견 여부와 대화 mode는 별개다.
 
-Adapter는 `on`, `status`, `resume` 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. Project lock이 없거나 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 설치, `doctor` 또는 명시적 update를 요구한다.
+Adapter는 모든 Core plugin action 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. Project lock이 없거나 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 설치, `doctor` 또는 명시적 update를 요구한다.
 
 ```json
 {

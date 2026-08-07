@@ -188,8 +188,8 @@ def _envelope_propose(values: Mapping[str, Any]) -> dict[str, Any]:
         forbidden_actions=_list_field(values, "forbidden_actions"),
         max_iterations=values.get("max_iterations", 0),
         proposed_by=str(_required(values, "proposed_by")),
-        expires_in_hours=(
-            values.get("expires_in_hours") or EXECUTION_ENVELOPE_DEFAULT_HOURS
+        expires_in_hours=values.get(
+            "expires_in_hours", EXECUTION_ENVELOPE_DEFAULT_HOURS
         ),
     )
 

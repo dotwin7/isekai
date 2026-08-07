@@ -39,9 +39,9 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
 
 bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. 설치 엔진은 checkout의 origin이 lock에 기록할 Git source와 같은지도 확인해 다른 저장소의 commit을 신뢰된 source로 기록하지 않는다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다.
 
-설치는 `.isekai/runtime/`, `.isekai/foundations/<version>/`, Codex·Claude project marketplace와 `.kiro/skills/isekai/`를 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. `isekai.lock.json`, `.isekai/`와 workspace Adapter는 팀이 같은 계약을 재현하도록 Git에 포함한다. 기존 `.isekai/`나 Kiro Skill이 ISEKAI 관리 대상으로 확인되지 않으면 덮어쓰지 않는다.
+설치는 `.isekai/runtime/`, `.isekai/foundations/<version>/`, Codex·Claude Plugin package와 Kiro workspace Skill을 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. Codex Plugin은 `.agents/plugins/marketplace.json`의 repo marketplace로, Claude Plugin은 `.claude/settings.json`의 project-scope marketplace 선언으로 노출한다. `isekai.lock.json`, `.isekai/`와 workspace Adapter는 팀이 같은 계약을 재현하도록 Git에 포함한다. 기존 설정의 다른 항목과 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않는다.
 
-Codex·Claude의 host 등록은 저장소 밖 상태를 변경할 수 있으므로 `--register`를 명시한 경우에만 네이티브 marketplace 명령을 실행한다. 등록하지 않은 설치는 실행할 명령을 JSON 결과로 반환한다. Adapter 업데이트 뒤에는 host가 새 Skill을 읽도록 새 대화를 시작한다.
+설치기는 사용자 홈의 marketplace, Skill 또는 host 설정을 변경하지 않는다. Host가 Plugin을 활성화하며 만드는 자체 cache는 host가 관리하지만, marketplace source와 enablement 선언은 현재 Project에만 둔다. 각 Adapter는 실행 시 현재 프로젝트의 `.isekai/bin/isekai`와 `isekai.lock.json`을 요구한다. Adapter 업데이트 뒤에는 host가 새 Plugin 계약을 읽도록 새 대화를 시작한다.
 
 ## Update와 rollback
 

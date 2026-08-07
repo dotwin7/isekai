@@ -8,7 +8,12 @@ from typing import Any
 
 from ...support.scope import scope_pattern_matches
 from ..routing import AGENT_ALLOWED_ACTIONS
-from .common import PROTECTED_UNIT_ARTIFACTS, UNIT_LOCK_NAME, _unit_json
+from .common import (
+    PROTECTED_UNIT_ARTIFACT_PREFIXES,
+    PROTECTED_UNIT_ARTIFACTS,
+    UNIT_LOCK_NAME,
+    _unit_json,
+)
 from .decisions import _is_iso_timestamp
 
 
@@ -91,12 +96,23 @@ def _authorization_target_protection_issue(
     receipt = _unit_json(unit_dir, "context-receipt.json")
     project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
     candidate = (project_root / normalized_target).resolve()
-    if (
-        candidate.name in PROTECTED_UNIT_ARTIFACTS
-        and (candidate.parent / "unit.json").is_file()
-    ):
-        return f"Unit control artifact cannot be edited through authorize: {normalized_target}"
-    if candidate.name == UNIT_LOCK_NAME:
+    current = candidate if candidate.is_dir() else candidate.parent
+    while True:
+        if (current / "unit.json").is_file():
+            relative = candidate.relative_to(current).as_posix()
+            if relative in PROTECTED_UNIT_ARTIFACTS or any(
+                relative.startswith(prefix)
+                for prefix in PROTECTED_UNIT_ARTIFACT_PREFIXES
+            ):
+                return (
+                    "Unit control artifact cannot be edited through authorize: "
+                    f"{normalized_target}"
+                )
+            break
+        if current == project_root:
+            break
+        current = current.parent
+    if candidate.name.startswith(UNIT_LOCK_NAME):
         return f"Unit lock cannot be edited through authorize: {normalized_target}"
     return None
 

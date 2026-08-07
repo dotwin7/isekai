@@ -24,6 +24,22 @@ def _validate_git_source(source: str) -> str:
         raise DistributionError(
             f"Git source must not use a transport helper: {source}"
         )
+    if "://" in source:
+        parsed = urlparse(source)
+        credentialed_http = (
+            parsed.scheme.lower() in {"http", "https"}
+            and parsed.username is not None
+        )
+        if parsed.password is not None or credentialed_http:
+            raise DistributionError(
+                "Git source must not contain embedded credentials; "
+                "use a credential helper or SSH agent"
+            )
+        if parsed.query or parsed.fragment:
+            raise DistributionError(
+                "Git source must not contain a query or fragment; "
+                "use a credential-free canonical remote URL"
+            )
     return source
 
 
@@ -128,7 +144,6 @@ def install_from_git(
     update: bool = False,
     include_foundation: bool = False,
     adopt_foundation: bool = False,
-    register: bool = False,
 ) -> dict[str, Any]:
     _validate_git_source(source)
     if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
@@ -149,7 +164,6 @@ def install_from_git(
             update=update,
             include_foundation=include_foundation,
             adopt_foundation=adopt_foundation,
-            register=register,
         )
 
 
@@ -163,7 +177,6 @@ def install_from_bootstrap_checkout(
     update: bool = False,
     include_foundation: bool = False,
     adopt_foundation: bool = False,
-    register: bool = False,
 ) -> dict[str, Any]:
     """Install from the checkout the bootstrap script already resolved.
 
@@ -206,7 +219,6 @@ def install_from_bootstrap_checkout(
         update=update,
         include_foundation=include_foundation,
         adopt_foundation=adopt_foundation,
-        register=register,
     )
 
 

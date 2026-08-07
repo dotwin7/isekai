@@ -16,7 +16,6 @@ Required:
 Options:
   --path PROJECT            Target project directory (default: current directory)
   --runtime RUNTIME         all, codex, claude, or kiro; repeatable (default: all)
-  --register                Register Codex/Claude marketplaces in the host
   --adopt-foundation        Replace an existing project Foundation during install
   --init                    Create project.json after installation when absent
   --profile PROFILE_ID      Project profile used with --init; repeatable
@@ -48,7 +47,6 @@ source_url=""
 release_ref=""
 project_path="."
 python_executable=""
-register=0
 adopt_foundation=0
 initialize=0
 runtimes=()
@@ -78,10 +76,6 @@ while (($#)); do
         *) fail "unknown runtime: $2" ;;
       esac
       shift 2
-      ;;
-    --register)
-      register=1
-      shift
       ;;
     --adopt-foundation)
       adopt_foundation=1
@@ -184,7 +178,6 @@ fi
 for runtime in "${runtimes[@]}"; do
   install_args+=(--runtime "$runtime")
 done
-((register == 0)) || install_args+=(--register)
 ((adopt_foundation == 0)) || install_args+=(--adopt-foundation)
 
 PYTHONPATH="$checkout/src" "$python_executable" "${install_args[@]}"

@@ -113,15 +113,37 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert lock["source"]["ref"] == "v0.1.0"
     assert lock["source"]["commit"] == "a" * 40
     assert set(lock["adapters"]) == {"kiro", "claude", "codex"}
+    assert lock["adapters"]["codex"]["path"] == (
+        ".isekai/marketplaces/codex/plugins/isekai-agent-plugin"
+    )
+    assert lock["adapters"]["claude"]["path"] == (
+        ".isekai/marketplaces/claude/plugins/isekai-agent-plugin"
+    )
+    assert lock["adapters"]["kiro"]["path"] == ".kiro/skills/isekai"
+    assert (project / ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/.codex-plugin/plugin.json").is_file()
+    assert (project / ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/.claude-plugin/plugin.json").is_file()
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
-    assert (
-        project
-        / ".isekai/marketplaces/codex/.agents/plugins/marketplace.json"
-    ).is_file()
-    assert (
-        project
-        / ".isekai/marketplaces/claude/.claude-plugin/marketplace.json"
-    ).is_file()
+    codex_marketplace = json.loads(
+        (project / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
+    )
+    codex_entry = next(
+        entry
+        for entry in codex_marketplace["plugins"]
+        if entry["name"] == "isekai-agent-plugin"
+    )
+    assert codex_entry["source"]["path"] == (
+        "./.isekai/marketplaces/codex/plugins/isekai-agent-plugin"
+    )
+    assert codex_entry["policy"]["installation"] == "INSTALLED_BY_DEFAULT"
+    claude_settings = json.loads(
+        (project / ".claude/settings.json").read_text(encoding="utf-8")
+    )
+    plugin_key = f"isekai-agent-plugin@{lock['marketplace']}"
+    assert claude_settings["enabledPlugins"][plugin_key] is True
+    assert not (project / ".agents/skills/isekai").exists()
+    assert not (project / ".claude/skills/isekai").exists()
+    assert "registration_commands" not in first
+    assert first["host_registration_required"] is False
     assert doctor_install(project)["ready"] is True
     assert verify_adapter_handshake("codex", "0.1.0", "1.0.0", project)["locked"] is True
 
@@ -192,6 +214,84 @@ def test_doctor_and_update_fail_closed_after_managed_file_tampering(
         )
 
 
+@pytest.mark.parametrize(
+    ("relative", "expected_issue"),
+    [
+        (".isekai/bin/isekai", "managed launcher"),
+        (
+            ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/skills/isekai/agents/openai.yaml",
+            "adapter:codex digest mismatch",
+        ),
+        (
+            ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/skills/isekai/SKILL.md",
+            "adapter:claude digest mismatch",
+        ),
+        (".kiro/skills/isekai/SKILL.md", "adapter:kiro digest mismatch"),
+        (".agents/plugins/marketplace.json", "Codex repo marketplace"),
+        (".claude/settings.json", "Claude project marketplace declaration"),
+    ],
+)
+def test_doctor_fails_closed_after_generated_control_file_tampering(
+    tmp_path: Path,
+    relative: str,
+    expected_issue: str,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    _install(project)
+    target = project / relative
+    target.write_text("{}\n", encoding="utf-8")
+
+    health = doctor_install(project)
+
+    assert health["ready"] is False
+    assert any(expected_issue in issue for issue in health["issues"])
+
+
+def test_install_fails_closed_while_another_install_holds_the_project_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from isekai.distribution import install as distribution_module
+    from isekai.locking import file_lock as real_file_lock
+
+    project = _project_with_foundation(tmp_path)
+    lock = project / distribution_module.INSTALL_LOCK_NAME
+    with real_file_lock(lock, subject="test installation holder"):
+        monkeypatch.setattr(
+            distribution_module,
+            "file_lock",
+            lambda path, *, subject: real_file_lock(
+                path, subject=subject, timeout=0
+            ),
+        )
+        with pytest.raises(DistributionError, match="being modified"):
+            _install(project)
+
+    assert not (project / ".isekai").exists()
+    assert not (project / "isekai.lock.json").exists()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://token@example.invalid/isekai.git",
+        "https://user:secret@example.invalid/isekai.git",
+        "https://example.invalid/isekai.git?token=secret",
+        "https://example.invalid/isekai.git#credential",
+    ],
+)
+def test_git_install_rejects_sources_that_could_persist_credentials(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+
+    with pytest.raises(DistributionError, match="credentials|query or fragment"):
+        install_from_git(source, "v0.1.0", project, runtimes=("kiro",))
+
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_update_preserves_foundation_and_rollback_restores_previous_release(
     tmp_path: Path,
 ) -> None:
@@ -199,7 +299,13 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
     _install(project)
     old_lock = load_install_lock(project)
     assert old_lock is not None
-    old_kiro_digest = tree_digest(project / ".kiro/skills/isekai")
+    adapter_paths = {
+        runtime: project / entry["path"]
+        for runtime, entry in old_lock["adapters"].items()
+    }
+    old_adapter_digests = {
+        runtime: tree_digest(path) for runtime, path in adapter_paths.items()
+    }
 
     release = _copy_release(tmp_path)
     _bump_release(release, "0.1.1")
@@ -226,7 +332,9 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
 
     assert rolled_back["rolled_back"] is True
     assert restored == old_lock
-    assert tree_digest(project / ".kiro/skills/isekai") == old_kiro_digest
+    assert {
+        runtime: tree_digest(path) for runtime, path in adapter_paths.items()
+    } == old_adapter_digests
     assert doctor_install(project)["ready"] is True
 
 
@@ -291,6 +399,123 @@ def test_later_kiro_install_refuses_unmanaged_skill(tmp_path: Path) -> None:
     assert set(load_install_lock(project)["adapters"]) == {"codex"}
 
 
+def test_install_refuses_an_unmanaged_kiro_workspace_adapter(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    runtime = "kiro"
+    relative = ".kiro/skills/isekai"
+    target = project / relative
+    target.mkdir(parents=True)
+    marker = target / "UNMANAGED.txt"
+    marker.write_text("preserve me", encoding="utf-8")
+
+    with pytest.raises(DistributionError, match=f"unmanaged {relative}"):
+        install_from_checkout(
+            ROOT,
+            project,
+            source="https://example.invalid/isekai.git",
+            ref="v0.1.0",
+            commit="a" * 40,
+            runtimes=(runtime,),
+        )
+
+    assert marker.read_text(encoding="utf-8") == "preserve me"
+    assert not (project / "isekai.lock.json").exists()
+
+
+def test_codex_install_refuses_an_unmanaged_isekai_marketplace_entry(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    marketplace = project / ".agents/plugins/marketplace.json"
+    marketplace.parent.mkdir(parents=True)
+    marketplace.write_text(
+        json.dumps(
+            {
+                "name": "team-tools",
+                "plugins": [
+                    {
+                        "name": "isekai-agent-plugin",
+                        "source": {"source": "local", "path": "./someone-else"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DistributionError, match="unmanaged isekai-agent-plugin"):
+        install_from_checkout(
+            ROOT,
+            project,
+            source="https://example.invalid/isekai.git",
+            ref="v0.1.0",
+            commit="a" * 40,
+            runtimes=("codex",),
+        )
+
+
+def test_project_host_merge_and_rollback_preserve_unrelated_settings(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    codex_path = project / ".agents/plugins/marketplace.json"
+    codex_path.parent.mkdir(parents=True)
+    codex_path.write_text(
+        json.dumps(
+            {
+                "name": "team-tools",
+                "plugins": [{"name": "other-plugin", "source": "./plugins/other"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    claude_path = project / ".claude/settings.json"
+    claude_path.parent.mkdir(parents=True)
+    claude_path.write_text(
+        json.dumps(
+            {
+                "enabledPlugins": {"other-plugin@team": False},
+                "extraKnownMarketplaces": {
+                    "team": {"source": {"source": "github", "repo": "org/plugins"}}
+                },
+                "permissions": {"allow": ["Read"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    common = {
+        "source": "https://example.invalid/isekai.git",
+        "ref": "v0.1.0",
+        "commit": "a" * 40,
+    }
+    install_from_checkout(ROOT, project, runtimes=("kiro",), **common)
+    install_from_checkout(ROOT, project, runtimes=("codex", "claude"), **common)
+
+    codex = json.loads(codex_path.read_text(encoding="utf-8"))
+    codex["plugins"].append({"name": "later-plugin", "source": "./plugins/later"})
+    codex_path.write_text(json.dumps(codex), encoding="utf-8")
+    claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    claude["customSetting"] = "preserve"
+    claude_path.write_text(json.dumps(claude), encoding="utf-8")
+
+    assert doctor_install(project)["ready"] is True
+    rollback_install(project)
+
+    restored_codex = json.loads(codex_path.read_text(encoding="utf-8"))
+    assert [entry["name"] for entry in restored_codex["plugins"]] == [
+        "other-plugin",
+        "later-plugin",
+    ]
+    restored_claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    assert restored_claude["enabledPlugins"] == {"other-plugin@team": False}
+    assert set(restored_claude["extraKnownMarketplaces"]) == {"team"}
+    assert restored_claude["permissions"] == {"allow": ["Read"]}
+    assert restored_claude["customSetting"] == "preserve"
+    assert doctor_install(project)["ready"] is True
+
+
 def test_rollback_removes_kiro_added_after_codex_only_install(tmp_path: Path) -> None:
     project = _project_with_foundation(tmp_path)
     common = {
@@ -309,6 +534,47 @@ def test_rollback_removes_kiro_added_after_codex_only_install(tmp_path: Path) ->
     assert restored is not None
     assert set(restored["adapters"]) == {"codex"}
     assert not kiro.exists()
+    assert doctor_install(project)["ready"] is True
+
+
+@pytest.mark.parametrize(
+    ("base_runtime", "added_runtime", "relative"),
+    [
+        (
+            "kiro",
+            "codex",
+            ".isekai/marketplaces/codex/plugins/isekai-agent-plugin",
+        ),
+        (
+            "kiro",
+            "claude",
+            ".isekai/marketplaces/claude/plugins/isekai-agent-plugin",
+        ),
+    ],
+)
+def test_rollback_removes_any_adapter_added_later(
+    tmp_path: Path,
+    base_runtime: str,
+    added_runtime: str,
+    relative: str,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    common = {
+        "source": "https://example.invalid/isekai.git",
+        "ref": "v0.1.0",
+        "commit": "a" * 40,
+    }
+    install_from_checkout(ROOT, project, runtimes=(base_runtime,), **common)
+    install_from_checkout(ROOT, project, runtimes=(added_runtime,), **common)
+    target = project / relative
+    assert target.is_dir()
+
+    rollback_install(project)
+    restored = load_install_lock(project)
+
+    assert restored is not None
+    assert set(restored["adapters"]) == {base_runtime}
+    assert not target.exists()
     assert doctor_install(project)["ready"] is True
 
 
@@ -682,6 +948,31 @@ def test_new_kiro_install_rejects_symlinked_parent_paths(
             ref="v0.1.0",
             commit="a" * 40,
             runtimes=("kiro",),
+        )
+
+
+@pytest.mark.parametrize(
+    ("runtime", "symlink_parent"),
+    [("codex", ".agents"), ("claude", ".claude")],
+)
+def test_plugin_install_rejects_symlinked_host_configuration_paths(
+    tmp_path: Path,
+    runtime: str,
+    symlink_parent: str,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    external = tmp_path / f"external-{runtime}-root"
+    external.mkdir()
+    (project / symlink_parent).symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(DistributionError, match=f"host:{runtime}.path contains a symlink"):
+        install_from_checkout(
+            ROOT,
+            project,
+            source="https://example.invalid/isekai.git",
+            ref="v0.1.0",
+            commit="a" * 40,
+            runtimes=(runtime,),
         )
 
     assert not list(external.rglob("SKILL.md"))

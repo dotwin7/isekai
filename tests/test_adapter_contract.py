@@ -114,8 +114,8 @@ def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> No
         assert "leftover cache" in content
         assert "textual mention" in content
         assert "must not trigger the Skill" in content
-        assert "`on`" in content or "$isekai on" in content
-        assert "`off`" in content or "$isekai off" in content
+        assert "`on`" in content or "isekai on" in content
+        assert "`off`" in content or "isekai off" in content
         assert "without writing artifacts or checkpoints" in content
         assert "init --path PATH" in content
         assert "multiple candidates require user selection" in content.lower()
@@ -149,16 +149,16 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
 def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     skill_commands = {
         ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md": (
-            "/isekai <action>",
+            "/isekai ACTION",
             "/isekai on",
         ),
         ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md": (
-            "/isekai-agent-plugin:isekai <action>",
+            "/isekai-agent-plugin:isekai ACTION",
             "/isekai-agent-plugin:isekai on",
         ),
         ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md": (
-            "$isekai <action>",
-            "$isekai on",
+            "$isekai-agent-plugin:isekai ACTION",
+            "$isekai-agent-plugin:isekai on",
         ),
     }
     shared_gate = [
@@ -182,3 +182,25 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
         assert "discovery" in frontmatter.lower()
         for phrase in shared_gate:
             assert phrase in content, f"{path} is missing activation gate: {phrase}"
+
+
+def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> None:
+    skill_paths = {
+        "kiro": ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
+        "claude": ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
+        "codex": ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+    }
+    for runtime, path in skill_paths.items():
+        content = path.read_text(encoding="utf-8")
+        assert "Never fall back to an `isekai` command from `PATH`." in content
+        assert "<PROJECT_ROOT>/.isekai/bin/isekai plugin <action>" in content
+        assert f"handshake --runtime {runtime}" in content
+
+    claude = skill_paths["claude"].read_text(encoding="utf-8")
+    assert "disable-model-invocation: true" in claude.split("---", maxsplit=2)[1]
+
+    codex_policy = (
+        ROOT
+        / "plugin/isekai/runtimes/codex/skills/isekai/agents/openai.yaml"
+    ).read_text(encoding="utf-8")
+    assert "allow_implicit_invocation: false" in codex_policy

@@ -18,10 +18,10 @@ plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md
 
 The installer verifies the Git release and refuses to replace an unmanaged existing Skill. Updates verify the installed digest against `isekai.lock.json` before replacement.
 
-Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. The Adapter prefers the project launcher, verifies its version/protocol handshake, and invokes the local ISEKAI Plugin contract:
+Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. The Adapter requires the selected Project launcher, never falls back to a global executable, verifies its version/protocol handshake, and invokes the local ISEKAI Plugin contract:
 
 ```bash
-isekai plugin <action> ...
+<PROJECT_ROOT>/.isekai/bin/isekai plugin <action> ...
 ```
 
 No Kiro hook, MCP server, prompt rewriter, or autonomous high-risk tool execution is required for this MVP.

@@ -12,7 +12,6 @@ param(
     [ValidateSet("all", "codex", "claude", "kiro")]
     [string[]]$Runtime = @("all"),
 
-    [switch]$Register,
     [switch]$AdoptFoundation,
     [switch]$Init,
     [string[]]$Profile = @(),
@@ -110,9 +109,6 @@ try {
     )
     foreach ($selectedRuntime in $Runtime) {
         $installArgs += @("--runtime", $selectedRuntime)
-    }
-    if ($Register) {
-        $installArgs += "--register"
     }
     if ($AdoptFoundation) {
         $installArgs += "--adopt-foundation"

@@ -20,7 +20,11 @@ PROTECTED_UNIT_ARTIFACTS = {
     "decisions.json",
     "execution-envelope.json",
     "execution-authorizations.json",
+    "checkpoint.json",
+    "evaluations/criteria.json",
+    "evidence/verification.json",
 }
+PROTECTED_UNIT_ARTIFACT_PREFIXES = ("evidence/records/",)
 UNIT_LOCK_NAME = ".isekai-unit.lock"
 
 

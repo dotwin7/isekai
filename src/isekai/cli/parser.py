@@ -57,7 +57,6 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
     )
     install.add_argument("--adopt-foundation", action="store_true")
-    install.add_argument("--register", action="store_true")
     install.add_argument(
         "--checkout",
         help=(
@@ -80,7 +79,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     update.add_argument("--include-foundation", action="store_true")
     update.add_argument("--adopt-foundation", action="store_true")
-    update.add_argument("--register", action="store_true")
     update.add_argument("--check", action="store_true")
 
     doctor = commands.add_parser(
@@ -92,7 +90,6 @@ def _parser() -> argparse.ArgumentParser:
         "rollback", help="restore the previous project-local ISEKAI installation"
     )
     rollback.add_argument("--path", default=".")
-    rollback.add_argument("--register", action="store_true")
 
     distribution_build = commands.add_parser(
         "distribution-build", help="write a digest-pinned Git release manifest"

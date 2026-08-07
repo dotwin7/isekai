@@ -1,13 +1,14 @@
 ---
 name: isekai
-description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes `/isekai-agent-plugin:isekai <action>`, or after `/isekai-agent-plugin:isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, plugin/cache discovery, or textual command mentions.
+description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes `/isekai-agent-plugin:isekai ACTION`, or after `/isekai-agent-plugin:isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, plugin/cache discovery, or textual command mentions.
+disable-model-invocation: true
 ---
 
 # ISEKAI for Claude Code
 
 Use the ISEKAI Core through the repository-local interface. This plugin is a thin Claude Code adapter; it is not an independent agent brain and has no Ouroboros dependency.
 
-This Adapter is version `0.1.0` and uses protocol `1.0.0`. Prefer the Project launcher at `.isekai/bin/isekai` on POSIX or `.isekai/bin/isekai.cmd` on Windows; fall back to an installed `isekai` command only when the Project launcher is absent. Before `on`, `status`, or `resume`, run `plugin handshake --runtime claude --adapter-version 0.1.0 --protocol-version 1.0.0 --project PATH` with that launcher and stop on incompatibility.
+This Adapter is version `0.1.0` and uses protocol `1.0.0`. Require the current Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` on POSIX or `<PROJECT_ROOT>/.isekai/bin/isekai.cmd` on Windows. Never fall back to an `isekai` command from `PATH`. If the Project launcher or lock is absent, stop and ask the user to install or repair the Project-local runtime. Before every requested Core plugin action other than `handshake` itself, run `plugin handshake --runtime claude --adapter-version 0.1.0 --protocol-version 1.0.0 --project PROJECT_ROOT` with that launcher and stop on incompatibility.
 
 ## Activation gate
 
@@ -19,18 +20,18 @@ The adapter may be discoverable by Claude Code, but discovery is not activation.
 - Only an intentional `/isekai-agent-plugin:isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.
 - Never infer mode from an earlier or interrupted conversation. If activation state is not explicit in the current conversation, treat it as off.
 
-- `/isekai-agent-plugin:isekai on [--project PATH]` activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use the namespaced `resume [--project PATH] [--unit PATH]` action for Unit restoration.
-- `/isekai-agent-plugin:isekai off` invokes `isekai plugin off`, stops automatic ISEKAI routing, and never changes Unit artifacts or writes a checkpoint.
-- An explicit namespaced action runs once while mode is off without activating persistent conversation mode.
+- `/isekai-agent-plugin:isekai on [--project PATH]` activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use `/isekai-agent-plugin:isekai resume [--project PATH] [--unit PATH]` for Unit restoration.
+- `/isekai-agent-plugin:isekai off` invokes the Project-local `plugin off` action, stops automatic ISEKAI routing, and never changes Unit artifacts or writes a checkpoint.
+- An explicit Skill action runs once while mode is off without activating persistent conversation mode.
 
 While mode is active, normalize each new request through `intake` and follow its Query, Quick Change, or Unit route. Mode is conversation-local and separate from Unit lifecycle status. In a new or interrupted session, invoke `on` to activate the Project, then invoke `resume` separately only when continuing an existing Unit.
 
-The user invokes this skill as `/isekai-agent-plugin:isekai $ARGUMENTS`. Use an explicit project path when supplied; otherwise let Core discover `project.json` from the current directory, ancestors, or descendant workspace candidates. If none exists, explain `isekai init` and get explicit user confirmation before initializing. If multiple candidates are reported, present every path and ask the user to choose one. `unit-init` without `--output` uses the selected Project root's `units/`; relative outputs are also Project-relative.
+The user invokes this Plugin Skill as `/isekai-agent-plugin:isekai $ARGUMENTS`. Use an explicit project path when supplied; otherwise let Core discover `project.json` from the current directory, ancestors, or descendant workspace candidates. If none exists, explain `isekai init` and get explicit user confirmation before initializing. If multiple candidates are reported, present every path and ask the user to choose one. `unit-init` without `--output` uses the selected Project root's `units/`; relative outputs are also Project-relative.
 
-Use the installed ISEKAI Plugin launcher from the repository or project environment:
+Use only the launcher inside the selected Project:
 
 ```bash
-isekai plugin <action> ...
+<PROJECT_ROOT>/.isekai/bin/isekai plugin <action> ...
 ```
 
 Supported actions:
@@ -64,11 +65,11 @@ verify --unit PATH
 Project installation management uses the top-level launcher rather than `isekai plugin`:
 
 ```text
-install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation] [--register]
+install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation]
 doctor [--path PATH]
 update --check --ref TAG [--path PATH] [--include-foundation]
-update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation] [--register]
-rollback [--path PATH] [--register]
+update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation]
+rollback [--path PATH]
 ```
 
 Rules:

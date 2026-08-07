@@ -42,7 +42,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.path,
                         runtimes=args.runtime or ("all",),
                         adopt_foundation=args.adopt_foundation,
-                        register=args.register,
                     )
                 )
             else:
@@ -53,7 +52,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         args.path,
                         runtimes=args.runtime or ("all",),
                         adopt_foundation=args.adopt_foundation,
-                        register=args.register,
                     )
                 )
         elif args.command == "update":
@@ -84,7 +82,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                         update=True,
                         include_foundation=args.include_foundation,
                         adopt_foundation=args.adopt_foundation,
-                        register=args.register,
                     )
                 )
         elif args.command == "doctor":
@@ -92,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _json(result)
             return 0 if result["ready"] else 1
         elif args.command == "rollback":
-            _json(rollback_install(args.path, register=args.register))
+            _json(rollback_install(args.path))
         elif args.command == "distribution-build":
             path = write_distribution_manifest(args.root, args.output)
             _json({"created": str(path)})

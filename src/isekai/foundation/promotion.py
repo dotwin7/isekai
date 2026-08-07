@@ -29,7 +29,7 @@ from .validation import (
     _write_json,
     load_foundation,
 )
-from ..support.locking import file_lock
+from ..support.locking import LockUnavailable, file_lock
 
 
 def _latest_foundation_decision(
@@ -190,6 +190,29 @@ def record_foundation_decision(
     summary: str,
     decided_by: str,
 ) -> dict[str, Any]:
+    foundation_root = Path(root).resolve()
+    try:
+        with file_lock(
+            foundation_root / FOUNDATION_LOCK_NAME,
+            subject="Foundation release",
+        ):
+            return _record_foundation_decision_locked(
+                foundation_root,
+                outcome=outcome,
+                summary=summary,
+                decided_by=decided_by,
+            )
+    except LockUnavailable as exc:
+        raise FoundationError(str(exc)) from exc
+
+
+def _record_foundation_decision_locked(
+    root: str | Path,
+    *,
+    outcome: str,
+    summary: str,
+    decided_by: str,
+) -> dict[str, Any]:
     foundation = load_foundation(root)
     if foundation.manifest["status"] != "draft":
         raise FoundationError("Foundation Decision can only be recorded for a draft release")
@@ -201,48 +224,70 @@ def record_foundation_decision(
         raise FoundationError("Foundation Decision decided_by must be non-empty")
 
     path = foundation.root / "decisions.json"
-    # decisions.json is an append-only ledger, so concurrent recorders would
-    # otherwise silently drop each other's Decisions.
-    with file_lock(foundation.root / FOUNDATION_LOCK_NAME, subject="Foundation release"):
-        document = _optional_json(path) or {
-            "foundation_id": foundation.manifest["id"],
-            "version": foundation.version,
-            "decisions": [],
-        }
-        if document.get("foundation_id") != foundation.manifest["id"]:
-            raise FoundationError("Foundation Decision foundation_id does not match release")
-        if document.get("version") != foundation.version:
-            raise FoundationError("Foundation Decision document version does not match release")
-        entries = document.get("decisions")
-        if not isinstance(entries, list):
-            raise FoundationError("Foundation decisions must be a list")
-        preceding_ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
-        now = datetime.now(timezone.utc)
-        decision = {
-            "id": "DEC-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
-            "type": "foundation-release-decision",
-            "schema_version": "1.0.0",
-            "foundation_id": foundation.manifest["id"],
-            "version": foundation.version,
-            "approval_digest": foundation.approval_digest,
-            "outcome": outcome,
-            "summary": summary.strip(),
-            "decided_by": decided_by.strip(),
-            "decided_at": now.isoformat(),
-        }
-        entries.append(decision)
-        document["version"] = foundation.version
-        _write_json(path, document)
-        persisted = _load_json(path).get("decisions", [])
-        persisted_ids = [entry.get("id") for entry in persisted if isinstance(entry, dict)]
-        if persisted_ids != [*preceding_ids, decision["id"]]:
-            raise FoundationError(
-                "Foundation Decision postflight blocked: the ledger changed during the write"
-            )
+    document = _optional_json(path) or {
+        "foundation_id": foundation.manifest["id"],
+        "version": foundation.version,
+        "decisions": [],
+    }
+    if document.get("foundation_id") != foundation.manifest["id"]:
+        raise FoundationError("Foundation Decision foundation_id does not match release")
+    if document.get("version") != foundation.version:
+        raise FoundationError("Foundation Decision document version does not match release")
+    entries = document.get("decisions")
+    if not isinstance(entries, list):
+        raise FoundationError("Foundation decisions must be a list")
+    preceding_ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
+    now = datetime.now(timezone.utc)
+    decision = {
+        "id": "DEC-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
+        "type": "foundation-release-decision",
+        "schema_version": "1.0.0",
+        "foundation_id": foundation.manifest["id"],
+        "version": foundation.version,
+        "approval_digest": foundation.approval_digest,
+        "outcome": outcome,
+        "summary": summary.strip(),
+        "decided_by": decided_by.strip(),
+        "decided_at": now.isoformat(),
+    }
+    entries.append(decision)
+    document["version"] = foundation.version
+    _write_json(path, document)
+    persisted = _load_json(path).get("decisions", [])
+    persisted_ids = [entry.get("id") for entry in persisted if isinstance(entry, dict)]
+    if persisted_ids != [*preceding_ids, decision["id"]]:
+        raise FoundationError(
+            "Foundation Decision postflight blocked: the ledger changed during the write"
+        )
     return {"path": str(path), "decision": decision}
 
 
 def record_foundation_evidence(
+    root: str | Path,
+    *,
+    passed: bool,
+    checks: list[dict[str, Any]],
+    scope: str,
+    recorded_by: str,
+) -> dict[str, Any]:
+    foundation_root = Path(root).resolve()
+    try:
+        with file_lock(
+            foundation_root / FOUNDATION_LOCK_NAME,
+            subject="Foundation release",
+        ):
+            return _record_foundation_evidence_locked(
+                foundation_root,
+                passed=passed,
+                checks=checks,
+                scope=scope,
+                recorded_by=recorded_by,
+            )
+    except LockUnavailable as exc:
+        raise FoundationError(str(exc)) from exc
+
+
+def _record_foundation_evidence_locked(
     root: str | Path,
     *,
     passed: bool,
@@ -462,6 +507,24 @@ def _preflight_promotion(
 
 
 def promote_foundation(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
+    foundation_root = Path(root).resolve()
+    if dry_run:
+        return _promote_foundation_locked(foundation_root, dry_run=True)
+    try:
+        with file_lock(
+            foundation_root / FOUNDATION_LOCK_NAME,
+            subject="Foundation release",
+        ):
+            return _promote_foundation_locked(foundation_root, dry_run=False)
+    except LockUnavailable as exc:
+        raise FoundationError(str(exc)) from exc
+
+
+def _promote_foundation_locked(
+    root: str | Path,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     """Promote a Foundation transactionally; ``dry_run`` never mutates the root.
 
     The default remains an executing call for compatibility with the original API.

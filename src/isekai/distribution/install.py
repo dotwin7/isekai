@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .. import __version__
+from ..support.locking import LockUnavailable, file_lock
 from .release import (
     LOCK_NAME,
     LOCK_SCHEMA_VERSION,
@@ -26,16 +27,30 @@ from .release import (
 )
 from ..foundation import FoundationError, load_foundation
 from .marketplace import (
+    CLAUDE_PROJECT_SETTINGS,
+    CODEX_REPO_MARKETPLACE,
+    _adapter_uses_managed_plugin,
+    _apply_project_host_documents,
+    _capture_host_slots,
     _copy_managed_root,
+    _managed_control_issues,
     _prepare_claude_marketplace,
     _prepare_codex_marketplace,
+    _project_host_documents,
     _project_id,
-    _registration_commands,
     _replace_tree,
-    _run_registration,
+    _restore_host_slots,
     _slug,
     _write_launchers,
 )
+
+
+INSTALL_LOCK_NAME = ".isekai-install.lock"
+WORKSPACE_ADAPTER_PATHS = {
+    "codex": Path(".agents/skills/isekai"),
+    "claude": Path(".claude/skills/isekai"),
+    "kiro": Path(".kiro/skills/isekai"),
+}
 
 
 def load_install_lock(project: str | Path) -> dict[str, Any] | None:
@@ -71,6 +86,33 @@ def _installed_path(project_root: Path, value: object, *, label: str) -> Path:
     return target
 
 
+def _workspace_adapter_owned(adapters: object, runtime: str) -> bool:
+    if not isinstance(adapters, dict):
+        return False
+    entry = adapters.get(runtime)
+    expected = WORKSPACE_ADAPTER_PATHS[runtime].as_posix()
+    return isinstance(entry, dict) and entry.get("path") == expected
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
+def _adapter_skill_source(adapter_source: Path, runtime: str) -> Path:
+    if (adapter_source / "SKILL.md").is_file():
+        # Current releases root every Adapter component at its Skill directory.
+        return adapter_source
+    # Accept the pre-project-Skill release layout during a staged migration.
+    return _component_root(
+        adapter_source,
+        "skills/isekai",
+        label=f"adapter:{runtime}.skill_path",
+    )
+
+
 def doctor_install(project: str | Path) -> dict[str, Any]:
     project_root = Path(project).expanduser().resolve()
     lock = load_install_lock(project_root)
@@ -92,6 +134,9 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
         issues.append("lock adapters must be an object")
         adapters = {}
     for runtime, entry in sorted(adapters.items()):
+        if runtime not in RUNTIMES:
+            issues.append(f"unknown adapter in lock: {runtime}")
+            continue
         if isinstance(entry, dict):
             components.append((f"adapter:{runtime}", entry))
         else:
@@ -108,6 +153,8 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             continue
         if actual != entry.get("digest"):
             issues.append(f"{label} digest mismatch")
+
+    issues.extend(_managed_control_issues(project_root, lock))
 
     foundation_entry = lock.get("foundation")
     if isinstance(foundation_entry, dict):
@@ -190,7 +237,42 @@ def install_from_checkout(
     update: bool = False,
     include_foundation: bool = False,
     adopt_foundation: bool = False,
-    register: bool = False,
+) -> dict[str, Any]:
+    """Serialize installation mutations for one Project."""
+    project_root = Path(project).expanduser().resolve()
+    if not project_root.is_dir():
+        raise DistributionError(f"project root does not exist: {project_root}")
+    try:
+        with file_lock(
+            project_root / INSTALL_LOCK_NAME,
+            subject=f"ISEKAI installation for {project_root}",
+        ):
+            return _install_from_checkout_locked(
+                checkout,
+                project_root,
+                source=source,
+                ref=ref,
+                commit=commit,
+                runtimes=runtimes,
+                update=update,
+                include_foundation=include_foundation,
+                adopt_foundation=adopt_foundation,
+            )
+    except LockUnavailable as exc:
+        raise DistributionError(str(exc)) from exc
+
+
+def _install_from_checkout_locked(
+    checkout: str | Path,
+    project: str | Path,
+    *,
+    source: str,
+    ref: str,
+    commit: str,
+    runtimes: Iterable[str] = ("all",),
+    update: bool = False,
+    include_foundation: bool = False,
+    adopt_foundation: bool = False,
 ) -> dict[str, Any]:
     """Install an already resolved checkout using ``commit`` as the immutable pin.
 
@@ -215,25 +297,43 @@ def install_from_checkout(
         raise DistributionError(
             f"refusing to replace unmanaged {MANAGED_ROOT}; move it aside or adopt it explicitly"
         )
-    kiro_relative = Path(".kiro/skills/isekai")
-    kiro_target = project_root / kiro_relative
-    current_kiro_owned = (
-        current_lock is not None
-        and isinstance(current_lock.get("adapters"), dict)
-        and "kiro" in current_lock["adapters"]
-    )
-    if "kiro" in selected or current_kiro_owned:
-        kiro_target = _project_path_without_symlinks(
-            project_root, kiro_relative, label="adapter:kiro.path"
+    current_adapters = dict(current_lock.get("adapters", {})) if current_lock else {}
+    current_workspace = {
+        runtime
+        for runtime in RUNTIMES
+        if _workspace_adapter_owned(current_adapters, runtime)
+    }
+    desired_workspace = {"kiro"} & set(selected)
+    workspace_changes = desired_workspace | (current_workspace & set(selected))
+    workspace_targets: dict[str, Path] = {}
+    for runtime in sorted(current_workspace | desired_workspace):
+        relative = WORKSPACE_ADAPTER_PATHS[runtime]
+        workspace_targets[runtime] = _project_path_without_symlinks(
+            project_root,
+            relative,
+            label=f"adapter:{runtime}.path",
         )
-    if (
-        "kiro" in selected
-        and (kiro_target.exists() or kiro_target.is_symlink())
-        and not current_kiro_owned
-    ):
-        raise DistributionError(
-            "refusing to replace an unmanaged .kiro/skills/isekai directory"
-        )
+    for runtime in desired_workspace:
+        target = workspace_targets[runtime]
+        if (
+            (target.exists() or target.is_symlink())
+            and not _workspace_adapter_owned(current_adapters, runtime)
+        ):
+            raise DistributionError(
+                "refusing to replace an unmanaged "
+                f"{WORKSPACE_ADAPTER_PATHS[runtime].as_posix()} directory"
+            )
+    host_runtimes = {"codex", "claude"} & set(selected)
+    for runtime, relative in {
+        "codex": CODEX_REPO_MARKETPLACE,
+        "claude": CLAUDE_PROJECT_SETTINGS,
+    }.items():
+        if runtime in host_runtimes:
+            _project_path_without_symlinks(
+                project_root,
+                relative,
+                label=f"host:{runtime}.path",
+            )
     if current_lock is not None:
         health = doctor_install(project_root)
         if not health["ready"]:
@@ -247,20 +347,28 @@ def install_from_checkout(
         if current_lock and current_lock.get("marketplace")
         else "isekai-" + _slug(_project_id(project_root))
     )
-    current_adapters = dict(current_lock.get("adapters", {})) if current_lock else {}
+    host_documents, host_state = _project_host_documents(
+        project_root,
+        marketplace_name,
+        host_runtimes,
+        current_adapters,
+    )
     installed_runtimes = sorted(set(current_adapters) | set(selected))
+    selected_layout_current = all(
+        _workspace_adapter_owned(current_adapters, runtime)
+        if runtime == "kiro"
+        else _adapter_uses_managed_plugin(current_adapters, runtime)
+        for runtime in selected
+    )
     if (
         current_lock
         and current_lock.get("release") == manifest["version"]
         and current_lock.get("source", {}).get("commit") == commit
         and set(selected) <= set(current_adapters)
+        and selected_layout_current
         and not include_foundation
         and not adopt_foundation
     ):
-        commands = _registration_commands(
-            project_root, marketplace_name, selected, update=True
-        )
-        registration = _run_registration(commands) if register else []
         return {
             "installed": False,
             "updated": False,
@@ -271,8 +379,7 @@ def install_from_checkout(
             "runtimes": installed_runtimes,
             "foundation": current_lock["foundation"],
             "lock": str(project_root / LOCK_NAME),
-            "registration_commands": commands,
-            "registration": registration,
+            "host_registration_required": False,
             "new_conversation_required": False,
         }
 
@@ -280,9 +387,10 @@ def install_from_checkout(
     staged = stage_root / MANAGED_ROOT
     managed = project_root / MANAGED_ROOT
     backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
-    kiro_backup = project_root / f".isekai-kiro-backup-{uuid.uuid4().hex}"
+    adapter_backup = project_root / f".isekai-adapter-backup-{uuid.uuid4().hex}"
     project_before: bytes | None = None
     lock_before = (project_root / LOCK_NAME).read_bytes() if current_lock else None
+    host_applied = False
     try:
         if managed.is_dir():
             _copy_managed_root(managed, staged)
@@ -339,11 +447,12 @@ def install_from_checkout(
             )
             installed_version = str(source_entry["version"])
             if runtime == "kiro":
+                skill_source = _adapter_skill_source(adapter_source, runtime)
                 adapter_entries[runtime] = {
                     "version": installed_version,
-                    "path": ".kiro/skills/isekai",
+                    "path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
                     "source_digest": source_entry["digest"],
-                    "digest": source_entry["digest"],
+                    "digest": tree_digest(skill_source),
                 }
             elif runtime == "codex":
                 plugin_root, installed_version = _prepare_codex_marketplace(
@@ -358,10 +467,7 @@ def install_from_checkout(
                 }
             else:
                 plugin_root = _prepare_claude_marketplace(
-                    staged,
-                    adapter_source,
-                    marketplace_name,
-                    installed_version,
+                    staged, adapter_source, marketplace_name, installed_version
                 )
                 adapter_entries[runtime] = {
                     "version": installed_version,
@@ -374,8 +480,14 @@ def install_from_checkout(
             rollback = staged / "rollback"
             _copy_managed_root(managed, rollback / "install")
             (rollback / LOCK_NAME).write_bytes(lock_before or b"")
-            if kiro_target.is_dir() and "kiro" in current_adapters:
-                shutil.copytree(kiro_target, rollback / "kiro")
+            for runtime in sorted(current_adapters):
+                if _workspace_adapter_owned(current_adapters, runtime):
+                    shutil.copytree(
+                        workspace_targets[runtime],
+                        rollback / "adapters" / runtime,
+                    )
+            if host_state:
+                _write_json_atomic(rollback / "host-config.json", host_state)
             project_manifest = project_root / "project.json"
             if project_manifest.is_file():
                 (rollback / "project.json").write_bytes(project_manifest.read_bytes())
@@ -400,16 +512,24 @@ def install_from_checkout(
             managed.rename(backup)
         staged.rename(managed)
 
-        if "kiro" in selected:
-            source_skill = _component_root(
-                release_root,
-                adapter_manifest["kiro"]["path"],
-                label="adapter:kiro.path",
-            )
-            if kiro_target.exists():
-                kiro_target.rename(kiro_backup)
-            kiro_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(source_skill, kiro_target)
+        for runtime in sorted(workspace_changes):
+            target = workspace_targets[runtime]
+            if target.exists():
+                adapter_backup.mkdir(parents=True, exist_ok=True)
+                target.rename(adapter_backup / runtime)
+            if runtime in desired_workspace:
+                source_entry = adapter_manifest[runtime]
+                adapter_source = _component_root(
+                    release_root,
+                    source_entry["path"],
+                    label=f"adapter:{runtime}.path",
+                )
+                source_skill = _adapter_skill_source(adapter_source, runtime)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_skill, target)
+
+        _apply_project_host_documents(project_root, host_documents)
+        host_applied = bool(host_documents)
 
         if adopt_foundation:
             project_before = _adopt_foundation(
@@ -422,18 +542,25 @@ def install_from_checkout(
                 "post-install verification failed: " + "; ".join(health["issues"])
             )
     except Exception:
+        if host_applied:
+            _restore_host_slots(project_root, host_state, marketplace_name)
         if backup.exists():
             if managed.exists():
                 shutil.rmtree(managed)
             backup.rename(managed)
         elif managed.exists() and not current_lock:
             shutil.rmtree(managed)
-        if kiro_backup.exists():
-            if kiro_target.exists():
-                shutil.rmtree(kiro_target)
-            kiro_backup.rename(kiro_target)
-        elif "kiro" in selected and kiro_target.exists() and "kiro" not in current_adapters:
-            shutil.rmtree(kiro_target)
+        for runtime in sorted(workspace_changes):
+            target = workspace_targets[runtime]
+            adapter_before = adapter_backup / runtime
+            if adapter_before.exists():
+                _remove_path(target)
+                adapter_before.rename(target)
+            elif (
+                runtime not in current_workspace
+                and (target.exists() or target.is_symlink())
+            ):
+                _remove_path(target)
         if project_before is not None:
             (project_root / "project.json").write_bytes(project_before)
         if lock_before is not None:
@@ -446,23 +573,9 @@ def install_from_checkout(
             shutil.rmtree(stage_root)
         if backup.exists():
             shutil.rmtree(backup)
-        if kiro_backup.exists():
-            shutil.rmtree(kiro_backup)
+        if adapter_backup.exists():
+            shutil.rmtree(adapter_backup)
 
-    commands = _registration_commands(
-        project_root, marketplace_name, selected, update=current_lock is not None
-    )
-    try:
-        registration = _run_registration(commands) if register else []
-    except DistributionError as exc:
-        # The project-local install is committed and verified at this point;
-        # only the host-side registration failed, so say so rather than let the
-        # caller read this as a failed installation.
-        rerun = " && ".join(" ".join(command) for command in commands)
-        raise DistributionError(
-            f"ISEKAI is installed in {project_root} but host registration failed: {exc}. "
-            f"The installation is complete and verified; rerun manually: {rerun}"
-        ) from exc
     result = {
         "installed": True,
         "updated": current_lock is not None,
@@ -472,9 +585,8 @@ def install_from_checkout(
         "runtimes": installed_runtimes,
         "foundation": foundation_entry,
         "lock": str(project_root / LOCK_NAME),
-        "registration_commands": commands,
-        "registration": registration,
-        "new_conversation_required": bool({"codex", "claude"} & set(selected)),
+        "host_registration_required": False,
+        "new_conversation_required": bool(selected),
     }
     if not (project_root / "project.json").is_file():
         result["next_action"] = (
@@ -483,146 +595,11 @@ def install_from_checkout(
         )
     return result
 
-def rollback_install(project: str | Path, *, register: bool = False) -> dict[str, Any]:
-    project_root = Path(project).expanduser().resolve()
-    current = load_install_lock(project_root)
-    if current is None:
-        raise DistributionError("cannot roll back before ISEKAI is installed")
-    health = doctor_install(project_root)
-    if not health["ready"]:
-        raise DistributionError("cannot roll back a modified installation")
-    managed = project_root / MANAGED_ROOT
-    rollback = managed / "rollback"
-    previous_install = rollback / "install"
-    previous_lock_path = rollback / LOCK_NAME
-    if not previous_install.is_dir() or not previous_lock_path.is_file():
-        raise DistributionError("no previous ISEKAI installation is available")
-    previous_lock = _read_json(previous_lock_path)
 
-    current_adapters = current.get("adapters", {})
-    previous_adapters = previous_lock.get("adapters", {})
-    current_kiro_owned = (
-        isinstance(current_adapters, dict) and "kiro" in current_adapters
-    )
-    previous_kiro_owned = (
-        isinstance(previous_adapters, dict) and "kiro" in previous_adapters
-    )
-    previous_kiro_snapshot = rollback / "kiro"
-    if previous_kiro_owned and not previous_kiro_snapshot.is_dir():
-        raise DistributionError("previous Kiro installation snapshot is missing")
-    kiro_relative = Path(".kiro/skills/isekai")
-    kiro_target = project_root / kiro_relative
-    if current_kiro_owned or previous_kiro_owned:
-        kiro_target = _project_path_without_symlinks(
-            project_root, kiro_relative, label="adapter:kiro.path"
-        )
-    if (
-        previous_kiro_owned
-        and not current_kiro_owned
-        and (kiro_target.exists() or kiro_target.is_symlink())
-    ):
-        raise DistributionError(
-            "refusing to replace an unmanaged .kiro/skills/isekai directory"
-        )
+def rollback_install(project: str | Path) -> dict[str, Any]:
+    from .rollback import rollback_install as execute_rollback
 
-    stage_root = Path(
-        tempfile.mkdtemp(prefix=".isekai-rollback-stage-", dir=project_root)
-    )
-    staged = stage_root / MANAGED_ROOT
-    previous_kiro_copy = stage_root / "previous-kiro"
-    previous_project_bytes = (
-        (rollback / "project.json").read_bytes()
-        if (rollback / "project.json").is_file()
-        else None
-    )
-    backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
-    kiro_backup = project_root / f".isekai-kiro-backup-{uuid.uuid4().hex}"
-    project_manifest = project_root / "project.json"
-    current_project_bytes = (
-        project_manifest.read_bytes() if project_manifest.is_file() else None
-    )
-    lock_path = project_root / LOCK_NAME
-    current_lock_bytes = lock_path.read_bytes()
-
-    try:
-        if previous_kiro_snapshot.is_dir():
-            shutil.copytree(previous_kiro_snapshot, previous_kiro_copy)
-        shutil.copytree(previous_install, staged)
-        redo = staged / "rollback"
-        _copy_managed_root(managed, redo / "install")
-        _write_json_atomic(redo / LOCK_NAME, current)
-        if current_kiro_owned:
-            shutil.copytree(kiro_target, redo / "kiro")
-        if current_project_bytes is not None:
-            (redo / "project.json").write_bytes(current_project_bytes)
-
-        managed.rename(backup)
-        staged.rename(managed)
-        if current_kiro_owned:
-            kiro_target.rename(kiro_backup)
-        if previous_kiro_copy.is_dir():
-            kiro_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(previous_kiro_copy, kiro_target)
-        if previous_project_bytes is None:
-            project_manifest.unlink(missing_ok=True)
-        else:
-            project_manifest.write_bytes(previous_project_bytes)
-        _write_json_atomic(lock_path, previous_lock)
-        postflight = doctor_install(project_root)
-        if not postflight["ready"]:
-            raise DistributionError(
-                "rollback verification failed: " + "; ".join(postflight["issues"])
-            )
-    except Exception:
-        if backup.exists():
-            if managed.exists():
-                shutil.rmtree(managed)
-            backup.rename(managed)
-        if current_kiro_owned and kiro_backup.exists():
-            if kiro_target.exists() or kiro_target.is_symlink():
-                if kiro_target.is_dir() and not kiro_target.is_symlink():
-                    shutil.rmtree(kiro_target)
-                else:
-                    kiro_target.unlink()
-            kiro_backup.rename(kiro_target)
-        elif not current_kiro_owned and previous_kiro_copy.is_dir() and (
-            kiro_target.exists() or kiro_target.is_symlink()
-        ):
-            if kiro_target.is_dir() and not kiro_target.is_symlink():
-                shutil.rmtree(kiro_target)
-            else:
-                kiro_target.unlink()
-        if current_project_bytes is None:
-            project_manifest.unlink(missing_ok=True)
-        else:
-            project_manifest.write_bytes(current_project_bytes)
-        lock_path.write_bytes(current_lock_bytes)
-        raise
-    finally:
-        if stage_root.exists():
-            shutil.rmtree(stage_root)
-        if backup.exists():
-            shutil.rmtree(backup)
-        if kiro_backup.exists():
-            shutil.rmtree(kiro_backup)
-
-    runtimes = sorted(previous_lock.get("adapters", {}))
-    commands = _registration_commands(
-        project_root,
-        str(previous_lock.get("marketplace")),
-        runtimes,
-        update=True,
-    )
-    registration = _run_registration(commands) if register else []
-    return {
-        "rolled_back": True,
-        "project": str(project_root),
-        "release": previous_lock.get("release"),
-        "runtimes": runtimes,
-        "registration_commands": commands,
-        "registration": registration,
-        "new_conversation_required": bool({"codex", "claude"} & set(runtimes)),
-    }
+    return execute_rollback(project)
 
 
 def verify_adapter_handshake(

@@ -1,13 +1,13 @@
 ---
 name: isekai
-description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes `/isekai <action>`, or after `/isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, Skill/cache discovery, or textual command mentions.
+description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes `/isekai ACTION`, or after `/isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, Skill/cache discovery, or textual command mentions.
 ---
 
 # ISEKAI Agent Plugin
 
 You are using the ISEKAI runtime adapter. ISEKAI is a workflow and evidence contract, not a replacement agent brain.
 
-This Adapter is version `0.1.0` and uses protocol `1.0.0`. Prefer the Project launcher at `.isekai/bin/isekai` on POSIX or `.isekai/bin/isekai.cmd` on Windows; fall back to an installed `isekai` command only when the Project launcher is absent. Before `on`, `status`, or `resume`, run `plugin handshake --runtime kiro --adapter-version 0.1.0 --protocol-version 1.0.0 --project PATH` with that launcher and stop on incompatibility.
+This Adapter is version `0.1.0` and uses protocol `1.0.0`. Require the current Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` on POSIX or `<PROJECT_ROOT>/.isekai/bin/isekai.cmd` on Windows. Never fall back to an `isekai` command from `PATH`. If the Project launcher or lock is absent, stop and ask the user to install or repair the Project-local runtime. Before every requested Core plugin action other than `handshake` itself, run `plugin handshake --runtime kiro --adapter-version 0.1.0 --protocol-version 1.0.0 --project PROJECT_ROOT` with that launcher and stop on incompatibility.
 
 ## Invocation
 
@@ -27,10 +27,10 @@ While mode is active, normalize each new request through `intake` and follow its
 
 The user can invoke this skill as `/isekai <action> [arguments]`. Use an explicit project path when supplied; otherwise let Core discover `project.json` from the current directory, ancestors, or descendant workspace candidates. If none exists, explain `isekai init` and get explicit user confirmation before initializing. If multiple candidates are reported, present every path and ask the user to choose one. `unit-init` without `--output` uses the selected Project root's `units/`; relative outputs are also Project-relative.
 
-Run the installed ISEKAI Plugin launcher from the repository or project environment:
+Use only the launcher inside the selected Project:
 
 ```bash
-isekai plugin <action> ...
+<PROJECT_ROOT>/.isekai/bin/isekai plugin <action> ...
 ```
 
 Supported actions:
@@ -64,11 +64,11 @@ verify --unit PATH
 Project installation management uses the top-level launcher rather than `isekai plugin`:
 
 ```text
-install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation] [--register]
+install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation]
 doctor [--path PATH]
 update --check --ref TAG [--path PATH] [--include-foundation]
-update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation] [--register]
-rollback [--path PATH] [--register]
+update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation]
+rollback [--path PATH]
 ```
 
 ## Workflow rules
