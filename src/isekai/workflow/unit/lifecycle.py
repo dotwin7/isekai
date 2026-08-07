@@ -224,7 +224,17 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
                 )
             )
         if unit.get("status") in {"awaiting-release-decision", "releasing"}:
-            issues.extend(_release_decision_evidence_issues(unit_dir, decisions, unit))
+            issues.extend(
+                _release_decision_evidence_issues(
+                    unit_dir, decisions, unit, require_current=True
+                )
+            )
+        elif unit.get("status") in {"operating", "learned"}:
+            issues.extend(
+                _release_decision_evidence_issues(
+                    unit_dir, decisions, unit, require_current=False
+                )
+            )
 
     status = unit.get("status")
     if status not in LIFECYCLE_STATUSES:

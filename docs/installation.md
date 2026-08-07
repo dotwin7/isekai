@@ -37,7 +37,7 @@ Invoke-WebRequest `
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
 
-bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다.
+bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. 설치 엔진은 checkout의 origin이 lock에 기록할 Git source와 같은지도 확인해 다른 저장소의 commit을 신뢰된 source로 기록하지 않는다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다.
 
 설치는 `.isekai/runtime/`, `.isekai/foundations/<version>/`, Codex·Claude project marketplace와 `.kiro/skills/isekai/`를 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. `isekai.lock.json`, `.isekai/`와 workspace Adapter는 팀이 같은 계약을 재현하도록 Git에 포함한다. 기존 `.isekai/`나 Kiro Skill이 ISEKAI 관리 대상으로 확인되지 않으면 덮어쓰지 않는다.
 

@@ -87,6 +87,23 @@ def test_initialize_unit_write_failure_leaves_no_partial_unit(
     assert list((project_root / "units").iterdir()) == []
 
 
+def test_initialize_unit_allows_repeated_titles_on_the_same_day(
+    tmp_path: Path,
+) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    project = initialize_project(project_root)
+
+    first = initialize_unit(project, "Repeated Incident")
+    second = initialize_unit(project, "Repeated Incident")
+
+    assert first != second
+    assert first.is_dir()
+    assert second.is_dir()
+    assert json.loads((first / "unit.json").read_text(encoding="utf-8"))["id"] != json.loads(
+        (second / "unit.json").read_text(encoding="utf-8")
+    )["id"]
+
+
 def test_discover_project_uses_single_descendant_and_lists_ambiguous_candidates(
     tmp_path: Path,
 ) -> None:

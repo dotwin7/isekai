@@ -110,6 +110,10 @@ def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> No
         assert "ISEKAI Core" in content
         assert "high-risk" in content.lower()
         assert "off by default" in content
+        assert "not activation" in content
+        assert "leftover cache" in content
+        assert "textual mention" in content
+        assert "must not trigger the Skill" in content
         assert "`on`" in content or "$isekai on" in content
         assert "`off`" in content or "$isekai off" in content
         assert "without writing artifacts or checkpoints" in content
@@ -140,3 +144,41 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
         content = path.read_text(encoding="utf-8")
         for phrase in required_contract:
             assert phrase in content, f"{path} is missing mode contract: {phrase}"
+
+
+def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
+    skill_commands = {
+        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md": (
+            "/isekai <action>",
+            "/isekai on",
+        ),
+        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md": (
+            "/isekai-agent-plugin:isekai <action>",
+            "/isekai-agent-plugin:isekai on",
+        ),
+        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md": (
+            "$isekai <action>",
+            "$isekai on",
+        ),
+    }
+    shared_gate = [
+        "Explicit-command-only ISEKAI adapter.",
+        "discovery is not activation",
+        "A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.",
+        "never activate ISEKAI",
+        "While mode is off and no intentional command was invoked",
+        "do not run a launcher, `handshake`, Core, `intake`, `route`, `inception`, `status`, or `resume`",
+        "activates automatic ISEKAI routing for later ordinary requests in the current conversation",
+        "All other explicit actions are one-shot and leave mode off.",
+        "If activation state is not explicit in the current conversation, treat it as off.",
+    ]
+
+    for path, (command, on_command) in skill_commands.items():
+        content = path.read_text(encoding="utf-8")
+        frontmatter = content.split("---", maxsplit=2)[1]
+        assert command in frontmatter
+        assert on_command in frontmatter
+        assert "ordinary project work" in frontmatter
+        assert "discovery" in frontmatter.lower()
+        for phrase in shared_gate:
+            assert phrase in content, f"{path} is missing activation gate: {phrase}"

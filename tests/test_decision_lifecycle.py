@@ -144,6 +144,7 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     # The historical Release Decision stays bound to the release Evidence, while
     # the learned transition validates the new, current operations Evidence.
     passing_evidence(unit)
+    assert verify_unit(unit)["valid"] is True
     approve(unit, "operation")
     with pytest.raises(ValueError, match="pending work"):
         transition_unit(unit, "learned")
@@ -163,6 +164,35 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     decisions = json.loads((unit / "decisions.json").read_text(encoding="utf-8"))
     assert len(decisions["decisions"]) == 4
     assert all(DECISION_REQUIRED_FIELDS <= decision.keys() for decision in decisions["decisions"])
+
+
+def test_operating_verify_rejects_a_tampered_release_evidence_binding(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    passing_evidence(unit)
+    approve(unit, "release")
+    complete_acceptance(unit)
+    transition_unit(unit, "releasing")
+    transition_unit(unit, "operating")
+
+    path = unit / "decisions.json"
+    decisions = json.loads(path.read_text(encoding="utf-8"))
+    release = next(
+        decision for decision in decisions["decisions"] if decision["gate"] == "release"
+    )
+    release["approval_subject"]["digest"] = "sha256:" + "0" * 64
+    write_json_atomic(path, decisions)
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    assert any(
+        "Release Decision digest does not match" in issue for issue in result["issues"]
+    )
 
 
 def test_release_rejects_evidence_made_stale_by_a_later_authorization(

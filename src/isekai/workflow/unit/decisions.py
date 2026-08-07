@@ -264,6 +264,8 @@ def _release_decision_evidence_issues(
     unit_dir: Path,
     decisions: dict[str, Any],
     unit: dict[str, Any],
+    *,
+    require_current: bool = True,
 ) -> list[str]:
     latest = _latest_decision(decisions, "release")
     if latest is None or latest.get("outcome") != "approved":
@@ -273,19 +275,58 @@ def _release_decision_evidence_issues(
         unit_id=str(unit.get("id")),
         scope=str(unit.get("scope")),
     )
-    try:
-        evidence = _unit_json(unit_dir, "evidence/verification.json")
-    except ValueError as exc:
-        return issues + [str(exc)]
-    from .evidence import _verification_evidence_digest
-
     approval_subject = latest.get("approval_subject")
     if not isinstance(approval_subject, dict):
         return issues
-    if approval_subject.get("id") != evidence.get("id"):
-        issues.append("Release Decision does not reference the current verification Evidence")
+    from .evidence import (
+        _evidence_record_relative,
+        _verification_evidence_digest,
+    )
+
+    evidence_id = approval_subject.get("id")
+    try:
+        record_relative = _evidence_record_relative(str(evidence_id))
+    except ValueError as exc:
+        return issues + [str(exc)]
+    reference = approval_subject.get("reference")
+    if reference is not None and reference != record_relative:
+        issues.append("Release Decision has an invalid verification Evidence reference")
+
+    try:
+        evidence = _unit_json(unit_dir, record_relative)
+    except ValueError:
+        # Backward compatibility for Units whose singleton Evidence has not yet
+        # been archived. The next Evidence write backfills this record first.
+        try:
+            current = _unit_json(unit_dir, "evidence/verification.json")
+        except ValueError as exc:
+            return issues + [str(exc)]
+        if current.get("id") != evidence_id:
+            issues.append(
+                "Release Decision verification Evidence record is missing: "
+                + record_relative
+            )
+            return issues
+        evidence = current
+
+    if evidence.get("id") != evidence_id:
+        issues.append("Release Decision does not reference its verification Evidence record")
     if approval_subject.get("digest") != _verification_evidence_digest(evidence):
-        issues.append("Release Decision digest does not match current verification Evidence")
+        issues.append("Release Decision digest does not match its verification Evidence record")
+
+    if require_current:
+        try:
+            current = _unit_json(unit_dir, "evidence/verification.json")
+        except ValueError as exc:
+            return issues + [str(exc)]
+        if current.get("id") != evidence_id:
+            issues.append(
+                "Release Decision does not reference the current verification Evidence"
+            )
+        if approval_subject.get("digest") != _verification_evidence_digest(current):
+            issues.append(
+                "Release Decision digest does not match current verification Evidence"
+            )
     return issues
 
 
@@ -380,7 +421,11 @@ def record_decision(
                 "digest": str(envelope["approval_digest"]),
             }
         elif gate == "release" and outcome == "approved":
-            from .evidence import _passing_evidence, _verification_evidence_digest
+            from .evidence import (
+                _passing_evidence,
+                _persist_evidence_record,
+                _verification_evidence_digest,
+            )
 
             if "evidence/verification.json" not in references:
                 raise ValueError(
@@ -391,10 +436,12 @@ def record_decision(
                     "approved Release Decision requires current passing verification Evidence"
                 )
             evidence = _unit_json(unit_dir, "evidence/verification.json")
+            evidence_reference = _persist_evidence_record(unit_dir, evidence)
             approval_subject = {
                 "type": "verification-evidence",
                 "id": str(evidence["id"]),
                 "digest": _verification_evidence_digest(evidence),
+                "reference": evidence_reference,
             }
 
         now = datetime.now(timezone.utc)

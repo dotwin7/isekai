@@ -40,6 +40,7 @@ EVIDENCE_ALLOWED_STATUSES = {
     "releasing",
     "operating",
 }
+EVIDENCE_ID_PATTERN = re.compile(r"EVD-[0-9]{20}")
 
 
 def _evidence_issues(
@@ -64,6 +65,11 @@ def _evidence_issues(
         issues.append("verification evidence has an invalid type")
     if evidence.get("schema_version") != "1.0.0":
         issues.append("verification evidence has an unsupported schema_version")
+    evidence_id = evidence.get("id")
+    if not isinstance(evidence_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
+        evidence_id
+    ):
+        issues.append("verification evidence has an invalid id")
     if not isinstance(evidence.get("stage"), str) or not evidence.get(
         "stage", ""
     ).strip():
@@ -280,6 +286,46 @@ def _verification_evidence_digest(evidence: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def _evidence_record_relative(evidence_id: str) -> str:
+    """Return the immutable record path for one generated Evidence ID."""
+    if not EVIDENCE_ID_PATTERN.fullmatch(evidence_id):
+        raise ValueError(f"verification evidence has an invalid id: {evidence_id}")
+    return f"evidence/records/{evidence_id}.json"
+
+
+def _persist_evidence_record(
+    unit_dir: Path,
+    evidence: dict[str, Any],
+) -> str:
+    """Persist Evidence by ID without allowing a prior record to be replaced."""
+    relative = _evidence_record_relative(str(evidence.get("id", "")))
+    target = unit_dir / relative
+    expected_digest = _verification_evidence_digest(evidence)
+    if target.is_file():
+        existing = _unit_json(unit_dir, relative)
+        if _verification_evidence_digest(existing) != expected_digest:
+            raise ValueError(
+                "verification Evidence record conflicts with an existing Evidence ID"
+            )
+        return relative
+    _write_json(target, evidence)
+    persisted = _unit_json(unit_dir, relative)
+    if _verification_evidence_digest(persisted) != expected_digest:
+        raise ValueError("verification Evidence record postflight failed")
+    return relative
+
+
+def _archive_current_evidence(unit_dir: Path) -> None:
+    """Backfill a legacy singleton Evidence before it is replaced."""
+    try:
+        current = _unit_json(unit_dir, "evidence/verification.json")
+    except ValueError:
+        return
+    evidence_id = current.get("id")
+    if isinstance(evidence_id, str) and EVIDENCE_ID_PATTERN.fullmatch(evidence_id):
+        _persist_evidence_record(unit_dir, current)
+
+
 def record_evidence(
     path: str | Path,
     *,
@@ -380,8 +426,14 @@ def _record_evidence_locked(
     )
     if issues:
         raise ValueError("; ".join(issues))
+    _archive_current_evidence(unit_dir)
+    record_relative = _persist_evidence_record(unit_dir, evidence)
     _write_json(unit_dir / "evidence/verification.json", evidence)
     persisted_evidence = _unit_json(unit_dir, "evidence/verification.json")
     if persisted_evidence.get("id") != evidence["id"]:
         raise ValueError("Evidence postflight blocked: record was not persisted")
-    return {"path": str(unit_dir / "evidence/verification.json"), "evidence": evidence}
+    return {
+        "path": str(unit_dir / "evidence/verification.json"),
+        "record_path": str(unit_dir / record_relative),
+        "evidence": evidence,
+    }

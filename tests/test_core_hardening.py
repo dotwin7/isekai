@@ -142,6 +142,27 @@ def test_bootstrap_checkout_install_rejects_a_mismatched_ref(tmp_path: Path) -> 
         )
 
 
+def test_bootstrap_checkout_install_rejects_a_mismatched_source(
+    tmp_path: Path,
+) -> None:
+    from isekai.distribution import install_from_bootstrap_checkout
+
+    release = _tagged_checkout(tmp_path)
+    project = tmp_path / "product"
+    project.mkdir()
+
+    with pytest.raises(DistributionError, match="origin matching|origin does not match"):
+        install_from_bootstrap_checkout(
+            release,
+            "https://trusted.example/isekai.git",
+            "v9.9.9",
+            project,
+            runtimes=("kiro",),
+        )
+
+    assert not (project / "isekai.lock.json").exists()
+
+
 def _wide_open_unit(project: Path, title: str, output: Path | None = None) -> Path:
     from isekai.workflow import propose_execution_envelope
 

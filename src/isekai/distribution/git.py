@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import unquote, urlparse
 
 from .install import install_from_checkout, load_install_lock
 from .release import (
@@ -61,6 +62,46 @@ def _resolve_immutable_git_ref(checkout: Path, ref: str) -> str:
             "Git ref must be an immutable tag or full commit; "
             f"branches and abbreviated commits are not allowed: {ref}"
         ) from exc
+
+
+def _local_git_source(value: str) -> Path | None:
+    if value.startswith("file://"):
+        parsed = urlparse(value)
+        if parsed.netloc not in {"", "localhost"}:
+            return None
+        return Path(unquote(parsed.path)).expanduser().resolve()
+    if "://" in value or re.match(r"^[^/\\]+@[^:]+:", value):
+        return None
+    return Path(value).expanduser().resolve()
+
+
+def _git_sources_match(expected: str, actual: str) -> bool:
+    if expected.rstrip("/") == actual.rstrip("/"):
+        return True
+    expected_path = _local_git_source(expected)
+    actual_path = _local_git_source(actual)
+    return (
+        expected_path is not None
+        and actual_path is not None
+        and expected_path == actual_path
+    )
+
+
+def _verify_checkout_source(checkout: Path, source: str) -> None:
+    """Bind a bootstrap checkout to the Git source recorded in the lock."""
+    try:
+        origin = _git(["remote", "get-url", "origin"], cwd=checkout)
+    except DistributionError:
+        source_path = _local_git_source(source)
+        if source_path == checkout:
+            return
+        raise DistributionError(
+            "bootstrap checkout has no origin matching the requested Git source"
+        ) from None
+    if not _git_sources_match(source, origin):
+        raise DistributionError(
+            "bootstrap checkout origin does not match the requested Git source"
+        )
 
 
 def _reject_moved_ref(project: str | Path, source: str, ref: str, commit: str) -> None:
@@ -137,6 +178,7 @@ def install_from_bootstrap_checkout(
     release_root = Path(checkout).expanduser().resolve()
     if not (release_root / ".git").exists():
         raise DistributionError(f"bootstrap checkout is not a Git checkout: {release_root}")
+    _verify_checkout_source(release_root, source)
     commit = _resolve_immutable_git_ref(release_root, ref)
     head = _git(["rev-parse", "--verify", "HEAD^{commit}"], cwd=release_root)
     if head != commit:

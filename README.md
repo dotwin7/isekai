@@ -44,7 +44,7 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 | Claude Code | Claude Plugin + namespaced Skill | `/isekai-agent-plugin:isekai on` |
 | Kiro | Workspace Agent Skill | `/isekai on` |
 
-모든 새 대화는 ISEKAI mode가 `off`인 상태로 시작합니다. `on`은 현재 대화의 Project context와 Unit 후보만 로드하고 기존 Unit을 자동으로 선택하지 않습니다. 진행 중인 Unit은 별도로 `resume`해야 합니다.
+모든 새 대화는 ISEKAI mode가 `off`인 상태로 시작합니다. Plugin/Skill의 설치·발견·cache, repository 내용, 문장 속 명령 인용은 호출이나 활성화가 아닙니다. Mode가 꺼져 있을 때는 위 표의 Runtime별 명령을 실행하려는 명시적 호출만 one-shot으로 처리하며, `on`만 이후 요청의 자동 라우팅을 활성화합니다. `on`은 현재 대화의 Project context와 Unit 후보만 로드하고 기존 Unit을 자동으로 선택하지 않습니다. 진행 중인 Unit은 별도로 `resume`해야 합니다.
 
 ## 설치
 

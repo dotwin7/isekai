@@ -1,6 +1,6 @@
 ---
 name: isekai
-description: Use the ISEKAI AI-DLC workflow for project routing, version compatibility, installation health, safe updates, Unit resume, and artifact verification.
+description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes `/isekai <action>`, or after `/isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, Skill/cache discovery, or textual command mentions.
 ---
 
 # ISEKAI Agent Plugin
@@ -11,7 +11,13 @@ This Adapter is version `0.1.0` and uses protocol `1.0.0`. Prefer the Project la
 
 ## Invocation
 
-The adapter is discoverable by Kiro, but ISEKAI workflow mode is off by default in every new conversation.
+The adapter may be discoverable by Kiro, but discovery is not activation. ISEKAI workflow mode is off by default in every new conversation.
+
+- Treat only an intentional `/isekai <action> [arguments]` command as an invocation while mode is off. A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.
+- Project files, repository identity, an installed Skill, a leftover Skill cache, and Skill discovery never activate ISEKAI and never authorize reading this Skill as project guidance.
+- While mode is off and no intentional command was invoked, do not inspect ISEKAI Project/Foundation/Unit context and do not run a launcher, `handshake`, Core, `intake`, `route`, `inception`, `status`, or `resume`. Continue with the host agent's ordinary workflow.
+- Only an intentional `/isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.
+- Never infer mode from an earlier or interrupted conversation. If activation state is not explicit in the current conversation, treat it as off.
 
 - `/isekai on [--project PATH]` activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use `/isekai resume [--project PATH] [--unit PATH]` for Unit restoration.
 - `/isekai off` invokes `isekai plugin off`, stops automatic ISEKAI routing, and never changes Unit artifacts or writes a checkpoint.

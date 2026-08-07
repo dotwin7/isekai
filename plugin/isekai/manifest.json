@@ -2,7 +2,7 @@
   "id": "isekai-agent-plugin",
   "kind": "agent-plugin",
   "version": "0.1.0",
-  "description": "ISEKAI AI-DLC workflow integration for existing agent runtimes",
+  "description": "Explicit-command-only ISEKAI AI-DLC workflow integration for existing agent runtimes",
   "core": {
     "package": "isekai-agent-plugin",
     "interface": "isekai plugin",

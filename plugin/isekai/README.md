@@ -33,7 +33,7 @@ isekai verify --unit path/to/unit
 
 Run the Agent CLI from a Project root containing `project.json`; Core also searches ancestors and unambiguous descendant workspace candidates. `init` creates a validated manifest and `units/` without overwriting existing configuration. Unit output defaults to the selected Project root.
 
-The Adapter is discoverable by the host but conversation mode is off by default. `on` activates one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Explicit actions remain available as one-shot calls while mode is off. `install` prepares project-local host surfaces; `--register` explicitly delegates enablement to each host's native marketplace command.
+The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. `install` prepares project-local host surfaces; `--register` explicitly delegates enablement to each host's native marketplace command.
 
 `isekai plugin <action>` remains the internal Runtime Adapter contract and is backward-compatible for host integrations.
 

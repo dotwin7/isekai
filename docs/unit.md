@@ -18,7 +18,9 @@ unit/
 ├─ plan.md
 ├─ acceptance.md
 ├─ evaluations/criteria.json
-├─ evidence/verification.json
+├─ evidence/
+│  ├─ verification.json
+│  └─ records/EVD-*.json
 ├─ checkpoint.json
 ├─ context-receipt.json
 ├─ execution-envelope.json
@@ -139,7 +141,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
 }
 ```
 
-Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 기존 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
+Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
 ## Execution Envelope
 

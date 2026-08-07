@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,10 @@ def initialize_unit(
     acceptance_criteria = list(intent_values.get("acceptance_criteria") or [])
     document_language = receipt["document_language"]
     slug = _slugify(title)
-    unit_id = f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{slug.upper()}"
+    unit_id = (
+        f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-"
+        f"{slug.upper()}-{uuid.uuid4().hex.upper()}"
+    )
     output_root = resolved_output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
     final_unit_dir = output_root / unit_id.lower()

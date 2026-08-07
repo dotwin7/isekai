@@ -20,7 +20,7 @@ When a repo-local Codex marketplace is configured, also install the plugin in a 
 
 ## Conversation mode
 
-The Adapter is discoverable but ISEKAI mode is off by default in each new conversation. Invoke `$isekai on` from a Project root to activate Project-level intake routing and list Unit candidates without selecting or resuming one. Use `$isekai resume [--project PATH] [--unit PATH]` separately to restore a Unit. `$isekai off` stops routing without writing artifacts or checkpoints; it does not enable, disable, install, or unload the Codex plugin.
+The Adapter is discoverable but ISEKAI mode is off by default in each new conversation. Discovery, plugin installation, a leftover cache, repository contents, and a textual mention of `$isekai` are not activation and must not trigger the Skill. Only an intentional `$isekai <action>` command is a one-shot invocation while mode is off. Invoke `$isekai on` from a Project root to activate Project-level intake routing for later requests and list Unit candidates without selecting or resuming one. Use `$isekai resume [--project PATH] [--unit PATH]` separately to restore a Unit. `$isekai off` stops routing without writing artifacts or checkpoints; it does not enable, disable, install, or unload the Codex plugin.
 
 Core searches the current directory, ancestors, and unambiguous descendant candidates. If no manifest exists, `$isekai init --path PATH` creates a validated manifest and Project-local `units/` after explicit confirmation; multiple candidates require user selection. Sensitive raw Evidence belongs under ignored `units/**/evidence/raw/`.
 

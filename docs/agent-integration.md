@@ -25,6 +25,16 @@ Adapter는 모델의 추론 방식과 출력 스타일을 과도하게 교정하
 
 Runtime Adapter는 호스트에서 발견 가능한 상태를 유지하지만 ISEKAI workflow mode는 모든 새 대화에서 기본 `off`다. 이 모드는 Host plugin의 설치·enable 상태나 Unit lifecycle status와 별개다.
 
+발견(discovery)은 호출(invocation)이 아니다. Plugin/Skill 설치 여부, 남아 있는 cache, 현재 repository의 파일이나 이름, 문서·코드·리뷰 문장에 포함된 명령 문자열만으로는 Adapter를 실행하거나 mode를 활성화할 수 없다. Mode가 `off`일 때는 사용자가 해당 Runtime의 명령 실행을 의도하여 직접 호출한 경우에만 one-shot action을 수행한다.
+
+| Runtime | 명시적 호출 형식 | 대화 mode 활성화 |
+|---|---|---|
+| Codex | `$isekai <action>` | `$isekai on` |
+| Claude Code | `/isekai-agent-plugin:isekai <action>` | `/isekai-agent-plugin:isekai on` |
+| Kiro | `/isekai <action>` | `/isekai on` |
+
+단순히 위 명령을 질문·인용·설명하는 문장은 호출이 아니다. 명시적 `on` 이전에는 Adapter가 Project/Foundation/Unit context를 읽거나 launcher, handshake, Core, `intake`, `route`, `inception`, `status`, `resume`을 자동 실행해서는 안 된다. `on` 이외의 명시적 action은 one-shot이며 mode를 켜지 않는다.
+
 ```text
 새 대화: OFF
   ↓ /isekai on [--project PATH]
