@@ -7,6 +7,7 @@ import pytest
 
 from isekai.workflow import (
     DECISION_REQUIRED_FIELDS,
+    authorize_action,
     build_command_evidence,
     initialize_unit,
     propose_execution_envelope,
@@ -109,6 +110,34 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     decisions = json.loads((unit / "decisions.json").read_text(encoding="utf-8"))
     assert len(decisions["decisions"]) == 4
     assert all(DECISION_REQUIRED_FIELDS <= decision.keys() for decision in decisions["decisions"])
+
+
+def test_release_rejects_evidence_made_stale_by_a_later_authorization(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    approve(unit, "inception")
+    transition_unit(unit, "construction")
+    approve(unit, "architecture")
+    transition_unit(unit, "awaiting-release-decision")
+    approve(unit, "release")
+    passing_evidence(unit)
+
+    authorization = authorize_action(
+        unit,
+        action="edit",
+        target="src/after-verification.py",
+    )
+
+    assert authorization["allowed"] is True
+    with pytest.raises(ValueError, match="passing verification Evidence"):
+        transition_unit(unit, "releasing")
+    assert any("stale" in issue for issue in verify_unit(unit)["issues"])
+
+    passing_evidence(unit)
+    assert transition_unit(unit, "releasing")["to"] == "releasing"
 
 
 def test_latest_rejected_decision_blocks_a_previous_approval(tmp_path: Path) -> None:

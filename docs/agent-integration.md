@@ -45,7 +45,7 @@ OFF
 
 Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. 실제 Host plugin enable/disable은 각 Agent CLI의 네이티브 기능을 사용한다.
 
-Adapter는 `on`, `status`, `resume` 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 `doctor` 또는 명시적 update를 요구한다.
+Adapter는 `on`, `status`, `resume` 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. Project lock이 없거나 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 설치, `doctor` 또는 명시적 update를 요구한다.
 
 ```json
 {

@@ -185,3 +185,21 @@ def test_file_lock_release_does_not_delete_a_reclaimed_lock(tmp_path: Path) -> N
 
     _release(lock, second)
     assert not lock.exists()
+
+
+def test_file_lock_fallback_releases_its_owned_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import isekai.support.locking as locking
+
+    lock = tmp_path / "artifact.lock"
+    monkeypatch.setattr(
+        locking.os,
+        "link",
+        lambda _claim, _lock: (_ for _ in ()).throw(OSError("no hard links")),
+    )
+
+    with file_lock(lock, subject="artifact"):
+        assert lock.exists()
+
+    assert list(tmp_path.iterdir()) == []

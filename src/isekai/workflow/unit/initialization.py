@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
 from .common import _write_json
 from .execution import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
+    _authorization_ledger_digest,
     _execution_envelope_approval_digest,
 )
 
@@ -54,10 +56,16 @@ def initialize_unit(
     document_language = receipt["document_language"]
     slug = _slugify(title)
     unit_id = f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{slug.upper()}"
-    unit_dir = resolved_output_root.resolve() / unit_id.lower()
-    if unit_dir.exists():
-        raise FileExistsError(f"unit already exists: {unit_dir}")
-    unit_dir.mkdir(parents=True)
+    output_root = resolved_output_root.resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    final_unit_dir = output_root / unit_id.lower()
+    if final_unit_dir.exists():
+        raise FileExistsError(f"unit already exists: {final_unit_dir}")
+    staging = tempfile.TemporaryDirectory(
+        prefix=f".{unit_id.lower()}.stage-",
+        dir=output_root,
+    )
+    unit_dir = Path(staging.name)
 
     _write_json(
         unit_dir / "unit.json",
@@ -167,20 +175,6 @@ def initialize_unit(
             "criteria": [],
         },
     )
-    _write_json(
-        unit_dir / "evidence/verification.json",
-        {
-            "id": "",
-            "type": "verification-evidence",
-            "schema_version": "1.0.0",
-            "unit_id": unit_id,
-            "passed": False,
-            "scope": "",
-            "recorded_by": "",
-            "recorded_at": "",
-            "commands": [],
-        },
-    )
     _write_json(unit_dir / "decisions.json", {"unit_id": unit_id, "decisions": []})
     envelope_now = datetime.now(timezone.utc)
     initial_envelope = {
@@ -204,15 +198,33 @@ def initialize_unit(
         initial_envelope
     )
     _write_json(unit_dir / "execution-envelope.json", initial_envelope)
+    initial_authorizations = {
+        "type": "execution-authorization-ledger",
+        "schema_version": "1.0.0",
+        "unit_id": unit_id,
+        "envelope_id": initial_envelope["id"],
+        "approval_digest": initial_envelope["approval_digest"],
+        "grants": [],
+    }
+    _write_json(unit_dir / "execution-authorizations.json", initial_authorizations)
     _write_json(
-        unit_dir / "execution-authorizations.json",
+        unit_dir / "evidence/verification.json",
         {
-            "type": "execution-authorization-ledger",
+            "id": "",
+            "type": "verification-evidence",
             "schema_version": "1.0.0",
             "unit_id": unit_id,
+            "passed": False,
+            "scope": "",
+            "recorded_by": "",
+            "recorded_at": "",
+            "commands": [],
             "envelope_id": initial_envelope["id"],
-            "approval_digest": initial_envelope["approval_digest"],
-            "grants": [],
+            "envelope_digest": initial_envelope["approval_digest"],
+            "authorization_ledger_digest": _authorization_ledger_digest(
+                initial_authorizations
+            ),
+            "authorization_count": 0,
         },
     )
     _write_json(
@@ -226,4 +238,6 @@ def initialize_unit(
         },
     )
     _write_json(unit_dir / "context-receipt.json", receipt)
-    return unit_dir
+    unit_dir.rename(final_unit_dir)
+    staging.cleanup()
+    return final_unit_dir

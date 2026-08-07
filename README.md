@@ -223,7 +223,7 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 
 ### Core가 강제하는 것과 강제하지 않는 것
 
-Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
+Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Verification Evidence도 기록 시점의 Envelope와 authorization 원장 digest에 결박되므로 이후 grant가 추가되면 다시 검증해야 합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
 
 Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 사람의 개입은 호스트 런타임의 승인 UI(도구 실행 승인)에서 집행되며, ISEKAI가 제공하는 것은 그 판단을 감사 가능하게 기록하고 이후의 무단 변경을 탐지하는 계층입니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
 

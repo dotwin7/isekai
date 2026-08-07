@@ -112,28 +112,18 @@ def test_plugin_route_and_compatibility_are_enveloped() -> None:
     }
 
 
-def test_plugin_handshake_uses_protocol_without_coupling_component_versions() -> None:
-    compatible = dispatch(
-        "handshake",
-        {
-            "runtime": "codex",
-            "adapter_version": "0.1.0",
-            "protocol_version": "1.0.0",
-        },
-    )
-
-    assert compatible["result"]["compatible"] is True
-    assert compatible["core_version"] == "0.1.0"
-    assert compatible["protocol_version"] == "1.0.0"
-    independently_versioned = dispatch(
-        "handshake",
-        {
-            "runtime": "codex",
-            "adapter_version": "0.2.0",
-            "protocol_version": "1.0.0",
-        },
-    )
-    assert independently_versioned["result"]["compatible"] is True
+def test_plugin_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    with pytest.raises(PluginError, match="installation lock is missing"):
+        dispatch(
+            "handshake",
+            {
+                "runtime": "codex",
+                "adapter_version": "0.1.0",
+                "protocol_version": "1.0.0",
+                "project": str(project),
+            },
+        )
     with pytest.raises(PluginError, match="incompatible with Core protocol"):
         dispatch(
             "handshake",
@@ -141,6 +131,7 @@ def test_plugin_handshake_uses_protocol_without_coupling_component_versions() ->
                 "runtime": "codex",
                 "adapter_version": "0.1.0",
                 "protocol_version": "2.0.0",
+                "project": str(project),
             },
         )
 

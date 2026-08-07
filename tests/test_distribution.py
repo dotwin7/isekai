@@ -123,6 +123,7 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
         / ".isekai/marketplaces/claude/.claude-plugin/marketplace.json"
     ).is_file()
     assert doctor_install(project)["ready"] is True
+    assert verify_adapter_handshake("codex", "0.1.0", "1.0.0", project)["locked"] is True
 
     with pytest.raises(DistributionError, match="adapter version does not match project lock"):
         verify_adapter_handshake("codex", "0.2.0", "1.0.0", project)
@@ -136,6 +137,13 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["core_version"] == "0.1.0"
+
+
+def test_handshake_rejects_a_project_without_an_install_lock(tmp_path: Path) -> None:
+    project = _project_with_foundation(tmp_path)
+
+    with pytest.raises(DistributionError, match="installation lock is missing"):
+        verify_adapter_handshake("codex", "0.1.0", "1.0.0", project)
 
 
 def test_installed_launcher_initializes_project_from_locked_foundation(

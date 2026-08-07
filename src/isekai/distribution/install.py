@@ -649,22 +649,25 @@ def verify_adapter_handshake(
             root = candidate
             break
     lock = load_install_lock(root)
-    if lock is not None:
-        adapter = lock.get("adapters", {}).get(runtime)
-        if not isinstance(adapter, dict):
-            raise DistributionError(f"{runtime} adapter is not installed for this project")
-        if str(adapter.get("version", "")).split("+", 1)[0] != adapter_version.split("+", 1)[0]:
-            raise DistributionError(f"{runtime} adapter version does not match project lock")
-        if lock.get("core", {}).get("version") != __version__:
-            raise DistributionError("running Core version does not match project lock")
-        health = doctor_install(root)
-        if not health["ready"]:
-            raise DistributionError("project installation is unhealthy: " + "; ".join(health["issues"]))
+    if lock is None:
+        raise DistributionError(
+            "project installation lock is missing; install ISEKAI or run doctor"
+        )
+    adapter = lock.get("adapters", {}).get(runtime)
+    if not isinstance(adapter, dict):
+        raise DistributionError(f"{runtime} adapter is not installed for this project")
+    if str(adapter.get("version", "")).split("+", 1)[0] != adapter_version.split("+", 1)[0]:
+        raise DistributionError(f"{runtime} adapter version does not match project lock")
+    if lock.get("core", {}).get("version") != __version__:
+        raise DistributionError("running Core version does not match project lock")
+    health = doctor_install(root)
+    if not health["ready"]:
+        raise DistributionError("project installation is unhealthy: " + "; ".join(health["issues"]))
     return {
         "compatible": True,
         "runtime": runtime,
         "adapter_version": adapter_version,
         "core_version": __version__,
         "protocol_version": PROTOCOL_VERSION,
-        "locked": lock is not None,
+        "locked": True,
     }

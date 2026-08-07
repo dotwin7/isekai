@@ -37,6 +37,13 @@ def _same_file(first: Path, second: Path) -> bool:
         return False
 
 
+def _same_claim(first: Path, second: Path) -> bool:
+    try:
+        return first.read_bytes() == second.read_bytes()
+    except (FileNotFoundError, OSError):
+        return False
+
+
 def _try_claim(claim: Path, lock_path: Path) -> bool:
     """Attempt one atomic acquisition. Return True when the lock is ours.
 
@@ -53,18 +60,27 @@ def _try_claim(claim: Path, lock_path: Path) -> bool:
         # Filesystems without hard links fall back to an exclusive create. The
         # reclaim race stays possible there, but a lock is still better than none.
         try:
-            os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             return False
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(claim.read_bytes())
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            lock_path.unlink(missing_ok=True)
+            raise
         return True
     return _same_file(claim, lock_path)
 
 
 def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> Path | None:
     """Take ``lock_path``, returning the claim file that proves ownership."""
-    claim = lock_path.with_name(f"{lock_path.name}.{uuid.uuid4().hex}")
+    claim_id = uuid.uuid4().hex
+    claim = lock_path.with_name(f"{lock_path.name}.{claim_id}")
     claim.parent.mkdir(parents=True, exist_ok=True)
-    claim.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    claim.write_text(f"{os.getpid()}:{claim_id}\n", encoding="utf-8")
     deadline = time.monotonic() + max(timeout, 0.0)
     try:
         while True:
@@ -86,7 +102,7 @@ def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> Path | None
 def _release(lock_path: Path, claim: Path) -> None:
     # Only drop the lock while we still hold it, so a reclaimed lock belonging
     # to another process is never deleted.
-    if _same_file(claim, lock_path) or not claim.exists():
+    if _same_file(claim, lock_path) or _same_claim(claim, lock_path):
         lock_path.unlink(missing_ok=True)
     claim.unlink(missing_ok=True)
 

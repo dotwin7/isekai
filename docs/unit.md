@@ -118,6 +118,10 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
   "scope": "Core and plugin Golden Path",
   "recorded_by": "validator",
   "recorded_at": "2026-08-04T00:00:00+00:00",
+  "envelope_id": "ENV-UNIT-...",
+  "envelope_digest": "sha256:...",
+  "authorization_ledger_digest": "sha256:...",
+  "authorization_count": 3,
   "commands": [
     {
       "command": "PYTHONPATH=src python3 -m pytest -q",
@@ -129,7 +133,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
 }
 ```
 
-Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체를 보존해야 한다. Release Decision만 있고 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
+Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 기존 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
 ## Execution Envelope
 
@@ -178,7 +182,7 @@ envelope-approve --unit PATH          # 새 Decision에 결박해 활성화
 
 `decisions.json`과 `unit.json`은 read-modify-write 원장이다. 여러 세션·런타임이 같은 Unit을 다룰 수 있으므로, Unit의 모든 변경(Decision, transition, Envelope 제안·승인, Evidence, checkpoint, authorization)은 Unit 단위 파일 락으로 직렬화한다. Foundation release Decision도 같은 방식으로 Foundation 단위 락을 사용한다.
 
-락은 `os.link`의 원자성으로 획득하고 inode 비교로 소유를 확인한다. 이 확인이 없으면 두 프로세스가 같은 방치 락을 동시에 stale로 판정하고 각자 자기 락이라고 믿는 경쟁이 남는다. 락을 잡지 못하면 짧게 대기하고, 그래도 실패하면 덮어쓰지 않고 오류를 낸다. 5분이 지난 락은 프로세스가 죽은 것으로 보고 회수한다.
+락은 `os.link`의 원자성으로 획득하고 inode 비교로 소유를 확인한다. hard link를 지원하지 않는 파일시스템에서는 고유 claim token을 exclusive-create한 lock에 기록해 같은 소유권을 확인한다. 이 확인이 없으면 두 프로세스가 같은 방치 락을 동시에 stale로 판정하고 각자 자기 락이라고 믿는 경쟁이 남는다. 락을 잡지 못하면 짧게 대기하고, 그래도 실패하면 덮어쓰지 않고 오류를 낸다. 5분이 지난 락은 프로세스가 죽은 것으로 보고 회수한다.
 
 Decision 기록의 postflight는 "내 레코드가 마지막인가"가 아니라 "이전 레코드가 모두 보존된 채 내 레코드가 추가되었는가"를 확인한다. 전자는 남의 레코드를 덮어쓴 writer도 통과시킨다.
 

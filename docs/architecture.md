@@ -30,7 +30,7 @@ project-root/
 └─ tests/
 ```
 
-Project가 없으면 명시적 사용자 확인 후 `isekai init --path PATH`로 manifest와 `units/`를 생성한다. Init은 Foundation·Profile을 preflight하고 기존 `project.json`을 덮어쓰지 않으며 실패한 manifest를 rollback한다.
+Project가 없으면 명시적 사용자 확인 후 `isekai init --path PATH`로 manifest와 `units/`를 생성한다. Init은 Foundation·Profile을 preflight하고 기존 `project.json`을 덮어쓰지 않으며 실패한 manifest를 rollback한다. `unit-init`은 숨김 staging 디렉터리에 전체 artifact를 작성한 뒤 최종 Unit 경로로 rename하므로 중간 I/O 실패가 discover 가능한 부분 Unit을 남기지 않는다.
 
 Project discovery 순서는 direct current directory → nearest ancestor → filtered descendants다. 중첩 Project에서는 가장 가까운 ancestor manifest를 사용한다. descendant 후보가 하나면 선택할 수 있지만 둘 이상이면 모든 후보를 표시하고 `--project`로 명시적 선택을 요구한다. `.git`, build output, dependency, runtime과 `units/` 디렉터리는 descendant 검색에서 제외한다.
 

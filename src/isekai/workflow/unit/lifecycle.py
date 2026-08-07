@@ -22,7 +22,11 @@ from .decisions import (
     _has_approved_decision,
     _latest_decision,
 )
-from .evidence import _evidence_issues, _passing_evidence
+from .evidence import (
+    _current_authorization_binding,
+    _evidence_issues,
+    _passing_evidence,
+)
 from .execution import (
     _approve_execution_envelope,
     _authorization_ledger_issues,
@@ -196,7 +200,18 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     if evidence_path.is_file():
         evidence = read_artifact("evidence/verification.json")
         if evidence is not None:
-            issues.extend(_evidence_issues(evidence, str(unit.get("id"))))
+            try:
+                binding = _current_authorization_binding(unit_dir, unit)
+            except ValueError as exc:
+                issues.append(str(exc))
+                binding = None
+            issues.extend(
+                _evidence_issues(
+                    evidence,
+                    str(unit.get("id")),
+                    authorization_binding=binding,
+                )
+            )
 
     issues = list(dict.fromkeys(issues))
     valid = not missing and not issues

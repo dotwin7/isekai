@@ -62,6 +62,31 @@ def test_initialize_project_preflight_failure_leaves_no_artifacts(tmp_path: Path
     assert not (project_root / "units").exists()
 
 
+def test_initialize_unit_write_failure_leaves_no_partial_unit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import isekai.workflow.unit.initialization as initialization
+
+    project_root = project_root_with_foundation(tmp_path)
+    project = initialize_project(project_root)
+    real_write = initialization._write_json
+    calls = 0
+
+    def fail_second_write(path: Path, value: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("forced Unit write failure")
+        real_write(path, value)
+
+    monkeypatch.setattr(initialization, "_write_json", fail_second_write)
+
+    with pytest.raises(OSError, match="forced Unit write failure"):
+        initialize_unit(project, "Atomic Unit")
+
+    assert list((project_root / "units").iterdir()) == []
+
+
 def test_discover_project_uses_single_descendant_and_lists_ambiguous_candidates(
     tmp_path: Path,
 ) -> None:

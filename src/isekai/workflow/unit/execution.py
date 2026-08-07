@@ -459,6 +459,16 @@ AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
 }
 
 
+def _authorization_ledger_digest(ledger: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        ledger,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def _authorization_ledger_issues(
     ledger: Any,
     unit: dict[str, Any],

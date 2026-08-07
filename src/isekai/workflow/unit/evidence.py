@@ -20,6 +20,10 @@ EVIDENCE_REQUIRED_FIELDS = {
     "recorded_by",
     "recorded_at",
     "commands",
+    "envelope_id",
+    "envelope_digest",
+    "authorization_ledger_digest",
+    "authorization_count",
 }
 EVIDENCE_COMMAND_REQUIRED_FIELDS = {
     "command",
@@ -34,6 +38,7 @@ def _evidence_issues(
     unit_id: str | None = None,
     *,
     require_passing: bool = True,
+    authorization_binding: dict[str, Any] | None = None,
 ) -> list[str]:
     if not isinstance(evidence, dict):
         return ["verification evidence must be an object"]
@@ -57,6 +62,27 @@ def _evidence_issues(
         issues.append("verification evidence requires recorded_by provenance")
     if not _is_iso_timestamp(evidence.get("recorded_at")):
         issues.append("verification evidence recorded_at must be an ISO-8601 timestamp")
+    for field in ("envelope_id", "envelope_digest", "authorization_ledger_digest"):
+        if not isinstance(evidence.get(field), str) or not evidence.get(field, "").strip():
+            issues.append(f"verification evidence requires {field}")
+    for field in ("envelope_digest", "authorization_ledger_digest"):
+        value = evidence.get(field)
+        if isinstance(value, str) and not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
+            issues.append(f"verification evidence {field} must be a SHA-256 digest")
+    authorization_count = evidence.get("authorization_count")
+    if (
+        not isinstance(authorization_count, int)
+        or isinstance(authorization_count, bool)
+        or authorization_count < 0
+    ):
+        issues.append("verification evidence authorization_count must be a non-negative integer")
+    if authorization_binding is not None:
+        for field, expected in authorization_binding.items():
+            if evidence.get(field) != expected:
+                issues.append(
+                    "verification evidence is stale because the authorization ledger changed"
+                )
+                break
 
     commands = evidence.get("commands")
     if not isinstance(commands, list) or not commands:
@@ -105,9 +131,33 @@ def _passing_evidence(unit_dir: Path) -> bool:
     try:
         evidence = _unit_json(unit_dir, "evidence/verification.json")
         unit = _unit_json(unit_dir, "unit.json")
+        binding = _current_authorization_binding(unit_dir, unit)
     except ValueError:
         return False
-    return not _evidence_issues(evidence, str(unit.get("id")))
+    return not _evidence_issues(
+        evidence,
+        str(unit.get("id")),
+        authorization_binding=binding,
+    )
+
+
+def _current_authorization_binding(
+    unit_dir: Path,
+    unit: dict[str, Any],
+) -> dict[str, Any]:
+    from .execution import _authorization_ledger_digest, _authorization_ledger_issues
+
+    envelope = _unit_json(unit_dir, "execution-envelope.json")
+    ledger = _unit_json(unit_dir, "execution-authorizations.json")
+    ledger_issues = _authorization_ledger_issues(ledger, unit, envelope)
+    if ledger_issues:
+        raise ValueError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
+    return {
+        "envelope_id": envelope.get("id"),
+        "envelope_digest": envelope.get("approval_digest"),
+        "authorization_ledger_digest": _authorization_ledger_digest(ledger),
+        "authorization_count": len(ledger["grants"]),
+    }
 
 
 def build_command_evidence(
@@ -196,6 +246,7 @@ def _record_evidence_locked(
             item.update(computed)
         normalized_commands.append(item)
 
+    authorization_binding = _current_authorization_binding(unit_dir, unit)
     now = datetime.now(timezone.utc)
     evidence = {
         "id": "EVD-" + now.strftime("%Y%m%d%H%M%S%f"),
@@ -207,6 +258,7 @@ def _record_evidence_locked(
         "recorded_by": recorded_by.strip(),
         "recorded_at": now.isoformat(),
         "commands": normalized_commands,
+        **authorization_binding,
     }
     if notes.strip():
         evidence["notes"] = notes.strip()
