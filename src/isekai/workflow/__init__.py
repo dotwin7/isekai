@@ -42,6 +42,7 @@ from .unit.decisions import (
     STATUS_PHASE,
     _approved_envelope_decision_issues,
     _decision_packet_issues,
+    _decision_record_digest,
     _decision_record_issues,
     _has_approved_decision,
     _is_iso_timestamp,

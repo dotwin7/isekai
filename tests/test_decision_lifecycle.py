@@ -128,6 +128,15 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     approve(unit, "release")
     with pytest.raises(ValueError, match="acceptance criteria remain unchecked"):
         transition_unit(unit, "releasing")
+    (unit / "acceptance.md").write_text(
+        "# Acceptance Criteria\n\n* [ ] Alternate Markdown bullet remains open.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="acceptance criteria remain unchecked"):
+        transition_unit(unit, "releasing")
+    (unit / "acceptance.md").write_text("# Acceptance Criteria\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="acceptance criteria are missing"):
+        transition_unit(unit, "releasing")
     complete_acceptance(unit)
     architecture = unit / "architecture.md"
     architecture_content = architecture.read_text(encoding="utf-8")
@@ -193,6 +202,28 @@ def test_operating_verify_rejects_a_tampered_release_evidence_binding(
     assert any(
         "Release Decision digest does not match" in issue for issue in result["issues"]
     )
+
+
+def test_approved_inception_decision_metadata_is_digest_bound(tmp_path: Path) -> None:
+    from isekai.workflow import _decision_record_digest
+
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    decisions_path = unit / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decision = decisions["decisions"][-1]
+    decision["decided_by"] = "different-actor"
+    decision["summary"] = "Rewritten after approval."
+    # Recomputing the self-digest must not bypass the independent Envelope binding.
+    decision["decision_digest"] = _decision_record_digest(decision)
+    write_json_atomic(decisions_path, decisions)
+
+    authorization = authorize_action(unit, action="edit", target="src/main.py")
+    result = verify_unit(unit)
+
+    assert authorization["allowed"] is False
+    assert "approval digest" in authorization["reason"]
+    assert any("approval digest" in issue for issue in result["issues"])
 
 
 def test_release_rejects_evidence_made_stale_by_a_later_authorization(

@@ -92,7 +92,8 @@ Decision은 Unit의 `decisions.json`에 다음 최소 구조로 기록한다.
     "digest": "sha256:..."
   },
   "decided_by": "human-owner",
-  "decided_at": "2026-08-04T00:00:00+00:00"
+  "decided_at": "2026-08-04T00:00:00+00:00",
+  "decision_digest": "sha256:..."
 }
 ```
 
@@ -106,7 +107,7 @@ proposed → inception → awaiting-inception-decision
 
 `construction` 진입에는 승인된 Inception Decision, `awaiting-release-decision` 진입에는 승인된 Architecture Decision, `releasing` 진입에는 승인된 Release Decision과 passing verification Evidence, `learned` 진입에는 승인된 Operation Decision이 필요하다. 같은 게이트의 최신 Decision이 `rejected`이면 승인으로 간주하지 않는다.
 
-Decision은 해당 게이트를 실제로 검토할 수 있는 lifecycle 상태에서만 기록한다. Inception Decision은 `awaiting-inception-decision`과 Envelope 갱신·철회를 위한 Construction·Release·Operations 상태에서, Architecture Decision은 `construction`, Release Decision은 `awaiting-release-decision` 또는 Release 단계에서 Evidence를 갱신한 `releasing`, Operation Decision은 `operating`에서만 허용한다. 승인된 Release Decision은 현재 passing Verification Evidence의 ID와 digest를 `approval_subject`로 결박하므로 Evidence보다 먼저 선승인하거나 Evidence 교체 뒤 재사용할 수 없다.
+Decision은 해당 게이트를 실제로 검토할 수 있는 lifecycle 상태에서만 기록한다. Inception Decision은 `awaiting-inception-decision`과 Envelope 갱신·철회를 위한 Construction·Release·Operations 상태에서, Architecture Decision은 `construction`, Release Decision은 `awaiting-release-decision` 또는 Release 단계에서 Evidence를 갱신한 `releasing`, Operation Decision은 `operating`에서만 허용한다. 승인된 Release Decision은 현재 passing Verification Evidence의 ID와 digest를 `approval_subject`로 결박하므로 Evidence보다 먼저 선승인하거나 Evidence 교체 뒤 재사용할 수 없다. `decision_digest`는 감사 대상인 Decision 전체를 정규화해 계산하며, 사후 변경이 발견되면 해당 Decision을 무효로 처리한다.
 
 `releasing` 진입은 필수 Unit artifact, 체크된 acceptance criteria, blocker 없는 checkpoint까지 확인한다. `learned` 진입은 이 조건에 더해 현재 passing Evidence와 빈 `pending` 목록을 요구하므로 완료되지 않은 Unit이 종료 상태를 가질 수 없다.
 
@@ -166,11 +167,12 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
   "forbidden_actions": ["remote", "deploy", "credential-access"],
   "max_iterations": 5,
   "approval_digest": "sha256:...",
-  "approval_decision_id": "DEC-..."
+  "approval_decision_id": "DEC-...",
+  "approval_decision_digest": "sha256:..."
 }
 ```
 
-Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박한다. 이후 Envelope가 교체되거나 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다.
+Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다.
 
 `scope` 패턴은 디렉토리 경계를 존중한다. `*`와 `?`는 한 경로 세그먼트 안에서만 매칭하고, 세그먼트 전체가 `**`일 때만 0개 이상의 세그먼트를 가로지른다. 예를 들어 `src/*.py`는 `src/main.py`만 허용하고 `src/vendor/deep.py`는 스코프 밖이다. 하위 트리 전체를 허용하려면 `src/**`처럼 명시해야 한다.
 

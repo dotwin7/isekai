@@ -236,6 +236,25 @@ def test_control_artifacts_of_any_unit_are_protected(tmp_path: Path) -> None:
     assert ordinary["allowed"] is True
 
 
+def test_edit_authorization_rejects_existing_directory_targets(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    active = _wide_open_unit(project, "Directory Protection")
+
+    unit_directory = authorize_action(
+        active,
+        action="edit",
+        target=str(active.relative_to(project.parent)),
+    )
+    units_directory = authorize_action(active, action="edit", target="units")
+    ordinary_file = authorize_action(active, action="edit", target="src/main.py")
+
+    assert unit_directory["allowed"] is False
+    assert units_directory["allowed"] is False
+    assert "Directory targets" in unit_directory["reason"]
+    assert "Directory targets" in units_directory["reason"]
+    assert ordinary_file["allowed"] is True
+
+
 def test_project_discovery_prunes_excluded_trees(tmp_path: Path) -> None:
     (tmp_path / "workspace/app").mkdir(parents=True)
     write_json_atomic(tmp_path / "workspace/app/project.json", {"id": "app"})

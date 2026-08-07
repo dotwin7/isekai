@@ -47,6 +47,31 @@ def test_analysis_feature_implementation_still_routes_to_unit() -> None:
     assert result["route"]["route"] == "unit"
 
 
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Fix the auth bug?",
+        "Could you fix the auth bug?",
+        "Review and fix this code",
+        "로그인 버그 수정 가능해?",
+    ],
+)
+def test_change_requests_with_question_or_review_language_route_to_unit(
+    goal: str,
+) -> None:
+    result = intake({"source": "direct-request", "goal": goal})
+
+    assert result["intent"]["change"] == "persistent"
+    assert result["route"]["route"] == "unit"
+
+
+def test_how_to_fix_question_remains_a_query() -> None:
+    result = intake({"goal": "How do I fix the auth bug?"})
+
+    assert result["intent"]["change"] == "none"
+    assert result["route"]["route"] == "query"
+
+
 def test_direct_small_text_change_routes_to_quick_change() -> None:
     result = intake({"goal": "README 오타를 고쳐줘"})
 

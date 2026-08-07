@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +88,7 @@ DECISION_REQUIRED_FIELDS = {
     "references",
     "decided_by",
     "decided_at",
+    "decision_digest",
 }
 
 DECISION_PACKET_FIELDS = {
@@ -96,6 +99,20 @@ DECISION_PACKET_FIELDS = {
     "risks",
     "references",
 }
+
+
+def _decision_record_digest(decision: dict[str, Any]) -> str:
+    """Bind every auditable Decision field to one canonical digest."""
+    subject = {
+        key: value for key, value in decision.items() if key != "decision_digest"
+    }
+    encoded = json.dumps(
+        subject,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _decision_packet_issues(decision: Any) -> list[str]:
@@ -172,6 +189,13 @@ def _decision_record_issues(
         issues.append("Decision scope does not match Unit")
     if not _is_iso_timestamp(decision.get("decided_at")):
         issues.append("Decision decided_at must be an ISO-8601 timestamp")
+    decision_digest = decision.get("decision_digest")
+    if not isinstance(decision_digest, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", decision_digest
+    ):
+        issues.append("Decision decision_digest must be a SHA-256 digest")
+    elif decision_digest != _decision_record_digest(decision):
+        issues.append("Decision digest does not match its record")
     approval_subject_types = {
         "inception": "execution-envelope",
         "release": "verification-evidence",
@@ -262,6 +286,11 @@ def _approved_envelope_decision_issues(
                 issues.append("Execution Envelope digest does not match its Inception Decision")
         if latest.get("id") != envelope.get("approval_decision_id"):
             issues.append("Execution Envelope approval does not match the latest Inception Decision")
+        if latest.get("decision_digest") != envelope.get("approval_decision_digest"):
+            issues.append(
+                "Execution Envelope approval digest does not match the latest "
+                "Inception Decision"
+            )
     return issues
 
 
@@ -470,6 +499,7 @@ def record_decision(
         }
         if approval_subject is not None:
             decision["approval_subject"] = approval_subject
+        decision["decision_digest"] = _decision_record_digest(decision)
         entries.append(decision)
         decisions["unit_id"] = unit.get("id")
         _write_json(unit_dir / "decisions.json", decisions)

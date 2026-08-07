@@ -273,7 +273,10 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
 
 
 def inception_session(project: str | Path = ".") -> dict[str, Any]:
-    session = build_session(project, route=WorkRoute.UNIT)
+    # Inception prepares a new Unit and therefore must not auto-select an existing
+    # one. Projects commonly have several historical Units, while only resume and
+    # status need the explicit Unit-selection contract.
+    session = build_project_session(project, route=WorkRoute.UNIT)
     return {
         **session,
         "inception": {

@@ -123,9 +123,19 @@ def _infer_change(text: str, source: str) -> str:
         "can you implement",
     )
     quick_markers = ("오타", "typo", "문구", "format", "whitespace")
-    if _matches(lowered, question_markers) and not _matches(
-        lowered, requested_change_markers
-    ):
+    english_actions = r"fix|add|change|implement|build|refactor|deploy|delete"
+    explicit_change_request = _matches(lowered, requested_change_markers) or any(
+        re.search(pattern, lowered)
+        for pattern in (
+            rf"^\s*(?:please\s+)?(?:{english_actions})\b",
+            rf"\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:{english_actions})\b",
+            rf"\band\s+(?:then\s+)?(?:{english_actions})\b",
+            r"(?:개발|추가|수정|변경|구현|배포|삭제)\s*(?:가능|부탁)",
+        )
+    )
+    if explicit_change_request:
+        return "local" if _matches(lowered, quick_markers) else "persistent"
+    if _matches(lowered, question_markers):
         return "none"
     if _matches(lowered, quick_markers):
         return "local"

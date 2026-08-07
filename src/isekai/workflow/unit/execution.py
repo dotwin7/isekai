@@ -250,9 +250,14 @@ def _execution_envelope_issues(
                             f"Execution Envelope stage {index} actions are not allowed by the envelope: "
                             + ", ".join(outside_envelope)
                         )
-    if require_approved:
+    if require_approved or envelope.get("status") == "approved":
         if not isinstance(envelope.get("approval_decision_id"), str) or not envelope.get("approval_decision_id", "").strip():
             issues.append("approved Execution Envelope needs approval_decision_id")
+        approval_decision_digest = envelope.get("approval_decision_digest")
+        if not isinstance(approval_decision_digest, str) or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", approval_decision_digest
+        ):
+            issues.append("approved Execution Envelope needs approval_decision_digest")
         if not isinstance(envelope.get("approved_at"), str) or not envelope.get("approved_at", "").strip():
             issues.append("approved Execution Envelope needs approved_at")
     return issues
@@ -388,6 +393,7 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
         raise ValueError("Execution Envelope changed after the Inception Decision")
     envelope["status"] = "approved"
     envelope["approval_decision_id"] = decision["id"]
+    envelope["approval_decision_digest"] = decision["decision_digest"]
     envelope["approved_at"] = datetime.now(timezone.utc).isoformat()
     _write_json(unit_dir / "execution-envelope.json", envelope)
     persisted = _unit_json(unit_dir, "execution-envelope.json")

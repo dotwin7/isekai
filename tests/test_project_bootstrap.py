@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError
-from isekai.session import SessionError, build_session, discover_project
+from isekai.session import (
+    SessionError,
+    build_session,
+    discover_project,
+    inception_session,
+)
 from isekai.workflow import initialize_project, initialize_unit, resolve_context
 
 
@@ -102,6 +107,20 @@ def test_initialize_unit_allows_repeated_titles_on_the_same_day(
     assert json.loads((first / "unit.json").read_text(encoding="utf-8"))["id"] != json.loads(
         (second / "unit.json").read_text(encoding="utf-8")
     )["id"]
+
+
+def test_inception_does_not_select_from_existing_units(tmp_path: Path) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    project = initialize_project(project_root)
+    first = initialize_unit(project, "First Existing Unit")
+    second = initialize_unit(project, "Second Existing Unit")
+
+    session = inception_session(project)
+
+    assert session["unit"] is None
+    assert session["active_unit"] is None
+    assert session["unit_candidates"] == [str(first), str(second)]
+    assert session["inception"]["decision_required"] is True
 
 
 def test_discover_project_uses_single_descendant_and_lists_ambiguous_candidates(

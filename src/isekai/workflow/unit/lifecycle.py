@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,27 @@ from .execution import (
 )
 
 
+_ACCEPTANCE_ITEM = re.compile(
+    r"^[ \t]*[-*+][ \t]+\[(?P<state>[ xX]*)\][ \t]*(?P<body>.*)$",
+    re.MULTILINE,
+)
+
+
+def _acceptance_criteria_issues(unit_dir: Path) -> list[str]:
+    path = unit_dir / "acceptance.md"
+    if not path.is_file():
+        return []
+    criteria = list(_ACCEPTANCE_ITEM.finditer(path.read_text(encoding="utf-8")))
+    if not criteria:
+        return ["acceptance criteria are missing"]
+    issues: list[str] = []
+    if any(not item.group("body").strip() for item in criteria):
+        issues.append("acceptance criteria contain an empty item")
+    if any(item.group("state").strip().lower() != "x" for item in criteria):
+        issues.append("acceptance criteria remain unchecked")
+    return issues
+
+
 def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[str]:
     if target_status not in {"releasing", "learned"}:
         return []
@@ -51,11 +73,7 @@ def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[st
         if missing
         else []
     )
-    acceptance_path = unit_dir / "acceptance.md"
-    if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(
-        encoding="utf-8"
-    ):
-        issues.append("acceptance criteria remain unchecked")
+    issues.extend(_acceptance_criteria_issues(unit_dir))
     try:
         checkpoint = _unit_json(unit_dir, "checkpoint.json")
     except ValueError as exc:
@@ -255,11 +273,7 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
         if unit.get("status") == "learned" and checkpoint.get("pending"):
             issues.append("learned Unit cannot have pending work")
 
-    acceptance_path = unit_dir / "acceptance.md"
-    if acceptance_path.is_file() and "- [ ]" in acceptance_path.read_text(
-        encoding="utf-8"
-    ):
-        issues.append("acceptance criteria remain unchecked")
+    issues.extend(_acceptance_criteria_issues(unit_dir))
 
     criteria_path = unit_dir / "evaluations/criteria.json"
     if criteria_path.is_file():

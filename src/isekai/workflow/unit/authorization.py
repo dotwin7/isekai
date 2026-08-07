@@ -104,6 +104,11 @@ def _authorization_target_protection_issue(
     receipt = _unit_json(unit_dir, "context-receipt.json")
     project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
     candidate = (project_root / normalized_target).resolve()
+    if candidate.is_dir():
+        return (
+            "Directory targets cannot be edited through authorize; "
+            f"authorize each concrete file instead: {normalized_target}"
+        )
     current = candidate if candidate.is_dir() else candidate.parent
     while True:
         if (current / "unit.json").is_file():

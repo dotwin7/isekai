@@ -35,7 +35,10 @@ from test_execution_envelope import (
 
 def expire_envelope(unit: Path) -> None:
     """Rewrite the Envelope as if it had been approved before its window closed."""
-    from isekai.workflow import _execution_envelope_approval_digest
+    from isekai.workflow import (
+        _decision_record_digest,
+        _execution_envelope_approval_digest,
+    )
 
     path = unit / "execution-envelope.json"
     envelope = json.loads(path.read_text(encoding="utf-8"))
@@ -43,7 +46,6 @@ def expire_envelope(unit: Path) -> None:
     envelope["proposed_at"] = past.isoformat()
     envelope["expires_at"] = (past + timedelta(hours=1)).isoformat()
     envelope["approval_digest"] = _execution_envelope_approval_digest(envelope)
-    path.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
 
     decisions_path = unit / "decisions.json"
     decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
@@ -51,6 +53,14 @@ def expire_envelope(unit: Path) -> None:
         subject = decision.get("approval_subject")
         if isinstance(subject, dict):
             subject["digest"] = envelope["approval_digest"]
+        decision["decision_digest"] = _decision_record_digest(decision)
+    latest_inception = next(
+        decision
+        for decision in reversed(decisions["decisions"])
+        if decision.get("gate") == "inception"
+    )
+    envelope["approval_decision_digest"] = latest_inception["decision_digest"]
+    path.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
     decisions_path.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
 
     ledger_path = unit / "execution-authorizations.json"
