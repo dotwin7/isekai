@@ -99,6 +99,33 @@ def _scope_pattern_issue(pattern: str) -> str | None:
     return None
 
 
+def _scope_segments_match(segments: list[str], parts: list[str]) -> bool:
+    if not segments:
+        return not parts
+    head, rest = segments[0], segments[1:]
+    if head == "**":
+        return any(
+            _scope_segments_match(rest, parts[index:])
+            for index in range(len(parts) + 1)
+        )
+    return (
+        bool(parts)
+        and fnmatch.fnmatchcase(parts[0], head)
+        and _scope_segments_match(rest, parts[1:])
+    )
+
+
+def _scope_pattern_matches(pattern: str, target: str) -> bool:
+    """Match a scope pattern against a project-relative target path.
+
+    An approved scope is an authorization boundary, so wildcards must not be
+    wider than they read: ``*`` and ``?`` stay within one path segment, and only
+    a whole ``**`` segment spans directories. Bare ``fnmatch`` would let
+    ``src/*.py`` reach arbitrarily deep paths.
+    """
+    return _scope_segments_match(pattern.replace("\\", "/").split("/"), target.split("/"))
+
+
 def _execution_envelope_issues(
     envelope: Any,
     unit_id: str | None = None,
@@ -610,7 +637,7 @@ def authorize_action(
     if protection_issue is not None:
         return {"allowed": False, "reason": protection_issue}
     if not any(
-        fnmatch.fnmatchcase(normalized_target, pattern.replace("\\", "/"))
+        _scope_pattern_matches(pattern, normalized_target)
         for pattern in envelope["scope"]
     ):
         return {

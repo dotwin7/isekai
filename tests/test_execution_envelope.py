@@ -12,6 +12,7 @@ from isekai.workflow import (
     record_decision,
     transition_unit,
 )
+from isekai.workflow.unit.execution import _scope_pattern_matches
 
 from test_core_workflow import make_project
 
@@ -84,6 +85,41 @@ def test_approved_envelope_allows_scope_and_action_and_denies_others(tmp_path: P
     assert "forbidden" in forbidden["reason"]
     assert outside_scope["allowed"] is False
     assert "outside" in outside_scope["reason"]
+
+
+def test_scope_wildcards_stay_within_one_path_segment() -> None:
+    assert _scope_pattern_matches("src/*.py", "src/main.py") is True
+    assert _scope_pattern_matches("src/*.py", "src/vendor/deep.py") is False
+    assert _scope_pattern_matches("src/**", "src/vendor/deep.py") is True
+    assert _scope_pattern_matches("src/**", "src") is True
+    assert _scope_pattern_matches("src/**/fixtures/*.json", "src/fixtures/a.json") is True
+    assert _scope_pattern_matches("src/**/fixtures/*.json", "src/a/b/fixtures/c.json") is True
+    assert _scope_pattern_matches("src/**/fixtures/*.json", "src/fixtures/nested/d.json") is False
+    assert _scope_pattern_matches("**", "any/depth/of/path.txt") is True
+    assert _scope_pattern_matches("?rc/main.py", "src/main.py") is True
+    assert _scope_pattern_matches("s?c", "s/c") is False
+
+
+def test_single_star_scope_denies_paths_below_the_matched_segment(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Narrow Scope", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["src/*.py"],
+        stages=envelope_stages(),
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=3,
+        proposed_by="planner-agent",
+    )
+    approve_inception(unit)
+
+    direct = authorize_action(unit, action="edit", target="src/main.py")
+    nested = authorize_action(unit, action="edit", target="src/vendor/deep.py")
+
+    assert direct["allowed"] is True
+    assert nested["allowed"] is False
+    assert "outside" in nested["reason"]
 
 
 def test_envelope_proposal_rejects_empty_scope_and_actions(tmp_path: Path) -> None:
