@@ -49,11 +49,14 @@ def expire_envelope(unit: Path) -> None:
 
     decisions_path = unit / "decisions.json"
     decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    previous_digest = None
     for decision in decisions["decisions"]:
         subject = decision.get("approval_subject")
         if isinstance(subject, dict):
             subject["digest"] = envelope["approval_digest"]
+        decision["previous_decision_digest"] = previous_digest
         decision["decision_digest"] = _decision_record_digest(decision)
+        previous_digest = decision["decision_digest"]
     latest_inception = next(
         decision
         for decision in reversed(decisions["decisions"])
@@ -328,27 +331,16 @@ def test_envelope_lifetime_is_bounded_and_configurable(tmp_path: Path) -> None:
             )
 
 
-def test_abandoned_authorization_lock_is_reclaimed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_abandoned_authorization_lock_file_is_reclaimed_without_delay(
+    tmp_path: Path,
 ) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     lock = unit / UNIT_LOCK_NAME
     lock.write_text("", encoding="utf-8")
 
-    held = authorize_action(unit, action="edit", target="src/main.py")
-
-    import time as real_time
-
-    import isekai.locking as locking
-
-    # The same lock, now older than the staleness window, must not block forever.
-    now = real_time.time()
-    monkeypatch.setattr(locking.time, "time", lambda: now + 10_000)
     reclaimed = authorize_action(unit, action="edit", target="src/main.py")
 
-    assert held["allowed"] is False
-    assert "being modified by another process" in held["reason"]
     assert reclaimed["allowed"] is True
     assert not lock.exists()
 

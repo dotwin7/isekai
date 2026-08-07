@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 import threading
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 
 from isekai.foundation import record_foundation_decision
 from isekai.locking import LockUnavailable, file_lock
+from isekai.support.files import metadata_is_path_alias
 from isekai.workflow import authorize_action, record_decision, transition_unit
 
 from test_core_workflow import ROOT
@@ -187,19 +190,52 @@ def test_file_lock_release_does_not_delete_a_reclaimed_lock(tmp_path: Path) -> N
     assert not lock.exists()
 
 
-def test_file_lock_fallback_releases_its_owned_lock(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import isekai.support.locking as locking
-
+def test_file_lock_safely_reclaims_an_abandoned_unlocked_file(tmp_path: Path) -> None:
     lock = tmp_path / "artifact.lock"
-    monkeypatch.setattr(
-        locking.os,
-        "link",
-        lambda _claim, _lock: (_ for _ in ()).throw(OSError("no hard links")),
-    )
+    lock.write_text("abandoned owner\n", encoding="utf-8")
 
     with file_lock(lock, subject="artifact"):
         assert lock.exists()
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_file_lock_rejects_a_symlink_without_touching_its_target(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "external-target"
+    target.write_bytes(b"")
+    lock = tmp_path / "artifact.lock"
+    lock.symlink_to(target)
+
+    with pytest.raises(LockUnavailable, match="must not be a symlink"):
+        with file_lock(lock, subject="artifact"):
+            pass
+
+    assert target.read_bytes() == b""
+    assert lock.is_symlink()
+
+
+def test_file_lock_rejects_a_hardlink_without_touching_its_target(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "external-target"
+    target.write_bytes(b"")
+    lock = tmp_path / "artifact.lock"
+    lock.hardlink_to(target)
+
+    with pytest.raises(LockUnavailable, match="single-link regular file"):
+        with file_lock(lock, subject="artifact", timeout=0):
+            pass
+
+    assert target.read_bytes() == b""
+    assert lock.samefile(target)
+
+
+def test_windows_reparse_metadata_is_treated_as_a_path_alias() -> None:
+    metadata = SimpleNamespace(
+        st_mode=stat.S_IFDIR | 0o755,
+        st_file_attributes=0x400,
+    )
+
+    assert metadata_is_path_alias(metadata) is True

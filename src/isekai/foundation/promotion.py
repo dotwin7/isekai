@@ -3,17 +3,22 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from .evaluation import evaluate_all_evaluations
+from .records import (
+    _foundation_decision_digest,
+    _foundation_decision_history_issues,
+    _foundation_evidence_digest,
+)
 from .types import (
     FOUNDATION_CHECK_FIELDS,
-    FOUNDATION_DECISION_FIELDS,
     FOUNDATION_EVIDENCE_FIELDS,
     FOUNDATION_LOCK_NAME,
     FoundationError,
@@ -29,6 +34,8 @@ from .validation import (
     _write_json,
     load_foundation,
 )
+from ..support.files import UnsafeControlFile, read_control_file
+from ..support.jsonio import write_bytes_atomic
 from ..support.locking import LockUnavailable, file_lock
 
 
@@ -39,7 +46,7 @@ def _latest_foundation_decision(
     if not path.is_file():
         return None, ["missing Foundation release Decision"]
     try:
-        document = _load_json(path)
+        document = _load_json(path, root=foundation.root)
     except FoundationError as exc:
         return None, [str(exc)]
     if document.get("foundation_id") != foundation.manifest["id"]:
@@ -49,33 +56,13 @@ def _latest_foundation_decision(
     entries = document.get("decisions")
     if not isinstance(entries, list) or not entries:
         return None, ["Foundation release Decision list is empty"]
+    issues = _foundation_decision_history_issues(
+        foundation,
+        entries,
+        require_latest_approval=True,
+    )
     latest = entries[-1]
-    if not isinstance(latest, dict):
-        return None, ["latest Foundation release Decision must be an object"]
-    missing = sorted(FOUNDATION_DECISION_FIELDS - latest.keys())
-    if missing:
-        return None, [f"Foundation Decision missing fields: {', '.join(missing)}"]
-    if latest.get("foundation_id") != foundation.manifest["id"]:
-        return None, ["Foundation Decision foundation_id does not match release"]
-    if latest.get("version") != foundation.version:
-        return None, ["Foundation Decision version does not match release"]
-    if latest.get("approval_digest") != foundation.approval_digest:
-        return None, ["Foundation Decision approval_digest does not match release content"]
-    if latest.get("outcome") not in {"approved", "rejected"}:
-        return None, ["Foundation Decision has an invalid outcome"]
-    issues: list[str] = []
-    if latest.get("type") != "foundation-release-decision":
-        issues.append("Foundation Decision has an invalid type")
-    if latest.get("schema_version") != "1.0.0":
-        issues.append("Foundation Decision has an unsupported schema_version")
-    for field in ("id", "summary", "decided_by"):
-        if not isinstance(latest.get(field), str) or not latest.get(field, "").strip():
-            issues.append(f"Foundation Decision requires a non-empty {field}")
-    try:
-        _parse_timestamp(latest.get("decided_at"), "Foundation Decision decided_at")
-    except FoundationError as exc:
-        issues.append(str(exc))
-    return latest, issues
+    return (latest if isinstance(latest, dict) else None), issues
 
 
 def _foundation_evidence_issues(
@@ -100,6 +87,13 @@ def _foundation_evidence_issues(
         issues.append("Foundation Evidence has an invalid type")
     if evidence.get("schema_version") != "1.0.0":
         issues.append("Foundation Evidence has an unsupported schema_version")
+    evidence_digest = evidence.get("evidence_digest")
+    if not isinstance(evidence_digest, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", evidence_digest
+    ):
+        issues.append("Foundation Evidence evidence_digest must be a SHA-256 digest")
+    elif evidence_digest != _foundation_evidence_digest(evidence):
+        issues.append("Foundation Evidence digest does not match its record")
     if evidence.get("passed") is not True:
         issues.append("Foundation release Evidence is not passing")
     if not isinstance(evidence.get("scope"), str) or not evidence.get("scope", "").strip():
@@ -108,8 +102,11 @@ def _foundation_evidence_issues(
         issues.append("Foundation Evidence requires recorded_by provenance")
     if not isinstance(evidence.get("id"), str) or not evidence.get("id", "").strip():
         issues.append("Foundation Evidence requires a non-empty id")
+    recorded_at: datetime | None = None
     try:
-        _parse_timestamp(evidence.get("recorded_at"), "Foundation Evidence recorded_at")
+        recorded_at = _parse_timestamp(
+            evidence.get("recorded_at"), "Foundation Evidence recorded_at"
+        )
     except FoundationError as exc:
         issues.append(str(exc))
     checks = evidence.get("checks")
@@ -140,6 +137,15 @@ def _foundation_evidence_issues(
                 issues.append(f"Foundation Evidence check {index} requires details")
             try:
                 _validate_provenance_record(check.get("provenance"), f"Foundation Evidence check {index} provenance")
+                check_recorded_at = _parse_timestamp(
+                    check["provenance"].get("recorded_at"),
+                    f"Foundation Evidence check {index} provenance recorded_at",
+                )
+                if recorded_at is not None and check_recorded_at > recorded_at:
+                    issues.append(
+                        f"Foundation Evidence check {index} provenance recorded_at "
+                        "is after Evidence recorded_at"
+                    )
             except FoundationError as exc:
                 issues.append(str(exc))
         try:
@@ -165,7 +171,7 @@ def _approval_blockers(
         blockers.append("latest Foundation release Decision is not approved")
     evidence_path = foundation.root / "evidence/release.json"
     try:
-        evidence = _optional_json(evidence_path)
+        evidence = _optional_json(evidence_path, root=foundation.root)
     except FoundationError as exc:
         evidence = None
         blockers.append(str(exc))
@@ -224,7 +230,7 @@ def _record_foundation_decision_locked(
         raise FoundationError("Foundation Decision decided_by must be non-empty")
 
     path = foundation.root / "decisions.json"
-    document = _optional_json(path) or {
+    document = _optional_json(path, root=foundation.root) or {
         "foundation_id": foundation.manifest["id"],
         "version": foundation.version,
         "decisions": [],
@@ -236,8 +242,25 @@ def _record_foundation_decision_locked(
     entries = document.get("decisions")
     if not isinstance(entries, list):
         raise FoundationError("Foundation decisions must be a list")
+    existing_issues = _foundation_decision_history_issues(
+        foundation,
+        entries,
+        require_latest_approval=False,
+    )
+    if existing_issues:
+        raise FoundationError(
+            "existing Foundation Decision history is invalid: "
+            + "; ".join(existing_issues)
+        )
     preceding_ids = [entry.get("id") for entry in entries if isinstance(entry, dict)]
     now = datetime.now(timezone.utc)
+    if entries:
+        previous_decided_at = _parse_timestamp(
+            entries[-1].get("decided_at"),
+            "latest Foundation Decision decided_at",
+        )
+        if now <= previous_decided_at:
+            now = previous_decided_at + timedelta(microseconds=1)
     decision = {
         "id": "DEC-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
         "type": "foundation-release-decision",
@@ -249,11 +272,15 @@ def _record_foundation_decision_locked(
         "summary": summary.strip(),
         "decided_by": decided_by.strip(),
         "decided_at": now.isoformat(),
+        "previous_decision_digest": (
+            entries[-1].get("decision_digest") if entries else None
+        ),
     }
+    decision["decision_digest"] = _foundation_decision_digest(decision)
     entries.append(decision)
     document["version"] = foundation.version
-    _write_json(path, document)
-    persisted = _load_json(path).get("decisions", [])
+    _write_json(path, document, root=foundation.root)
+    persisted = _load_json(path, root=foundation.root).get("decisions", [])
     persisted_ids = [entry.get("id") for entry in persisted if isinstance(entry, dict)]
     if persisted_ids != [*preceding_ids, decision["id"]]:
         raise FoundationError(
@@ -304,6 +331,7 @@ def _record_foundation_evidence_locked(
         raise FoundationError("Foundation Evidence scope must be non-empty")
     if not isinstance(recorded_by, str) or not recorded_by.strip():
         raise FoundationError("Foundation Evidence recorded_by must be non-empty")
+    now = datetime.now(timezone.utc)
     seen_check_ids: set[str] = set()
     for index, check in enumerate(checks):
         if not isinstance(check, dict):
@@ -323,11 +351,19 @@ def _record_foundation_evidence_locked(
         if check_id in seen_check_ids:
             raise FoundationError(f"Foundation Evidence has duplicate check id: {check_id}")
         seen_check_ids.add(check_id)
-        _validate_provenance_record(check.get("provenance"), f"Foundation Evidence check {index} provenance")
+        provenance_label = f"Foundation Evidence check {index} provenance"
+        _validate_provenance_record(check.get("provenance"), provenance_label)
+        check_recorded_at = _parse_timestamp(
+            check["provenance"].get("recorded_at"),
+            f"{provenance_label} recorded_at",
+        )
+        if check_recorded_at > now:
+            raise FoundationError(
+                f"{provenance_label} recorded_at is after Evidence recorded_at"
+            )
     if passed and any(check["passed"] is not True for check in checks):
         raise FoundationError("passing Foundation Evidence cannot contain failed checks")
 
-    now = datetime.now(timezone.utc)
     evidence = {
         "id": "EVD-FND-" + now.strftime("%Y%m%d%H%M%S%f"),
         "type": "foundation-release-evidence",
@@ -341,8 +377,12 @@ def _record_foundation_evidence_locked(
         "recorded_at": now.isoformat(),
         "checks": checks,
     }
+    evidence["evidence_digest"] = _foundation_evidence_digest(evidence)
     path = foundation.root / "evidence/release.json"
-    _write_json(path, evidence)
+    _write_json(path, evidence, root=foundation.root)
+    persisted = _load_json(path, root=foundation.root)
+    if persisted.get("evidence_digest") != _foundation_evidence_digest(persisted):
+        raise FoundationError("Foundation Evidence postflight digest check failed")
     return {"path": str(path), "evidence": evidence}
 
 
@@ -432,11 +472,11 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def _restore_original(file: _PromotionFile) -> None:
-    with file.path.open("wb") as handle:
-        handle.write(file.original_bytes)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.chmod(file.path, file.original_mode)
+    write_bytes_atomic(
+        file.path,
+        file.original_bytes,
+        mode=file.original_mode,
+    )
 
 
 def _postflight_promotion(root: Path, expected_count: int) -> dict[str, Any]:
@@ -445,6 +485,8 @@ def _postflight_promotion(root: Path, expected_count: int) -> dict[str, Any]:
         raise FoundationError("promotion postflight status/count check failed")
     if any(asset["status"] != "approved" for asset in promoted.assets.values()):
         raise FoundationError("promotion postflight found an unapproved asset")
+    if any(entry["status"] != "approved" for entry in promoted.knowledge_entries()):
+        raise FoundationError("promotion postflight found an unapproved Knowledge entry")
     readiness = promoted.readiness()
     if readiness["ready"] is not True:
         raise FoundationError(
@@ -463,10 +505,35 @@ def _preflight_promotion(
     files: dict[Path, _PromotionFile] = {}
     for target in plan["targets"]:
         path = foundation.root / target["path"]
+        try:
+            original_bytes = read_control_file(
+                path,
+                root=foundation.root,
+                label="Foundation promotion target",
+            )
+        except (OSError, UnsafeControlFile) as exc:
+            raise FoundationError(
+                f"cannot safely read Foundation promotion target {path}: {exc}"
+            ) from exc
+        try:
+            current_value = json.loads(original_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise FoundationError(
+                f"Foundation promotion target changed to invalid JSON: {path}: {exc}"
+            ) from exc
+        expected_value = (
+            foundation.manifest
+            if target["id"] == manifest["id"]
+            else foundation.assets[target["id"]]
+        )
+        if current_value != expected_value:
+            raise FoundationError(
+                f"Foundation promotion target changed after approval validation: {path}"
+            )
         files[path] = _PromotionFile(
             path=path,
-            original_bytes=path.read_bytes(),
-            original_mode=stat.S_IMODE(path.stat().st_mode),
+            original_bytes=original_bytes,
+            original_mode=stat.S_IMODE(path.lstat().st_mode),
             new_bytes=b"",
         )
         if target["id"] == manifest["id"]:
@@ -474,6 +541,9 @@ def _preflight_promotion(
         else:
             value = copy.deepcopy(foundation.assets[target["id"]])
             value["status"] = "approved"
+            if value.get("kind") == "knowledge":
+                for entry in value.get("content", {}).get("entries", []):
+                    entry["status"] = "approved"
         serialized = _json_bytes(value)
         files[path] = _PromotionFile(
             path=files[path].path,
@@ -489,7 +559,7 @@ def _preflight_promotion(
 
     def memory_loader(path: Path) -> dict[str, Any]:
         if path not in document_by_path:
-            return _load_json(path)
+            return _load_json(path, root=foundation.root)
         try:
             value = json.loads(document_by_path[path].decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -556,13 +626,31 @@ def _promote_foundation_locked(
         raise FoundationError("Foundation cannot be promoted: " + "; ".join(blockers))
 
     foundation = load_foundation(foundation_root)
+    refreshed_blockers = _approval_blockers(foundation)
+    if refreshed_blockers:
+        raise FoundationError(
+            "Foundation changed after promotion planning: "
+            + "; ".join(refreshed_blockers)
+        )
+    approved_digest = foundation.approval_digest
     _, files = _preflight_promotion(foundation, plan)
+    if foundation.approval_digest != approved_digest:
+        raise FoundationError(
+            "Foundation content changed during promotion preflight"
+        )
     ordered_files = [files[foundation_root / target["path"]] for target in plan["targets"]]
     staged: list[tuple[Path, _PromotionFile]] = []
     commit_started = False
     try:
         for file in ordered_files:
             staged.append((_write_staged_json(file.path, file.new_bytes, file.original_mode), file))
+        final_blockers = _approval_blockers(foundation)
+        if foundation.approval_digest != approved_digest or final_blockers:
+            details = final_blockers or ["approval digest changed"]
+            raise FoundationError(
+                "Foundation changed while promotion files were staged: "
+                + "; ".join(details)
+            )
         commit_started = True
         for temporary, file in staged:
             _replace_staged(temporary, file.path)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -99,11 +100,41 @@ def passing_evidence(unit: Path) -> None:
                 "command": "PYTHONPATH=src python3 -m pytest -q",
                 "exit_code": 0,
                 "output_digest": "a" * 64,
-                "observed_at": "2026-08-04T00:00:00+00:00",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
                 "authorization_id": authorization_id,
             }
         ],
     )
+
+
+def test_evidence_record_rejects_symlinked_records_directory(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+    external = tmp_path / "external-evidence-records"
+    external.mkdir()
+    (unit / "evidence/records").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="path contains a symlink"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="Evidence path boundary regression",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
+                    "authorization_id": authorization_id,
+                }
+            ],
+        )
+
+    assert list(external.iterdir()) == []
 
 
 def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) -> None:
@@ -395,7 +426,7 @@ def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) 
         "command": "pytest -q",
         "exit_code": 0,
         "output_digest": "a" * 64,
-        "observed_at": "2026-08-04T00:00:00+00:00",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
         "authorization_id": authorization_id,
     }
     record_evidence(
@@ -432,7 +463,7 @@ def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path
                 "command": "python failing-check.py",
                 "exit_code": 1,
                 "output_digest": "b" * 64,
-                "observed_at": "2026-08-04T00:00:00+00:00",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
                 "authorization_id": authorization_id,
             }
         ],
@@ -489,16 +520,50 @@ def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("observed_at", "message"),
+    [
+        ("2000-01-01T00:00:00+00:00", "precedes its authorization"),
+        ("2099-01-01T00:00:00+00:00", "after Evidence recorded_at"),
+    ],
+)
+def test_evidence_rejects_observations_outside_the_authorized_time_window(
+    tmp_path: Path,
+    observed_at: str,
+    message: str,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+
+    with pytest.raises(ValueError, match=message):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="invalid evidence chronology",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": observed_at,
+                    "authorization_id": authorization_id,
+                }
+            ],
+        )
+
+
 def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
     command = build_command_evidence(
         "pytest -q",
         0,
         "all tests passed",
-        "2026-08-04T00:00:00+00:00",
+        datetime.now(timezone.utc).isoformat(),
     )
-    unit = make_unit(tmp_path)
-    start_construction(unit)
-    authorization_id = authorize_test(unit)
     result = record_evidence(
         unit,
         passed=True,

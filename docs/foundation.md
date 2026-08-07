@@ -108,7 +108,11 @@ foundation/
    └─ release.json
 ```
 
-`decisions.json`의 최신 Foundation release Decision이 `approved`여야 하며, `evidence/release.json`에는 모든 release check가 passing이어야 한다. Decision과 Evidence는 status를 제외한 release·등록 asset 전체의 `approval_digest`를 함께 기록한다. 승인이나 검증 후 Foundation 내용이 달라지면 promotion은 실패하며 새 Decision과 Evidence가 필요하다. 두 조건이 모두 충족될 때만 `foundation-promote`가 `release.json`과 모든 등록 asset의 상태를 `approved`로 승격한다. 승인 Decision이나 passing Evidence가 없으면 명령은 실패하고 Foundation 파일을 변경하지 않는다.
+`decisions.json`의 최신 Foundation release Decision이 `approved`여야 하며, `evidence/release.json`에는 모든 release check가 passing이어야 한다. 각 check의 provenance 시각은 Evidence 기록 시각보다 늦을 수 없다. Decision과 Evidence는 promotion이 관리하는 release·asset·Knowledge entry의 status를 제외한 등록 JSON과 catalog가 참조하는 Knowledge 본문 전체의 `approval_digest`를 함께 기록한다. 승인이나 검증 후 Foundation 내용이 달라지면 promotion은 실패하며 새 Decision과 Evidence가 필요하다. 두 조건이 모두 충족될 때만 `foundation-promote`가 `release.json`, 모든 등록 asset과 그 안의 Knowledge entry 상태를 `approved`로 승격한다. 승인 Decision이나 passing Evidence가 없으면 명령은 실패하고 Foundation 파일을 변경하지 않는다.
+
+Knowledge entry는 고유 ID를 가져야 하며 정확히 하나의 `required-promotion-review` 조건에 연결된다. 실제 catalog의 reviewer, evidence reference, effective/expiry 기간이 그 조건과 일치하지 않거나 entry가 아직 `draft`이면 readiness는 실패한다. Evaluation fixture의 통과만으로 실제 catalog review를 대신할 수 없다.
+
+각 Foundation Decision과 release Evidence는 canonical JSON record digest를 포함한다. Decision은 `previous_decision_digest`로 직전 레코드에 연결되고 기록 시각도 엄격히 증가해야 하므로, 배열 순서를 바꿔 과거 승인을 최신 승인처럼 복원할 수 없다. readiness는 최신 승인 결박뿐 아니라 과거 Decision 전체의 digest chain, 시각 순서와 중복 ID도 검사한다. 따라서 기록된 거부 결과, 승인 주체, Evidence 결과나 provenance가 파일 편집으로 달라지면 새 digest와 정식 기록 절차 없이는 promotion할 수 없다. 첫 Decision은 `previous_decision_digest: null`로 시작한다. `approval_digest` 도입 전의 legacy Decision은 당시 존재하던 필드 전체를 record digest로 고정하되, 존재하지 않았던 approval field를 소급 생성하지 않는다.
 
 `release-check`는 승인 여부를 자동으로 결정하지 않고 현재 blocker를 보고한다. `foundation-promote`는 사람의 명시적 승인 이후에만 실행하는 쓰기 명령이다.
 

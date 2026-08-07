@@ -7,7 +7,6 @@ from .workflow.session import (
     _checkpoint_record,
     _descendant_project_candidates,
     _multiple_project_error,
-    _read_object,
     _unit_candidates,
     _unit_ref,
     activate_session,

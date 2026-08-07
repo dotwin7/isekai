@@ -117,6 +117,11 @@ if [[ "$source_url" == *"://"* ]]; then
     || fail "--source must not contain embedded credentials"
   [[ "$source_url" != *\?* && "$source_url" != *\#* ]] \
     || fail "--source must not contain a query or fragment"
+  if [[ "$source_url" =~ ^[Ff][Ii][Ll][Ee]://([^/]*) ]]; then
+    file_authority="${BASH_REMATCH[1]}"
+    [[ -z "$file_authority" || "$file_authority" =~ ^[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]$ ]] \
+      || fail "--source file URL must omit its authority or use localhost"
+  fi
 fi
 [[ "$release_ref" != -* ]] || fail "--ref cannot start with '-'"
 [[ -d "$project_path" ]] || fail "project directory does not exist: $project_path"
@@ -125,6 +130,10 @@ if ((${#profiles[@]} > 0 && initialize == 0)); then
 fi
 
 command -v git >/dev/null 2>&1 || fail "git is required"
+if [[ ! "$release_ref" =~ ^[0-9a-fA-F]{40}$ && ! "$release_ref" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  git check-ref-format "refs/tags/$release_ref" >/dev/null 2>&1 \
+    || fail "Git ref must be an immutable tag or full commit; revision expressions are not allowed: $release_ref"
+fi
 if [[ -z "$python_executable" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     python_executable="$(command -v python3)"

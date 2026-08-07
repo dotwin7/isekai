@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,7 @@ DECISION_REQUIRED_FIELDS = {
     "references",
     "decided_by",
     "decided_at",
+    "previous_decision_digest",
     "decision_digest",
 }
 
@@ -150,14 +151,20 @@ def _decision_packet_issues(decision: Any) -> list[str]:
     return issues
 
 
-def _is_iso_timestamp(value: Any) -> bool:
+def _parse_iso_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
-        return False
+        return None
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return False
-    return True
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_iso_timestamp(value: Any) -> bool:
+    return _parse_iso_timestamp(value) is not None
 
 
 def _decision_record_issues(
@@ -196,6 +203,14 @@ def _decision_record_issues(
         issues.append("Decision decision_digest must be a SHA-256 digest")
     elif decision_digest != _decision_record_digest(decision):
         issues.append("Decision digest does not match its record")
+    previous_digest = decision.get("previous_decision_digest")
+    if previous_digest is not None and not (
+        isinstance(previous_digest, str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", previous_digest)
+    ):
+        issues.append(
+            "Decision previous_decision_digest must be null or a SHA-256 digest"
+        )
     approval_subject_types = {
         "inception": "execution-envelope",
         "release": "verification-evidence",
@@ -227,6 +242,61 @@ def _decision_record_issues(
     issues.extend(_decision_packet_issues(decision))
     return issues
 
+
+def _decision_ledger_issues(
+    decisions: Any,
+    *,
+    unit_id: str | None = None,
+    scope: str | None = None,
+) -> list[str]:
+    """Validate Decision records and their append-only digest chain."""
+    if not isinstance(decisions, dict):
+        return ["decisions.json must be an object"]
+    issues: list[str] = []
+    if unit_id is not None and decisions.get("unit_id") != unit_id:
+        issues.append("decisions.json unit_id does not match Unit")
+    entries = decisions.get("decisions")
+    if not isinstance(entries, list):
+        return issues + ["decisions.json decisions must be a list"]
+
+    seen_ids: set[str] = set()
+    previous_digest: str | None = None
+    previous_decided_at: datetime | None = None
+    for index, decision in enumerate(entries):
+        issues.extend(
+            f"decision {index}: {issue}"
+            for issue in _decision_record_issues(
+                decision,
+                unit_id=unit_id,
+                scope=scope,
+            )
+        )
+        if not isinstance(decision, dict):
+            continue
+        decision_id = decision.get("id")
+        if isinstance(decision_id, str):
+            if decision_id in seen_ids:
+                issues.append(f"decision {index}: duplicate Decision id")
+            seen_ids.add(decision_id)
+        if decision.get("previous_decision_digest") != previous_digest:
+            issues.append(
+                f"decision {index}: Decision does not continue the digest chain"
+            )
+        decided_at = _parse_iso_timestamp(decision.get("decided_at"))
+        if (
+            decided_at is not None
+            and previous_decided_at is not None
+            and decided_at <= previous_decided_at
+        ):
+            issues.append(
+                f"decision {index}: decided_at must be later than the previous Decision"
+            )
+        if decided_at is not None:
+            previous_decided_at = decided_at
+        digest = decision.get("decision_digest")
+        previous_digest = digest if isinstance(digest, str) else None
+    return issues
+
 def _latest_decision(decisions: dict[str, Any], gate: str) -> dict[str, Any] | None:
     entries = decisions.get("decisions", [])
     if not isinstance(entries, list):
@@ -244,6 +314,8 @@ def _has_approved_decision(
     unit_id: str | None = None,
     scope: str | None = None,
 ) -> bool:
+    if _decision_ledger_issues(decisions, unit_id=unit_id, scope=scope):
+        return False
     latest = _latest_decision(decisions, gate)
     return (
         latest is not None
@@ -263,8 +335,13 @@ def _approved_envelope_decision_issues(
         decisions = _unit_json(unit_dir, "decisions.json")
     except ValueError as exc:
         return [str(exc)]
-    if decisions.get("unit_id") != unit.get("id"):
-        return ["decisions.json unit_id does not match Unit"]
+    ledger_issues = _decision_ledger_issues(
+        decisions,
+        unit_id=str(unit.get("id")),
+        scope=str(unit.get("scope")),
+    )
+    if ledger_issues:
+        return ledger_issues
     latest = _latest_decision(decisions, "inception")
     if latest is None:
         return ["approved Execution Envelope has no Inception Decision"]
@@ -420,16 +497,16 @@ def record_decision(
             raise ValueError("decisions.json decisions must be a list")
         if decisions.get("unit_id") != unit.get("id"):
             raise ValueError("decisions.json unit_id does not match Unit")
-        for index, existing in enumerate(entries):
-            existing_issues = _decision_record_issues(
-                existing,
-                unit_id=str(unit.get("id")),
-                scope=str(unit.get("scope")),
+        existing_issues = _decision_ledger_issues(
+            decisions,
+            unit_id=str(unit.get("id")),
+            scope=str(unit.get("scope")),
+        )
+        if existing_issues:
+            raise ValueError(
+                "existing Decision history is invalid: "
+                + "; ".join(existing_issues)
             )
-            if existing_issues:
-                raise ValueError(
-                    f"existing Decision {index} is invalid: " + "; ".join(existing_issues)
-                )
         preceding_ids = [entry.get("id") for entry in entries]
 
         approval_subject: dict[str, str] | None = None
@@ -479,6 +556,10 @@ def record_decision(
             }
 
         now = datetime.now(timezone.utc)
+        if entries:
+            previous_decided_at = _parse_iso_timestamp(entries[-1].get("decided_at"))
+            if previous_decided_at is not None and now <= previous_decided_at:
+                now = previous_decided_at + timedelta(microseconds=1)
         decision = {
             "id": "DEC-" + now.strftime("%Y%m%d%H%M%S%f"),
             "type": "human-decision",
@@ -496,6 +577,9 @@ def record_decision(
             "references": references,
             "decided_by": decided_by.strip(),
             "decided_at": now.isoformat(),
+            "previous_decision_digest": (
+                entries[-1].get("decision_digest") if entries else None
+            ),
         }
         if approval_subject is not None:
             decision["approval_subject"] = approval_subject

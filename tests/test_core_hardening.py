@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -10,7 +12,7 @@ from isekai.distribution import DistributionError, install_from_git, plan_git_up
 from isekai.foundation import load_foundation
 from isekai.jsonio import write_json_atomic
 from isekai.session import _descendant_project_candidates, update_checkpoint
-from isekai.workflow import authorize_action, initialize_unit
+from isekai.workflow import authorize_action, initialize_unit, verify_unit
 
 from test_core_workflow import ROOT, make_project
 from test_execution_envelope import approve_inception, envelope_stages
@@ -255,6 +257,142 @@ def test_edit_authorization_rejects_existing_directory_targets(tmp_path: Path) -
     assert ordinary_file["allowed"] is True
 
 
+def test_authorization_validation_rejects_a_retargeted_external_symlink(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    project_root = project.parent
+    linked = project_root / "linked"
+    linked.mkdir()
+    (linked / "file.txt").write_text("inside", encoding="utf-8")
+    unit = _wide_open_unit(project, "Symlink Retarget")
+    granted = authorize_action(unit, action="edit", target="linked/file.txt")
+    assert granted["allowed"] is True
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "file.txt").write_text("outside", encoding="utf-8")
+    shutil.rmtree(linked)
+    linked.symlink_to(outside, target_is_directory=True)
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    assert any("escapes the selected Project" in issue for issue in result["issues"])
+
+
+@pytest.mark.parametrize(
+    "protected_target",
+    ["project.json", "isekai.lock.json", ".git/config", ".isekai/runtime/isekai"],
+)
+def test_authorization_validation_rechecks_resolved_control_paths(
+    tmp_path: Path,
+    protected_target: str,
+) -> None:
+    project = make_project(tmp_path)
+    project_root = project.parent
+    unit = _wide_open_unit(project, "Internal Symlink Retarget")
+    target = project_root / protected_target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch(exist_ok=True)
+    ordinary = project_root / "ordinary.txt"
+    ordinary.write_text("inside", encoding="utf-8")
+    granted = authorize_action(unit, action="edit", target="ordinary.txt")
+    assert granted["allowed"] is True
+
+    ordinary.unlink()
+    ordinary.symlink_to(target)
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    assert any("control" in issue.lower() for issue in result["issues"])
+
+
+@pytest.mark.parametrize(
+    "protected_target",
+    ["PROJECT.JSON", "ISEKAI.LOCK.JSON", ".GIT/config", ".ISEKAI/runtime/isekai"],
+)
+def test_edit_authorization_rejects_case_insensitive_control_path_aliases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    protected_target: str,
+) -> None:
+    from isekai.workflow.unit import authorization as authorization_module
+
+    project = make_project(tmp_path)
+    unit = _wide_open_unit(project, "Case Alias Protection")
+    monkeypatch.setattr(
+        authorization_module,
+        "_is_case_insensitive_directory",
+        lambda _directory: True,
+    )
+
+    result = authorize_action(unit, action="edit", target=protected_target)
+
+    assert result["allowed"] is False
+    assert "control" in result["reason"].lower()
+
+
+@pytest.mark.parametrize("action", ["read", "edit", "test"])
+def test_authorization_rejects_hardlinked_targets(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    project = make_project(tmp_path)
+    project_root = project.parent
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    alias = project_root / "src/outside-alias.txt"
+    alias.parent.mkdir()
+    os.link(outside, alias)
+    unit = _wide_open_unit(project, "Hardlink Protection")
+
+    result = authorize_action(unit, action=action, target="src/outside-alias.txt")
+
+    assert alias.samefile(outside)
+    assert result["allowed"] is False
+    assert "Hard-linked" in result["reason"]
+
+
+def test_unit_control_artifact_symlinks_fail_closed(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = _wide_open_unit(project, "Unit Symlink Protection")
+    receipt = unit / "context-receipt.json"
+    external = tmp_path / "external-context-receipt.json"
+    receipt.rename(external)
+    receipt.symlink_to(external)
+
+    verification = verify_unit(unit)
+    authorization = authorize_action(unit, action="edit", target="src/main.py")
+
+    assert verification["valid"] is False
+    assert any("symlink" in issue for issue in verification["issues"])
+    assert authorization["allowed"] is False
+    assert "symlink" in authorization["reason"]
+
+
+@pytest.mark.parametrize("relative", ["context-receipt.json", "acceptance.md"])
+def test_unit_control_artifact_hardlinks_fail_closed(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    project = make_project(tmp_path)
+    unit = _wide_open_unit(project, "Unit Hardlink Protection")
+    artifact = unit / relative
+    external = tmp_path / f"external-{artifact.name}"
+    artifact.rename(external)
+    os.link(external, artifact)
+
+    verification = verify_unit(unit)
+    authorization = authorize_action(unit, action="edit", target="src/main.py")
+
+    assert verification["valid"] is False
+    assert any("single-link" in issue for issue in verification["issues"])
+    assert authorization["allowed"] is False
+    assert "single-link" in authorization["reason"]
+
+
 def test_project_discovery_prunes_excluded_trees(tmp_path: Path) -> None:
     (tmp_path / "workspace/app").mkdir(parents=True)
     write_json_atomic(tmp_path / "workspace/app/project.json", {"id": "app"})
@@ -294,3 +432,38 @@ def test_atomic_writer_leaves_no_partial_file_on_failure(tmp_path: Path) -> None
 
     assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_control_readers_normalize_platform_os_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from isekai.distribution import release as release_module
+    from isekai.foundation import FoundationError
+    from isekai.plugin import actions as plugin_module
+    from isekai.plugin.actions import PluginError
+    from isekai.workflow import project as project_module
+    from isekai.workflow.unit import common as unit_common
+
+    def deny(*args: object, **kwargs: object) -> bytes:
+        raise PermissionError("platform denied control read")
+
+    monkeypatch.setattr(release_module, "read_control_file", deny)
+    with pytest.raises(DistributionError, match="cannot safely read"):
+        release_module._read_control_bytes(
+            tmp_path / "release.json",
+            root=tmp_path,
+            label="release manifest",
+        )
+
+    monkeypatch.setattr(project_module, "read_control_file", deny)
+    with pytest.raises(FoundationError, match="cannot safely read"):
+        project_module._load_json(tmp_path / "project.json")
+
+    monkeypatch.setattr(unit_common, "read_control_file", deny)
+    with pytest.raises(ValueError, match="cannot safely read"):
+        unit_common._unit_json(tmp_path, "unit.json")
+
+    monkeypatch.setattr(plugin_module, "read_control_file", deny)
+    with pytest.raises(PluginError, match="cannot safely read"):
+        plugin_module.load_compatibility()

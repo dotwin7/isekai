@@ -4,7 +4,7 @@
   "schema_version": "1.0.0",
   "foundation_id": "isekai-foundation",
   "version": "0.1.0",
-  "approval_digest": "sha256:d96f493ee9ba3d5046387179da4456d23be794a8fd562174fdcc9e99309a1bfd",
+  "approval_digest": "sha256:5f37d4bef016b86628f81f6e1be0cce546f47e3b3cf6fa67770432d3aa0d6906",
   "passed": true,
   "scope": "Foundation v0.1 authorization boundary and routing regression verification",
   "recorded_by": "codex-validation",
@@ -120,5 +120,6 @@
         "recorded_at": "2026-08-06T05:19:32.370660+00:00"
       }
     }
-  ]
+  ],
+  "evidence_digest": "sha256:03c30e3e582e9a772661bc745e82865fdf37115bdac041919d9c906d52900c1a"
 }

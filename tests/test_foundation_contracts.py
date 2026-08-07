@@ -79,6 +79,101 @@ def test_condition_evaluators_fail_closed_for_decision_exception_and_dod() -> No
     assert CONDITION_TYPES >= {"required-decision", "required-exception-controls", "required-dod"}
 
 
+def test_condition_evaluators_reject_malformed_collections_and_escaping_targets() -> None:
+    now = datetime(2026, 8, 5, tzinfo=timezone.utc)
+    artifact = {
+        "type": "required-artifact",
+        "artifact": "verification",
+        "field": "passed",
+        "equals": True,
+        "commands_required": True,
+    }
+    assert not evaluate_condition(
+        artifact,
+        {"artifacts": [], "verification": {"passed": True}, "commands": "pytest"},
+        now=now,
+    )
+    decision = {
+        "type": "required-decision",
+        "gate": "release",
+        "decision_ref": "release-1",
+        "outcome": "approved",
+        "decided_by": "human",
+        "scope": "foundation",
+    }
+    assert not evaluate_condition(decision, {"decisions": None}, now=now)
+    dod = {
+        "type": "required-dod",
+        "unit_ref": "unit.json",
+        "required_artifacts": ["acceptance.md"],
+        "evaluation_refs": ["dod-evaluation"],
+        "evidence_ref": "evidence/verification.json",
+    }
+    assert not evaluate_condition(
+        dod,
+        {
+            "unit_ref": "unit.json",
+            "artifacts": None,
+            "evaluations": None,
+            "evidence_ref": "evidence/verification.json",
+            "evidence_passed": True,
+        },
+        now=now,
+    )
+
+    envelope = {
+        "type": "required-envelope",
+        "envelope_ref": "execution-envelope.json",
+        "action": "edit",
+        "target_scope": "approved-unit",
+        "stage": "construction",
+        "expires_at": "2027-08-05T00:00:00Z",
+    }
+    subject = {
+        "action": "edit",
+        "target": "../outside.txt",
+        "stage": "construction",
+        "envelope_ref": "execution-envelope.json",
+        "target_scope": "approved-unit",
+        "envelope": {
+            "status": "approved",
+            "scope": ["**"],
+            "stages": [
+                {"name": "construction", "allowed_actions": "edit"}
+            ],
+            "allowed_actions": ["edit"],
+            "forbidden_actions": [],
+            "max_iterations": 1,
+            "expires_at": "2027-08-05T00:00:00Z",
+        },
+    }
+    assert not evaluate_condition(envelope, subject, now=now)
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        {
+            "type": "context-scope",
+            "required_fields": ["project_id"],
+            "allowed_routes": ["unsupported"],
+        },
+        {
+            "type": "required-dod",
+            "unit_ref": "unit.json",
+            "required_artifacts": [1],
+            "evaluation_refs": ["dod-evaluation"],
+            "evidence_ref": "evidence/verification.json",
+        },
+    ],
+)
+def test_condition_definitions_reject_malformed_route_and_dod_lists(
+    condition: dict[str, object],
+) -> None:
+    with pytest.raises(FoundationError, match="supported routes|unique non-empty"):
+        evaluate_condition(condition, {})
+
+
 def test_root_and_reference_product_use_same_contract_graph() -> None:
     root_context = resolve_context(ROOT / "project.json", WorkRoute.UNIT)
     reference_context = resolve_context(ROOT / "examples/reference-product/project.json", WorkRoute.UNIT)
@@ -179,4 +274,20 @@ def test_rule_metadata_requires_complete_provenance_and_applies_to(tmp_path: Pat
     rule.pop("applies_to", None)
     path.write_text(json.dumps(contract), encoding="utf-8")
     with pytest.raises(FoundationError, match="applies_to|recorded_at"):
+        load_foundation(foundation)
+
+
+@pytest.mark.parametrize("applies_to", [["unti"], ["unit", "unit"]])
+def test_rule_metadata_rejects_unknown_or_duplicate_application_targets(
+    tmp_path: Path,
+    applies_to: list[str],
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    path = foundation / "governance/rules/core.json"
+    rules = json.loads(path.read_text(encoding="utf-8"))
+    rules["content"]["rules"][0]["applies_to"] = applies_to
+    path.write_text(json.dumps(rules) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match="unsupported applies_to|duplicates"):
         load_foundation(foundation)

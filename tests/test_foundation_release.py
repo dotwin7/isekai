@@ -31,6 +31,9 @@ def make_foundation(tmp_path: Path) -> Path:
         asset_path = foundation / descriptor["path"]
         asset = json.loads(asset_path.read_text(encoding="utf-8"))
         asset["status"] = "draft"
+        if asset.get("kind") == "knowledge":
+            for entry in asset.get("content", {}).get("entries", []):
+                entry["status"] = "draft"
         asset_path.write_text(json.dumps(asset, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (foundation / "decisions.json").unlink(missing_ok=True)
     (foundation / "evidence/release.json").unlink(missing_ok=True)
@@ -71,6 +74,83 @@ def approve_and_evidence(foundation: Path) -> None:
         scope="Foundation v0.1 release",
         recorded_by="release-validator",
     )
+
+
+def replace_with_alias(path: Path, external: Path, alias: str) -> None:
+    external.write_bytes(path.read_bytes())
+    path.unlink()
+    if alias == "symlink":
+        path.symlink_to(external)
+    else:
+        path.hardlink_to(external)
+
+
+@pytest.mark.parametrize("alias", ["symlink", "hardlink"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "release.json",
+        "governance/policies/high-risk.json",
+        "knowledge/software-delivery-review.md",
+    ],
+)
+def test_foundation_registered_files_reject_aliases(
+    tmp_path: Path,
+    alias: str,
+    relative: str,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    target = foundation / relative
+    external = tmp_path / (target.name + ".external")
+    replace_with_alias(target, external, alias)
+
+    with pytest.raises(FoundationError, match="single-link|symlink|unsafe"):
+        load_foundation(foundation)
+
+
+@pytest.mark.parametrize("relative", ["decisions.json", "evidence/release.json"])
+@pytest.mark.parametrize("alias", ["symlink", "hardlink"])
+def test_foundation_readiness_rejects_aliased_approval_records(
+    tmp_path: Path,
+    alias: str,
+    relative: str,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    target = foundation / relative
+    external = tmp_path / (target.name + ".approval-external")
+    replace_with_alias(target, external, alias)
+
+    readiness = load_foundation(foundation).readiness()
+
+    assert readiness["ready"] is False
+    assert any(
+        "single-link" in blocker or "symlink" in blocker or "unsafe" in blocker
+        for blocker in readiness["blockers"]
+    )
+
+
+def test_foundation_evidence_write_rejects_symlinked_parent(
+    tmp_path: Path,
+) -> None:
+    foundation = make_foundation(tmp_path)
+    evidence_dir = foundation / "evidence"
+    shutil.rmtree(evidence_dir)
+    external = tmp_path / "external-evidence"
+    external.mkdir()
+    evidence_dir.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(FoundationError, match="write target|symlink|unsafe"):
+        record_foundation_evidence(
+            foundation,
+            passed=True,
+            checks=passing_checks(),
+            scope="Foundation v0.1 release",
+            recorded_by="release-validator",
+        )
+
+    assert not (external / "release.json").exists()
 
 
 def test_promotion_is_blocked_without_decision_and_evidence(tmp_path: Path) -> None:
@@ -129,6 +209,7 @@ def test_approved_decision_and_passing_evidence_promote_all_assets(
     assert result["promoted"] is True
     assert promoted.manifest["status"] == "approved"
     assert all(asset["status"] == "approved" for asset in promoted.assets.values())
+    assert all(entry["status"] == "approved" for entry in promoted.knowledge_entries())
     assert promoted.readiness()["ready"] is True
 
     release = json.loads((foundation / "release.json").read_text(encoding="utf-8"))
@@ -186,6 +267,53 @@ def test_content_change_after_approval_invalidates_promotion(tmp_path: Path) -> 
         promote_foundation(foundation)
 
     assert load_foundation(foundation).manifest["status"] == "draft"
+
+
+def test_content_change_after_promotion_plan_is_revalidated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    foundation = make_foundation(tmp_path)
+    approve_and_evidence(foundation)
+    original_load = foundation_module.load_foundation
+    calls = 0
+
+    def mutate_between_plan_and_commit(root: str | Path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            policy_path = foundation / "governance/policies/high-risk.json"
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            policy["content"]["reason"] = "changed after the approved plan"
+            policy_path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+        return original_load(root)
+
+    monkeypatch.setattr(foundation_module, "load_foundation", mutate_between_plan_and_commit)
+
+    with pytest.raises(FoundationError, match="changed after promotion planning"):
+        promote_foundation(foundation)
+
+    assert original_load(foundation).manifest["status"] == "draft"
+
+
+def test_knowledge_body_change_invalidates_foundation_digests_and_readiness(
+    tmp_path: Path,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    before = load_foundation(foundation)
+    contract_digest = before.contract_digest
+    approval_digest = before.approval_digest
+
+    body = foundation / "knowledge/software-delivery-review.md"
+    body.write_text("# Replaced without approval\n", encoding="utf-8")
+
+    changed = load_foundation(foundation)
+    assert changed.contract_digest != contract_digest
+    assert changed.approval_digest != approval_digest
+    readiness = changed.readiness()
+    assert readiness["ready"] is False
+    assert any("approval_digest" in blocker for blocker in readiness["blockers"])
 
 
 def test_must_rule_without_condition_is_rejected(tmp_path: Path) -> None:
@@ -259,6 +387,178 @@ def test_release_metadata_and_approval_provenance_fail_closed(tmp_path: Path) ->
     assert any("decided_at" in blocker for blocker in readiness["blockers"])
     assert any("recorded_at" in blocker for blocker in readiness["blockers"])
     assert any("duplicate check id" in blocker for blocker in readiness["blockers"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("reviewed_by", "unapproved-reviewer", "reviewer"),
+        ("evidence_ref", "missing-evidence", "evidence_ref"),
+    ],
+)
+def test_knowledge_entry_review_must_match_its_promotion_contract(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    foundation = make_foundation(tmp_path)
+    catalog_path = foundation / "knowledge/catalog.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    catalog["content"]["entries"][0]["review"][field] = value
+    catalog_path.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match=message):
+        load_foundation(foundation)
+
+
+def test_foundation_evidence_rejects_checks_recorded_after_the_evidence(
+    tmp_path: Path,
+) -> None:
+    foundation = make_foundation(tmp_path)
+    checks = passing_checks()
+    checks[0]["provenance"] = {
+        "source": "future-check",
+        "recorded_by": "release-validator",
+        "recorded_at": "2099-01-01T00:00:00+00:00",
+    }
+
+    with pytest.raises(FoundationError, match="after Evidence recorded_at"):
+        record_foundation_evidence(
+            foundation,
+            passed=True,
+            checks=checks,
+            scope="Foundation v0.1 release",
+            recorded_by="release-validator",
+        )
+
+    approved = tmp_path / "approved-foundation"
+    shutil.copytree(ROOT / "foundation", approved)
+    evidence_path = approved / "evidence/release.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["checks"][0]["provenance"]["recorded_at"] = (
+        "2099-01-01T00:00:00+00:00"
+    )
+    evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+
+    readiness = load_foundation(approved).readiness()
+    assert readiness["ready"] is False
+    assert any(
+        "after Evidence recorded_at" in blocker for blocker in readiness["blockers"]
+    )
+
+
+def test_foundation_decision_and_evidence_record_digests_detect_edits(
+    tmp_path: Path,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    decisions_path = foundation / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+
+    # Model a legitimate rejected record, then a one-field approval edit that
+    # keeps the original digest.
+    latest = decisions["decisions"][-1]
+    latest["outcome"] = "rejected"
+    latest["decision_digest"] = foundation_module._foundation_decision_digest(latest)
+    latest["outcome"] = "approved"
+    decisions_path.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+
+    readiness = load_foundation(foundation).readiness()
+    assert readiness["ready"] is False
+    assert any("Decision digest" in blocker for blocker in readiness["blockers"])
+
+    shutil.rmtree(foundation)
+    shutil.copytree(ROOT / "foundation", foundation)
+    evidence_path = foundation / "evidence/release.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["passed"] = False
+    evidence["evidence_digest"] = foundation_module._foundation_evidence_digest(evidence)
+    evidence["passed"] = True
+    evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+
+    readiness = load_foundation(foundation).readiness()
+    assert readiness["ready"] is False
+    assert any("Evidence digest" in blocker for blocker in readiness["blockers"])
+
+
+def test_foundation_readiness_validates_historical_decision_digests(
+    tmp_path: Path,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    decisions_path = foundation / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decisions["decisions"][0]["summary"] = "silently replaced history"
+    decisions_path.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+
+    readiness = load_foundation(foundation).readiness()
+    assert readiness["ready"] is False
+    assert any(
+        "Foundation Decision 0" in blocker and "digest" in blocker
+        for blocker in readiness["blockers"]
+    )
+
+
+def test_only_the_first_v01_decision_may_omit_approval_digest(
+    tmp_path: Path,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    decisions_path = foundation / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    later = decisions["decisions"][1]
+    later.pop("approval_digest")
+    later["decision_digest"] = foundation_module._foundation_decision_digest(later)
+    decisions_path.write_text(
+        json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    readiness = load_foundation(foundation).readiness()
+
+    assert readiness["ready"] is False
+    assert any(
+        "Foundation Decision 1" in blocker and "approval_digest" in blocker
+        for blocker in readiness["blockers"]
+    )
+
+
+def test_foundation_decision_reordering_cannot_restore_an_older_approval(
+    tmp_path: Path,
+) -> None:
+    foundation = make_foundation(tmp_path)
+    record_foundation_decision(
+        foundation,
+        outcome="approved",
+        summary="Approve the current release candidate.",
+        decided_by="foundation-owner",
+    )
+    record_foundation_decision(
+        foundation,
+        outcome="rejected",
+        summary="Revoke the earlier approval.",
+        decided_by="foundation-owner",
+    )
+    record_foundation_evidence(
+        foundation,
+        passed=True,
+        checks=passing_checks(),
+        scope="Foundation v0.1 release",
+        recorded_by="release-validator",
+    )
+    decisions_path = foundation / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decisions["decisions"][-2:] = reversed(decisions["decisions"][-2:])
+    decisions_path.write_text(
+        json.dumps(decisions, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FoundationError, match="digest chain|later than"):
+        promote_foundation(foundation)
+
+    assert load_foundation(foundation).manifest["status"] == "draft"
 
 
 def target_snapshot(foundation: Path) -> dict[str, tuple[bytes, int]]:

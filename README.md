@@ -132,7 +132,7 @@ project/
 └── units/                           # 지속되는 AI-DLC 작업 단위
 ```
 
-설치기는 bootstrap, Core, Foundation과 Adapter의 SHA-256 tree digest를 검증하고 resolved Git commit을 `isekai.lock.json`에 고정합니다. 기존 marketplace와 Claude 설정의 다른 항목은 보존하며, 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않습니다.
+설치기는 bootstrap, Core, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 기존 marketplace와 Claude 설정의 다른 항목은 보존하며, 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않습니다.
 
 ## 사용법
 
@@ -233,9 +233,9 @@ Plugin manifest의 `human_decision_actions`가 이 경계를 기계가 읽을 �
 decision  envelope-approve  transition  foundation-decision  foundation-promote
 ```
 
-Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 파일 락으로 직렬화됩니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰는 대신 실패합니다. 락을 쥔 채 죽은 프로세스의 락은 5분 뒤 회수됩니다.
+Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 운영체제 file lock으로 직렬화됩니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰는 대신 실패합니다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일을 시간 기준으로 경쟁적으로 회수하지 않습니다.
 
-릴리스 digest 검증도 같은 성격입니다. `distribution/release.json`은 태그 안의 component가 서로 일치하는지 확인하며, 서명 검증이 아니므로 신뢰 기준점은 지정한 Git 원격과 immutable tag입니다.
+릴리스 digest 검증도 같은 성격입니다. `distribution/release.json`은 태그 안의 component 경로·bytes·실행 비트와 source manifest에서 유도한 ID·version·path metadata가 서로 일치하는지 확인하며, 서명 검증이 아니므로 신뢰 기준점은 지정한 Git 원격과 immutable tag입니다.
 
 ## 호환성 기준
 

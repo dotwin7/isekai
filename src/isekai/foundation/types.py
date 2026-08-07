@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..support.files import UnsafeControlFile, read_control_file
+
 
 ALLOWED_STATUSES = {"draft", "approved", "deprecated"}
 # Evaluation fixtures are graded against a fixed instant so that a released
@@ -43,6 +45,8 @@ FOUNDATION_DECISION_FIELDS = {
     "summary",
     "decided_by",
     "decided_at",
+    "previous_decision_digest",
+    "decision_digest",
 }
 FOUNDATION_EVIDENCE_FIELDS = {
     "id",
@@ -56,6 +60,7 @@ FOUNDATION_EVIDENCE_FIELDS = {
     "recorded_by",
     "recorded_at",
     "checks",
+    "evidence_digest",
 }
 FOUNDATION_CHECK_FIELDS = {"id", "passed", "details", "provenance"}
 
@@ -77,17 +82,47 @@ class FoundationRelease:
     def assets_by_kind(self, kind: str) -> list[dict[str, Any]]:
         return [asset for asset in self.assets.values() if asset["kind"] == kind]
 
+    def knowledge_entries(self) -> Iterator[dict[str, Any]]:
+        for asset in self.assets_by_kind("knowledge"):
+            yield from asset.get("content", {}).get("entries", [])
+
+    def _registered_paths(self) -> list[Path]:
+        return [
+            Path("release.json"),
+            *(
+                Path(str(descriptor["path"]))
+                for descriptor in self.manifest.get("artifacts", [])
+            ),
+        ]
+
+    def _knowledge_body_paths(self) -> list[Path]:
+        paths = {
+            Path(str(entry["body_path"]))
+            for asset in self.assets_by_kind("knowledge")
+            for entry in asset.get("content", {}).get("entries", [])
+            if isinstance(entry, dict) and isinstance(entry.get("body_path"), str)
+        }
+        return sorted(paths, key=lambda item: item.as_posix())
+
+    def _registered_bytes(self, relative: Path) -> bytes:
+        try:
+            return read_control_file(
+                self.root / relative,
+                root=self.root,
+                label="Foundation registered file",
+            )
+        except (OSError, UnsafeControlFile) as exc:
+            raise FoundationError(
+                f"cannot safely read Foundation registered file {relative}: {exc}"
+            ) from exc
+
     @property
     def contract_digest(self) -> str:
-        """Identify the immutable release manifest and every registered contract asset."""
+        """Identify every registered contract asset and referenced Knowledge body."""
         digest = hashlib.sha256()
-        paths = [Path("release.json")]
-        paths.extend(
-            Path(str(descriptor["path"]))
-            for descriptor in self.manifest.get("artifacts", [])
-        )
+        paths = [*self._registered_paths(), *self._knowledge_body_paths()]
         for relative in sorted(paths, key=lambda item: item.as_posix()):
-            content = (self.root / relative).read_bytes()
+            content = self._registered_bytes(relative)
             digest.update(relative.as_posix().encode("utf-8"))
             digest.update(b"\0")
             digest.update(str(len(content)).encode("ascii"))
@@ -98,17 +133,14 @@ class FoundationRelease:
 
     @property
     def approval_digest(self) -> str:
-        """Bind approval to semantic release content while ignoring promotion status."""
+        """Bind approval to semantic JSON and exact Knowledge body content."""
         digest = hashlib.sha256()
-        paths = [Path("release.json")]
-        paths.extend(
-            Path(str(descriptor["path"]))
-            for descriptor in self.manifest.get("artifacts", [])
-        )
-        for relative in sorted(paths, key=lambda item: item.as_posix()):
+        for relative in sorted(
+            self._registered_paths(), key=lambda item: item.as_posix()
+        ):
             try:
-                value = json.loads((self.root / relative).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:  # pragma: no cover - load already validates
+                value = json.loads(self._registered_bytes(relative).decode("utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:  # pragma: no cover - load already validates
                 raise FoundationError(
                     f"cannot calculate Foundation approval digest for {relative}: {exc}"
                 ) from exc
@@ -118,6 +150,13 @@ class FoundationRelease:
                 )
             subject = copy.deepcopy(value)
             subject.pop("status", None)
+            if subject.get("kind") == "knowledge":
+                for entry in subject.get("content", {}).get("entries", []):
+                    if isinstance(entry, dict):
+                        # Entry status is promoted together with its containing
+                        # Knowledge asset, so approval binds its content rather
+                        # than the draft/approved transition itself.
+                        entry.pop("status", None)
             content = json.dumps(
                 subject,
                 ensure_ascii=False,
@@ -125,6 +164,14 @@ class FoundationRelease:
                 separators=(",", ":"),
             ).encode("utf-8")
             digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(content)
+            digest.update(b"\0")
+        for relative in self._knowledge_body_paths():
+            content = self._registered_bytes(relative)
+            digest.update(relative.as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(len(content)).encode("ascii"))
             digest.update(b"\0")
             digest.update(content)
             digest.update(b"\0")
@@ -159,6 +206,12 @@ class FoundationRelease:
             if asset["status"] != "approved":
                 blockers.append(
                     f"asset {asset['id']} status is {asset['status']}; human approval is required"
+                )
+        for entry in sorted(self.knowledge_entries(), key=lambda item: item["id"]):
+            if entry["status"] != "approved":
+                blockers.append(
+                    f"Knowledge entry {entry['id']} status is {entry['status']}; "
+                    "human approval is required"
                 )
         from .evaluation import evaluate_all_evaluations
         from .promotion import _approval_blockers

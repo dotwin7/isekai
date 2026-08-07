@@ -147,6 +147,38 @@ def test_posix_bootstrap_rejects_transport_helpers_before_clone(
     assert not (project / "isekai.lock.json").exists()
 
 
+def test_posix_bootstrap_rejects_noncanonical_file_authority_before_clone(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "product"
+    project.mkdir()
+    source = (tmp_path / "release").resolve().as_uri().replace(
+        "file://", "file://example.invalid", 1
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(ROOT / "scripts/install.sh"),
+            "--source",
+            source,
+            "--ref",
+            "v0.1.0",
+            "--path",
+            str(project),
+            "--python",
+            sys.executable,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "file URL" in completed.stderr
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_posix_bootstrap_rejects_embedded_credentials_before_clone(
     tmp_path: Path,
 ) -> None:
@@ -244,6 +276,34 @@ def test_posix_bootstrap_rejects_branch_before_release_code_execution(
     assert not (project / "isekai.lock.json").exists()
 
 
+def test_posix_bootstrap_rejects_git_revision_expressions(tmp_path: Path) -> None:
+    release = _tagged_release(tmp_path)
+    project = tmp_path / "product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(release / "scripts/install.sh"),
+            "--source",
+            str(release),
+            "--ref",
+            "v0.1.0^0",
+            "--path",
+            str(project),
+            "--python",
+            sys.executable,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "revision expressions" in completed.stderr
+    assert not (project / "isekai.lock.json").exists()
+
+
 def test_powershell_bootstrap_validates_immutable_ref_before_checkout() -> None:
     content = (ROOT / "scripts/install.ps1").read_text(encoding="utf-8")
 
@@ -253,6 +313,7 @@ def test_powershell_bootstrap_validates_immutable_ref_before_checkout() -> None:
     assert validation < checkout
     assert "[0-9a-fA-F]{40}" in content
     assert "[0-9a-fA-F]{64}" in content
+    assert "check-ref-format" in content
     assert "branches and abbreviated commits are not allowed" in content
 
 
@@ -274,3 +335,13 @@ def test_powershell_bootstrap_rejects_credentials_before_clone() -> None:
 
     assert validation < clone
     assert "$sourceUri.UserInfo" in content
+
+
+def test_powershell_bootstrap_rejects_noncanonical_file_authorities() -> None:
+    content = (ROOT / "scripts/install.ps1").read_text(encoding="utf-8")
+
+    validation = content.index("Source file URL must omit its authority")
+    clone = content.index("& git clone")
+
+    assert validation < clone
+    assert '$sourceUri.Host.Equals("localhost"' in content

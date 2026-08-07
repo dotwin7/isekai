@@ -49,6 +49,17 @@ if ($Source.Contains("://")) {
     if ($sourceUri.Query -or $sourceUri.Fragment) {
         throw "Source must not contain a query or fragment"
     }
+    if ($sourceUri.Scheme -eq "file") {
+        $canonicalLocalAuthority = (
+            [string]::IsNullOrEmpty($sourceUri.Host) -or
+            $sourceUri.Host.Equals("localhost", [StringComparison]::OrdinalIgnoreCase)
+        )
+        if (-not [string]::IsNullOrEmpty($sourceUri.UserInfo) -or
+            $sourceUri.Port -ne -1 -or
+            -not $canonicalLocalAuthority) {
+            throw "Source file URL must omit its authority or use localhost without user information or a port"
+        }
+    }
 }
 if ($Ref.StartsWith("-")) {
     throw "Ref cannot start with '-'"
@@ -61,6 +72,12 @@ if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) {
 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "git is required"
+}
+if ($Ref -notmatch "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$") {
+    & git check-ref-format "refs/tags/$Ref" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Git ref must be an immutable tag or full commit; revision expressions are not allowed: $Ref"
+    }
 }
 
 $pythonPrefix = @()

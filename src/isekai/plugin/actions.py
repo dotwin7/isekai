@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from ..support.files import UnsafeControlFile, read_control_file
 from ..distribution import verify_adapter_handshake
 from ..foundation import (
     load_foundation,
@@ -45,10 +46,19 @@ COMPATIBILITY_PATH = Path(__file__).resolve().parents[1] / "data/compatibility.j
 
 def load_compatibility() -> dict[str, Any]:
     try:
-        value = json.loads(COMPATIBILITY_PATH.read_text(encoding="utf-8"))
+        content = read_control_file(
+            COMPATIBILITY_PATH,
+            root=COMPATIBILITY_PATH.parent,
+            label="compatibility matrix",
+        ).decode("utf-8")
+        value = json.loads(content)
     except FileNotFoundError as exc:
         raise PluginError(f"missing compatibility matrix: {COMPATIBILITY_PATH}") from exc
-    except json.JSONDecodeError as exc:
+    except UnsafeControlFile as exc:
+        raise PluginError(str(exc)) from exc
+    except OSError as exc:
+        raise PluginError(f"cannot safely read compatibility matrix: {exc}") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PluginError(f"invalid compatibility matrix: {exc}") from exc
     if not isinstance(value, dict):
         raise PluginError("compatibility matrix must be an object")

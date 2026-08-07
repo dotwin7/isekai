@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -243,7 +244,7 @@ def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> Non
                     "command": "pytest -q",
                     "exit_code": 0,
                     "output_digest": "c" * 64,
-                    "observed_at": "2026-08-04T00:00:00+00:00",
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
                     "authorization_id": authorization["authorization_id"],
                 }
             ],

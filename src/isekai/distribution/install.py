@@ -1,14 +1,22 @@
 from __future__ import annotations
-
 import re
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Iterable
-
 from .. import __version__
+from ..support.jsonio import write_bytes_atomic
 from ..support.locking import LockUnavailable, file_lock
+from .lockfile import (
+    INSTALL_LOCK_NAME,
+    WORKSPACE_ADAPTER_PATHS,
+    _installed_path,
+    _load_install_lock_path,
+    _project_path_without_symlinks,
+    _workspace_adapter_owned,
+    load_install_lock,
+)
 from .release import (
     LOCK_NAME,
     LOCK_SCHEMA_VERSION,
@@ -19,8 +27,9 @@ from .release import (
     DistributionError,
     _component_root,
     _normalize_runtimes,
-    _read_json,
-    _safe_relative_path,
+    _read_control_bytes,
+    _read_control_json,
+    _verified_tree_digest,
     _verify_or_raise,
     _write_json_atomic,
     tree_digest,
@@ -45,55 +54,6 @@ from .marketplace import (
 )
 
 
-INSTALL_LOCK_NAME = ".isekai-install.lock"
-WORKSPACE_ADAPTER_PATHS = {
-    "codex": Path(".agents/skills/isekai"),
-    "claude": Path(".claude/skills/isekai"),
-    "kiro": Path(".kiro/skills/isekai"),
-}
-
-
-def load_install_lock(project: str | Path) -> dict[str, Any] | None:
-    root = Path(project).expanduser().resolve()
-    path = root if root.name == LOCK_NAME else root / LOCK_NAME
-    if not path.is_file():
-        return None
-    lock = _read_json(path)
-    if lock.get("schema_version") != LOCK_SCHEMA_VERSION:
-        raise DistributionError("unsupported isekai.lock.json schema_version")
-    return lock
-
-
-def _project_path_without_symlinks(
-    project_root: Path, relative: Path, *, label: str
-) -> Path:
-    lexical = project_root
-    for part in relative.parts:
-        lexical = lexical / part
-        if lexical.is_symlink():
-            raise DistributionError(f"{label} contains a symlink: {relative}")
-    return lexical
-
-
-def _installed_path(project_root: Path, value: object, *, label: str) -> Path:
-    relative = _safe_relative_path(value, label=label)
-    lexical = _project_path_without_symlinks(project_root, relative, label=label)
-    target = lexical.resolve()
-    try:
-        target.relative_to(project_root.resolve())
-    except ValueError as exc:  # pragma: no cover - defensive
-        raise DistributionError(f"{label} escapes the project root") from exc
-    return target
-
-
-def _workspace_adapter_owned(adapters: object, runtime: str) -> bool:
-    if not isinstance(adapters, dict):
-        return False
-    entry = adapters.get(runtime)
-    expected = WORKSPACE_ADAPTER_PATHS[runtime].as_posix()
-    return isinstance(entry, dict) and entry.get("path") == expected
-
-
 def _remove_path(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path)
@@ -115,7 +75,17 @@ def _adapter_skill_source(adapter_source: Path, runtime: str) -> Path:
 
 def doctor_install(project: str | Path) -> dict[str, Any]:
     project_root = Path(project).expanduser().resolve()
-    lock = load_install_lock(project_root)
+    try:
+        lock = load_install_lock(project_root)
+    except DistributionError as exc:
+        return {
+            "ready": False,
+            "project": str(project_root),
+            "release": None,
+            "protocol_version": None,
+            "runtimes": [],
+            "issues": [str(exc)],
+        }
     if lock is None:
         return {"ready": False, "project": str(project_root), "issues": [f"missing {LOCK_NAME}"]}
     issues: list[str] = []
@@ -141,6 +111,10 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             components.append((f"adapter:{runtime}", entry))
         else:
             issues.append(f"adapter lock is invalid: {runtime}")
+
+    rollback = lock.get("rollback")
+    if isinstance(rollback, dict):
+        components.append(("rollback", rollback))
 
     for label, entry in components:
         try:
@@ -172,9 +146,15 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             issues.append(str(exc))
 
     project_manifest = project_root / "project.json"
-    if project_manifest.is_file() and isinstance(foundation_entry, dict):
+    if (project_manifest.exists() or project_manifest.is_symlink()) and isinstance(
+        foundation_entry, dict
+    ):
         try:
-            project_value = _read_json(project_manifest)
+            project_value = _read_control_json(
+                project_manifest,
+                root=project_root,
+                label="project manifest",
+            )
             foundation_path = project_value.get("foundation_path")
             if not isinstance(foundation_path, str):
                 raise DistributionError("project foundation_path must be a string")
@@ -205,13 +185,17 @@ def _current_foundation_matches(
     digest: str,
 ) -> bool:
     manifest_path = project_root / "project.json"
-    if not manifest_path.is_file():
+    if not manifest_path.exists() and not manifest_path.is_symlink():
         return True
-    project = _read_json(manifest_path)
-    foundation_path = project.get("foundation_path")
-    if not isinstance(foundation_path, str):
-        return False
     try:
+        project = _read_control_json(
+            manifest_path,
+            root=project_root,
+            label="project manifest",
+        )
+        foundation_path = project.get("foundation_path")
+        if not isinstance(foundation_path, str):
+            return False
         foundation = load_foundation(project_root / foundation_path)
         return (
             foundation.version == version
@@ -223,13 +207,22 @@ def _current_foundation_matches(
 
 def _adopt_foundation(project_root: Path, relative: str) -> bytes | None:
     path = project_root / "project.json"
-    if not path.is_file():
+    if not path.exists() and not path.is_symlink():
         return None
-    before = path.read_bytes()
-    project = _read_json(path)
+    before = _read_control_bytes(
+        path,
+        root=project_root,
+        label="project manifest",
+    )
+    project = _read_control_json(
+        path,
+        root=project_root,
+        label="project manifest",
+    )
     project["foundation_path"] = relative
     _write_json_atomic(path, project)
     return before
+
 
 def install_from_checkout(
     checkout: str | Path,
@@ -243,7 +236,9 @@ def install_from_checkout(
     include_foundation: bool = False,
     adopt_foundation: bool = False,
 ) -> dict[str, Any]:
-    """Serialize installation mutations for one Project."""
+    """Verify and install a Git checkout under an immutable commit claim."""
+    from .git import _verify_checkout_claim
+
     project_root = Path(project).expanduser().resolve()
     if not project_root.is_dir():
         raise DistributionError(f"project root does not exist: {project_root}")
@@ -252,8 +247,16 @@ def install_from_checkout(
             project_root / INSTALL_LOCK_NAME,
             subject=f"ISEKAI installation for {project_root}",
         ):
+            release_root = Path(checkout).expanduser().resolve()
+            _verify_checkout_claim(
+                release_root,
+                project_root,
+                source=source,
+                ref=ref,
+                commit=commit,
+            )
             return _install_from_checkout_locked(
-                checkout,
+                release_root,
                 project_root,
                 source=source,
                 ref=ref,
@@ -263,6 +266,25 @@ def install_from_checkout(
                 include_foundation=include_foundation,
                 adopt_foundation=adopt_foundation,
             )
+    except LockUnavailable as exc:
+        raise DistributionError(str(exc)) from exc
+
+
+def _install_from_verified_checkout(
+    checkout: str | Path,
+    project: str | Path,
+    **options: Any,
+) -> dict[str, Any]:
+    """Internal test seam for a checkout already verified by its caller."""
+    project_root = Path(project).expanduser().resolve()
+    if not project_root.is_dir():
+        raise DistributionError(f"project root does not exist: {project_root}")
+    try:
+        with file_lock(
+            project_root / INSTALL_LOCK_NAME,
+            subject=f"ISEKAI installation for {project_root}",
+        ):
+            return _install_from_checkout_locked(checkout, project_root, **options)
     except LockUnavailable as exc:
         raise DistributionError(str(exc)) from exc
 
@@ -293,6 +315,13 @@ def _install_from_checkout_locked(
     project_root = Path(project).expanduser().resolve()
     if not project_root.is_dir():
         raise DistributionError(f"project root does not exist: {project_root}")
+    project_manifest = project_root / "project.json"
+    if project_manifest.exists() or project_manifest.is_symlink():
+        _read_control_json(
+            project_manifest,
+            root=project_root,
+            label="project manifest",
+        )
     manifest = _verify_or_raise(release_root)
     selected = _normalize_runtimes(runtimes)
     current_lock = load_install_lock(project_root)
@@ -394,7 +423,15 @@ def _install_from_checkout_locked(
     backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
     adapter_backup = project_root / f".isekai-adapter-backup-{uuid.uuid4().hex}"
     project_before: bytes | None = None
-    lock_before = (project_root / LOCK_NAME).read_bytes() if current_lock else None
+    lock_before = (
+        _read_control_bytes(
+            project_root / LOCK_NAME,
+            root=project_root,
+            label=LOCK_NAME,
+        )
+        if current_lock
+        else None
+    )
     host_applied = False
     try:
         if managed.is_dir():
@@ -406,6 +443,12 @@ def _install_from_checkout_locked(
             release_root, manifest["core"]["path"], label="core.path"
         )
         _replace_tree(core_source, staged / "runtime/isekai")
+        core_digest = _verified_tree_digest(
+            staged / "runtime/isekai",
+            manifest["core"]["digest"],
+            label="Core",
+            include_transients=True,
+        )
         _write_launchers(staged)
 
         if current_lock and not include_foundation:
@@ -422,6 +465,12 @@ def _install_from_checkout_locked(
             _replace_tree(
                 foundation_source,
                 staged / "foundations" / str(manifest["foundation"]["version"]),
+            )
+            _verified_tree_digest(
+                staged / "foundations" / str(manifest["foundation"]["version"]),
+                manifest["foundation"]["digest"],
+                label="Foundation",
+                include_transients=True,
             )
             foundation_entry = {
                 "id": manifest["foundation"]["id"],
@@ -453,15 +502,24 @@ def _install_from_checkout_locked(
             installed_version = str(source_entry["version"])
             if runtime == "kiro":
                 skill_source = _adapter_skill_source(adapter_source, runtime)
+                installed_digest = _verified_tree_digest(
+                    skill_source,
+                    source_entry["digest"],
+                    label="kiro Adapter",
+                )
                 adapter_entries[runtime] = {
                     "version": installed_version,
                     "path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
                     "source_digest": source_entry["digest"],
-                    "digest": tree_digest(skill_source, include_transients=True),
+                    "digest": installed_digest,
                 }
             elif runtime == "codex":
                 plugin_root, installed_version = _prepare_codex_marketplace(
-                    staged, adapter_source, marketplace_name, commit
+                    staged,
+                    adapter_source,
+                    marketplace_name,
+                    commit,
+                    source_entry["digest"],
                 )
                 adapter_entries[runtime] = {
                     "version": str(source_entry["version"]),
@@ -472,7 +530,11 @@ def _install_from_checkout_locked(
                 }
             else:
                 plugin_root = _prepare_claude_marketplace(
-                    staged, adapter_source, marketplace_name, installed_version
+                    staged,
+                    adapter_source,
+                    marketplace_name,
+                    installed_version,
+                    source_entry["digest"],
                 )
                 adapter_entries[runtime] = {
                     "version": installed_version,
@@ -481,6 +543,7 @@ def _install_from_checkout_locked(
                     "digest": tree_digest(plugin_root, include_transients=True),
                 }
 
+        rollback_entry: dict[str, str] | None = None
         if current_lock:
             rollback = staged / "rollback"
             _copy_managed_root(managed, rollback / "install")
@@ -494,8 +557,18 @@ def _install_from_checkout_locked(
             if host_state:
                 _write_json_atomic(rollback / "host-config.json", host_state)
             project_manifest = project_root / "project.json"
-            if project_manifest.is_file():
-                (rollback / "project.json").write_bytes(project_manifest.read_bytes())
+            if project_manifest.exists() or project_manifest.is_symlink():
+                (rollback / "project.json").write_bytes(
+                    _read_control_bytes(
+                        project_manifest,
+                        root=project_root,
+                        label="project manifest",
+                    )
+                )
+            rollback_entry = {
+                "path": f"{MANAGED_ROOT}/rollback",
+                "digest": tree_digest(rollback, include_transients=True),
+            }
 
         lock = {
             "schema_version": LOCK_SCHEMA_VERSION,
@@ -507,13 +580,13 @@ def _install_from_checkout_locked(
                 "version": manifest["core"]["version"],
                 "path": f"{MANAGED_ROOT}/runtime/isekai",
                 "source_digest": manifest["core"]["digest"],
-                "digest": tree_digest(
-                    staged / "runtime/isekai", include_transients=True
-                ),
+                "digest": core_digest,
             },
             "foundation": foundation_entry,
             "adapters": dict(sorted(adapter_entries.items())),
         }
+        if rollback_entry is not None:
+            lock["rollback"] = rollback_entry
 
         if managed.exists():
             managed.rename(backup)
@@ -569,9 +642,9 @@ def _install_from_checkout_locked(
             ):
                 _remove_path(target)
         if project_before is not None:
-            (project_root / "project.json").write_bytes(project_before)
+            write_bytes_atomic(project_root / "project.json", project_before)
         if lock_before is not None:
-            (project_root / LOCK_NAME).write_bytes(lock_before)
+            write_bytes_atomic(project_root / LOCK_NAME, lock_before)
         else:
             (project_root / LOCK_NAME).unlink(missing_ok=True)
         raise

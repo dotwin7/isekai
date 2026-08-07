@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -190,6 +191,42 @@ def test_initialize_project_allows_shared_foundation_outside_project(
 
     context = resolve_context(manifest)
     assert context["foundation_id"] == "isekai-foundation"
+
+
+def test_explicit_project_manifest_must_use_the_canonical_filename(
+    tmp_path: Path,
+) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    manifest = initialize_project(
+        project_root,
+        profiles=["software-delivery-profile"],
+    )
+    alias = project_root / "alias.json"
+    alias.write_bytes(manifest.read_bytes())
+
+    with pytest.raises(FoundationError, match="must be named project.json"):
+        resolve_context(alias)
+
+
+@pytest.mark.parametrize("alias_kind", ["symlink", "hardlink"])
+def test_project_manifest_must_be_a_single_link_regular_file(
+    tmp_path: Path,
+    alias_kind: str,
+) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    manifest = initialize_project(
+        project_root,
+        profiles=["software-delivery-profile"],
+    )
+    external = tmp_path / "external-project.json"
+    manifest.rename(external)
+    if alias_kind == "symlink":
+        manifest.symlink_to(external)
+    else:
+        os.link(external, manifest)
+
+    with pytest.raises(FoundationError, match="single-link|symlink"):
+        resolve_context(project_root)
 
 
 def test_initialize_project_postflight_failure_rolls_back(

@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..support.jsonio import write_bytes_atomic
 from ..support.locking import LockUnavailable, file_lock
 from . import install as install_module
 from .marketplace import (
@@ -37,6 +38,11 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
     current = install_module.load_install_lock(project_root)
     if current is None:
         raise DistributionError("cannot roll back before ISEKAI is installed")
+    rollback_entry = current.get("rollback")
+    if not isinstance(rollback_entry, dict):
+        raise DistributionError(
+            "cannot roll back an installation whose snapshot is not integrity-bound"
+        )
     health = install_module.doctor_install(project_root)
     if not health["ready"]:
         raise DistributionError("cannot roll back a modified installation")
@@ -46,12 +52,51 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
     previous_lock_path = rollback / LOCK_NAME
     if not previous_install.is_dir() or not previous_lock_path.is_file():
         raise DistributionError("no previous ISEKAI installation is available")
-    previous_lock = install_module._read_json(previous_lock_path)
+    stage_root = Path(
+        tempfile.mkdtemp(prefix=".isekai-rollback-stage-", dir=project_root)
+    )
+    try:
+        verified_rollback = stage_root / "verified-rollback"
+        shutil.copytree(rollback, verified_rollback, symlinks=True)
+        actual_digest = install_module.tree_digest(
+            verified_rollback,
+            include_transients=True,
+        )
+        if actual_digest != rollback_entry.get("digest"):
+            raise DistributionError("rollback snapshot digest mismatch")
+        return _restore_verified_snapshot(
+            project_root,
+            current,
+            managed,
+            verified_rollback,
+            stage_root,
+        )
+    finally:
+        if stage_root.exists():
+            shutil.rmtree(stage_root)
+
+
+def _restore_verified_snapshot(
+    project_root: Path,
+    current: dict[str, Any],
+    managed: Path,
+    rollback: Path,
+    stage_root: Path,
+) -> dict[str, Any]:
+    previous_install = rollback / "install"
+    previous_lock_path = rollback / LOCK_NAME
+    previous_lock = install_module._load_install_lock_path(previous_lock_path)
 
     current_marketplace = str(current.get("marketplace") or "isekai-project")
     host_state_path = rollback / "host-config.json"
     host_restore_state = (
-        install_module._read_json(host_state_path) if host_state_path.is_file() else {}
+        install_module._read_control_json(
+            host_state_path,
+            root=rollback,
+            label="rollback host configuration",
+        )
+        if host_state_path.exists() or host_state_path.is_symlink()
+        else {}
     )
     host_runtimes = set(host_restore_state) & {"codex", "claude"}
     for runtime, relative in {
@@ -109,24 +154,36 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
                 f"refusing to replace an unmanaged {relative.as_posix()} directory"
             )
 
-    stage_root = Path(
-        tempfile.mkdtemp(prefix=".isekai-rollback-stage-", dir=project_root)
-    )
     staged = stage_root / MANAGED_ROOT
     previous_adapter_copies = stage_root / "previous-adapters"
     previous_project_bytes = (
-        (rollback / "project.json").read_bytes()
-        if (rollback / "project.json").is_file()
+        install_module._read_control_bytes(
+            rollback / "project.json",
+            root=rollback,
+            label="rollback project manifest",
+        )
+        if (rollback / "project.json").exists()
+        or (rollback / "project.json").is_symlink()
         else None
     )
     backup = project_root / f".{MANAGED_ROOT}-backup-{uuid.uuid4().hex}"
     adapter_backup = project_root / f".isekai-adapter-backup-{uuid.uuid4().hex}"
     project_manifest = project_root / "project.json"
     current_project_bytes = (
-        project_manifest.read_bytes() if project_manifest.is_file() else None
+        install_module._read_control_bytes(
+            project_manifest,
+            root=project_root,
+            label="project manifest",
+        )
+        if project_manifest.exists() or project_manifest.is_symlink()
+        else None
     )
     lock_path = project_root / LOCK_NAME
-    current_lock_bytes = lock_path.read_bytes()
+    current_lock_bytes = install_module._read_control_bytes(
+        lock_path,
+        root=project_root,
+        label=LOCK_NAME,
+    )
     host_restored = False
 
     try:
@@ -150,6 +207,14 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
             )
         if current_project_bytes is not None:
             (redo / "project.json").write_bytes(current_project_bytes)
+        previous_lock = dict(previous_lock)
+        previous_lock["rollback"] = {
+            "path": f"{MANAGED_ROOT}/rollback",
+            "digest": install_module.tree_digest(
+                redo,
+                include_transients=True,
+            ),
+        }
 
         managed.rename(backup)
         staged.rename(managed)
@@ -172,7 +237,7 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
         if previous_project_bytes is None:
             project_manifest.unlink(missing_ok=True)
         else:
-            project_manifest.write_bytes(previous_project_bytes)
+            write_bytes_atomic(project_manifest, previous_project_bytes)
         install_module._write_json_atomic(lock_path, previous_lock)
         postflight = install_module.doctor_install(project_root)
         if not postflight["ready"]:
@@ -201,12 +266,10 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
         if current_project_bytes is None:
             project_manifest.unlink(missing_ok=True)
         else:
-            project_manifest.write_bytes(current_project_bytes)
-        lock_path.write_bytes(current_lock_bytes)
+            write_bytes_atomic(project_manifest, current_project_bytes)
+        write_bytes_atomic(lock_path, current_lock_bytes)
         raise
     finally:
-        if stage_root.exists():
-            shutil.rmtree(stage_root)
         if backup.exists():
             shutil.rmtree(backup)
         if adapter_backup.exists():

@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ...support.files import UnsafeControlFile, read_control_file
 from ...support.jsonio import write_json_atomic
 from ...support.locking import file_lock
 from ..project import _context_receipt_id
@@ -62,12 +63,44 @@ UNIT_REQUIRED_FILES = {
 }
 
 
-def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
-    path = unit_dir / relative
+def _unit_path_without_symlinks(unit_dir: Path, relative: str) -> Path:
+    relative_path = Path(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise ValueError(f"Unit artifact path must stay inside the Unit: {relative}")
+    candidate = unit_dir
+    for part in relative_path.parts:
+        candidate /= part
+        if candidate.is_symlink():
+            raise ValueError(f"Unit artifact path contains a symlink: {relative}")
+    return candidate
+
+
+def _unit_bytes(unit_dir: Path, relative: str) -> bytes:
+    path = _unit_path_without_symlinks(unit_dir, relative)
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        return read_control_file(
+            path,
+            root=unit_dir,
+            label=f"Unit artifact {relative}",
+        )
     except FileNotFoundError as exc:
         raise ValueError(f"missing Unit file: {relative}") from exc
+    except UnsafeControlFile as exc:
+        raise ValueError(str(exc)) from exc
+    except OSError as exc:
+        raise ValueError(f"cannot safely read Unit file {relative}: {exc}") from exc
+
+
+def _unit_text(unit_dir: Path, relative: str) -> str:
+    try:
+        return _unit_bytes(unit_dir, relative).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"invalid UTF-8 in Unit file {relative}") from exc
+
+
+def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
+    try:
+        value = json.loads(_unit_text(unit_dir, relative))
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid Unit JSON in {relative}: {exc}") from exc
     if not isinstance(value, dict):
@@ -77,6 +110,15 @@ def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
 
 def _unit_preflight_issues(unit_dir: Path) -> list[str]:
     issues: list[str] = []
+    for relative in sorted(UNIT_REQUIRED_FILES):
+        try:
+            path = _unit_path_without_symlinks(unit_dir, relative)
+            if path.exists() or path.is_symlink():
+                _unit_bytes(unit_dir, relative)
+        except ValueError as exc:
+            issues.append(str(exc))
+    if issues:
+        return issues
     try:
         unit = _unit_json(unit_dir, "unit.json")
     except ValueError as exc:

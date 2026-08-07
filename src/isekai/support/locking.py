@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import errno
 import os
+import stat
 import time
-import uuid
+from dataclasses import dataclass
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from .files import metadata_is_path_alias
 
-# A lock is held only for the few filesystem operations that rewrite one
-# artifact. Anything older than this was abandoned by a process that died while
-# holding it, and must not block the Unit or Foundation forever.
-LOCK_STALE_SECONDS = 300
+
 # Held sections are short, so a caller that arrives during one should wait for
 # it rather than fail. Only a genuinely long-running holder exceeds this.
 LOCK_WAIT_SECONDS = 5.0
@@ -22,89 +22,120 @@ class LockUnavailable(RuntimeError):
     """Raised when another process is already mutating the same artifact."""
 
 
-def _stale(lock_path: Path) -> bool:
-    """Report whether an existing lock was abandoned and may be reclaimed."""
+def _same_open_file(descriptor: int, path: Path) -> bool:
     try:
-        return time.time() - lock_path.stat().st_mtime >= LOCK_STALE_SECONDS
-    except FileNotFoundError:
-        return True
-
-
-def _same_file(first: Path, second: Path) -> bool:
-    try:
-        return os.stat(first).st_ino == os.stat(second).st_ino
+        opened = os.fstat(descriptor)
+        current = path.stat()
     except FileNotFoundError:
         return False
+    return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
 
 
-def _same_claim(first: Path, second: Path) -> bool:
-    try:
-        return first.read_bytes() == second.read_bytes()
-    except (FileNotFoundError, OSError):
-        return False
+@dataclass(frozen=True)
+class _LockClaim:
+    descriptor: int
 
 
-def _try_claim(claim: Path, lock_path: Path) -> bool:
-    """Attempt one atomic acquisition. Return True when the lock is ours.
+def _try_os_lock(descriptor: int) -> bool:
+    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+        import msvcrt
 
-    ``os.link`` fails atomically when the target exists, and comparing inodes
-    afterwards detects the one case a bare ``O_EXCL`` retry cannot: two
-    processes both deciding an abandoned lock is stale, both unlinking it, and
-    both creating what each believes is its own lock.
-    """
-    try:
-        os.link(claim, lock_path)
-    except FileExistsError:
-        return False
-    except (OSError, NotImplementedError):
-        # Filesystems without hard links fall back to an exclusive create. The
-        # reclaim race stays possible there, but a lock is still better than none.
+        os.lseek(descriptor, 0, os.SEEK_SET)
         try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        except FileExistsError:
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        except OSError:
             return False
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(claim.read_bytes())
-                stream.flush()
-                os.fsync(stream.fileno())
-        except Exception:
-            lock_path.unlink(missing_ok=True)
-            raise
         return True
-    return _same_file(claim, lock_path)
 
+    import fcntl
 
-def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> Path | None:
-    """Take ``lock_path``, returning the claim file that proves ownership."""
-    claim_id = uuid.uuid4().hex
-    claim = lock_path.with_name(f"{lock_path.name}.{claim_id}")
-    claim.parent.mkdir(parents=True, exist_ok=True)
-    claim.write_text(f"{os.getpid()}:{claim_id}\n", encoding="utf-8")
-    deadline = time.monotonic() + max(timeout, 0.0)
     try:
-        while True:
-            if _try_claim(claim, lock_path):
-                return claim
-            if _stale(lock_path):
-                lock_path.unlink(missing_ok=True)
-                continue
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        return False
+    return True
+
+
+def _unlock(descriptor: int) -> None:
+    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(descriptor, fcntl.LOCK_UN)
+
+
+def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> _LockClaim | None:
+    """Take an OS-managed advisory lock, recovering safely after process death."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(lock_path, flags, 0o600)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                return None
+            raise
+        try:
+            path_metadata = lock_path.lstat()
+        except FileNotFoundError:
+            path_metadata = None
+        if path_metadata is None:
+            os.close(descriptor)
             if time.monotonic() >= deadline:
-                break
+                return None
             time.sleep(_POLL_SECONDS)
-    except Exception:
-        claim.unlink(missing_ok=True)
-        raise
-    claim.unlink(missing_ok=True)
-    return None
+            continue
+        if metadata_is_path_alias(path_metadata):
+            os.close(descriptor)
+            return None
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            os.close(descriptor)
+            return None
+        if metadata.st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        if _try_os_lock(descriptor):
+            # A previous owner may have unlinked this inode while a waiter had it
+            # open. Never enter through an orphaned descriptor while a new path
+            # can be locked independently.
+            if _same_open_file(descriptor, lock_path):
+                return _LockClaim(descriptor)
+            _unlock(descriptor)
+        os.close(descriptor)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(_POLL_SECONDS)
 
 
-def _release(lock_path: Path, claim: Path) -> None:
-    # Only drop the lock while we still hold it, so a reclaimed lock belonging
-    # to another process is never deleted.
-    if _same_file(claim, lock_path) or _same_claim(claim, lock_path):
-        lock_path.unlink(missing_ok=True)
-    claim.unlink(missing_ok=True)
+def _release(lock_path: Path, claim: _LockClaim) -> None:
+    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+        # Windows does not allow unlinking an open file. Release and close first;
+        # if a waiter acquired it in the meantime, deletion fails and the shared
+        # lock path safely remains for that owner.
+        try:
+            _unlock(claim.descriptor)
+        finally:
+            os.close(claim.descriptor)
+        try:
+            lock_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass
+        return
+    try:
+        if _same_open_file(claim.descriptor, lock_path):
+            lock_path.unlink(missing_ok=True)
+    finally:
+        try:
+            _unlock(claim.descriptor)
+        finally:
+            os.close(claim.descriptor)
 
 
 @contextmanager
@@ -121,6 +152,19 @@ def file_lock(
     records.
     """
     path = Path(lock_path)
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if metadata_is_path_alias(metadata):
+            raise LockUnavailable(
+                f"{subject} lock path must not be a symlink or reparse point"
+            )
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise LockUnavailable(
+                f"{subject} lock path must be a single-link regular file"
+            )
     claim = _acquire(path, timeout)
     if claim is None:
         raise LockUnavailable(

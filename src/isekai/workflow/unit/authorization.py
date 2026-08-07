@@ -87,35 +87,135 @@ def _normalize_authorization_target(
     return relative.as_posix(), None
 
 
+def _is_case_insensitive_directory(directory: Path) -> bool:
+    """Detect whether names in ``directory`` alias across letter case.
+
+    POSIX path normalization does not expose per-volume case sensitivity.  Use
+    an existing entry instead, so APFS case-insensitive aliases are protected
+    without treating distinct files on case-sensitive filesystems as equal.
+    """
+    try:
+        entries = directory.iterdir()
+        for entry in entries:
+            alternate_name = entry.name.swapcase()
+            if alternate_name == entry.name:
+                continue
+            try:
+                return (directory / alternate_name).samefile(entry)
+            except FileNotFoundError:
+                return False
+            except OSError:
+                continue
+    except OSError:
+        return False
+    return False
+
+
+def _filesystem_path_key(value: str, *, case_insensitive: bool) -> str:
+    return value.casefold() if case_insensitive else value
+
+
 def _authorization_target_protection_issue(
     unit_dir: Path,
     action: str,
     normalized_target: str,
 ) -> str | None:
-    if action != "edit":
-        return None
     target_parts = Path(normalized_target).parts
     if not target_parts:
         return "Authorization target must identify a path inside the Project"
-    if normalized_target in {"project.json", "isekai.lock.json"}:
-        return f"Core control artifact cannot be edited through authorize: {normalized_target}"
-    if target_parts[0] in {".git", ".isekai"}:
-        return f"Managed control path cannot be edited through authorize: {normalized_target}"
     receipt = _unit_json(unit_dir, "context-receipt.json")
     project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
+    project_case_insensitive = _is_case_insensitive_directory(project_root)
+    target_key = _filesystem_path_key(
+        normalized_target, case_insensitive=project_case_insensitive
+    )
+    target_part_key = _filesystem_path_key(
+        target_parts[0], case_insensitive=project_case_insensitive
+    )
+    if action == "edit" and target_key in {"project.json", "isekai.lock.json"}:
+        return f"Core control artifact cannot be edited through authorize: {normalized_target}"
+    if action == "edit" and target_part_key in {".git", ".isekai"}:
+        return f"Managed control path cannot be edited through authorize: {normalized_target}"
     candidate = (project_root / normalized_target).resolve()
+    try:
+        resolved_relative = candidate.relative_to(project_root)
+    except ValueError:
+        return (
+            "Authorization target escapes the selected Project after path "
+            f"resolution: {normalized_target}"
+        )
+    resolved_target = resolved_relative.as_posix()
+    resolved_parts = resolved_relative.parts
+    resolved_target_key = _filesystem_path_key(
+        resolved_target, case_insensitive=project_case_insensitive
+    )
+    resolved_part_key = (
+        _filesystem_path_key(
+            resolved_parts[0], case_insensitive=project_case_insensitive
+        )
+        if resolved_parts
+        else ""
+    )
+    if action == "edit" and resolved_target_key in {
+        "project.json",
+        "isekai.lock.json",
+    }:
+        return (
+            "Core control artifact cannot be edited through authorize after path "
+            f"resolution: {normalized_target} -> {resolved_target}"
+        )
+    if action == "edit" and resolved_part_key in {".git", ".isekai"}:
+        return (
+            "Managed control path cannot be edited through authorize after path "
+            f"resolution: {normalized_target} -> {resolved_target}"
+        )
+    try:
+        if candidate.exists() and not candidate.is_dir():
+            metadata = candidate.stat()
+            if not candidate.is_file():
+                return (
+                    "Authorization target must be a regular file: "
+                    f"{normalized_target}"
+                )
+            if metadata.st_nlink > 1:
+                return (
+                    "Hard-linked files cannot be authorized: "
+                    f"{normalized_target}"
+                )
+    except OSError as exc:
+        return (
+            "Authorization target metadata cannot be verified: "
+            f"{normalized_target}: {exc}"
+        )
+    if action != "edit":
+        return None
     if candidate.is_dir():
         return (
             "Directory targets cannot be edited through authorize; "
             f"authorize each concrete file instead: {normalized_target}"
         )
     current = candidate if candidate.is_dir() else candidate.parent
-    while True:
+    while current == project_root or project_root in current.parents:
         if (current / "unit.json").is_file():
             relative = candidate.relative_to(current).as_posix()
-            if relative in PROTECTED_UNIT_ARTIFACTS or any(
-                relative.startswith(prefix)
+            unit_case_insensitive = _is_case_insensitive_directory(current)
+            relative_key = _filesystem_path_key(
+                relative, case_insensitive=unit_case_insensitive
+            )
+            protected_artifacts = {
+                _filesystem_path_key(
+                    artifact, case_insensitive=unit_case_insensitive
+                )
+                for artifact in PROTECTED_UNIT_ARTIFACTS
+            }
+            protected_prefixes = tuple(
+                _filesystem_path_key(
+                    prefix, case_insensitive=unit_case_insensitive
+                )
                 for prefix in PROTECTED_UNIT_ARTIFACT_PREFIXES
+            )
+            if relative_key in protected_artifacts or any(
+                relative_key.startswith(prefix) for prefix in protected_prefixes
             ):
                 return (
                     "Unit control artifact cannot be edited through authorize: "
@@ -125,7 +225,14 @@ def _authorization_target_protection_issue(
         if current == project_root:
             break
         current = current.parent
-    if candidate.name.startswith(UNIT_LOCK_NAME):
+    candidate_case_insensitive = _is_case_insensitive_directory(candidate.parent)
+    candidate_name_key = _filesystem_path_key(
+        candidate.name, case_insensitive=candidate_case_insensitive
+    )
+    lock_name_key = _filesystem_path_key(
+        UNIT_LOCK_NAME, case_insensitive=candidate_case_insensitive
+    )
+    if candidate_name_key.startswith(lock_name_key):
         return f"Unit lock cannot be edited through authorize: {normalized_target}"
     return None
 

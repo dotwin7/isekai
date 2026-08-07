@@ -26,6 +26,24 @@ def _validate_git_source(source: str) -> str:
         )
     if "://" in source:
         parsed = urlparse(source)
+        if parsed.scheme.casefold() == "file":
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise DistributionError(
+                    "Git file URL must use a canonical local authority"
+                ) from exc
+            hostname = parsed.hostname
+            if (
+                parsed.username is not None
+                or parsed.password is not None
+                or port is not None
+                or (hostname is not None and hostname.casefold() != "localhost")
+            ):
+                raise DistributionError(
+                    "Git file URL must omit its authority or use localhost "
+                    "without user information or a port"
+                )
         credentialed_http = (
             parsed.scheme.lower() in {"http", "https"}
             and parsed.username is not None
@@ -69,6 +87,13 @@ def _resolve_immutable_git_ref(checkout: Path, ref: str) -> str:
             raise DistributionError(f"Git ref is not the requested full commit: {ref}")
         return commit
     try:
+        _git(["check-ref-format", f"refs/tags/{ref}"], cwd=checkout)
+    except DistributionError as exc:
+        raise DistributionError(
+            "Git ref must be an immutable tag or full commit; "
+            f"revision expressions are not allowed: {ref}"
+        ) from exc
+    try:
         return _git(
             ["rev-parse", "--verify", f"refs/tags/{ref}^{{commit}}"],
             cwd=checkout,
@@ -81,9 +106,19 @@ def _resolve_immutable_git_ref(checkout: Path, ref: str) -> str:
 
 
 def _local_git_source(value: str) -> Path | None:
-    if value.startswith("file://"):
-        parsed = urlparse(value)
-        if parsed.netloc not in {"", "localhost"}:
+    parsed = urlparse(value)
+    if "://" in value and parsed.scheme.casefold() == "file":
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        hostname = parsed.hostname
+        if (
+            parsed.username is not None
+            or parsed.password is not None
+            or port is not None
+            or (hostname is not None and hostname.casefold() != "localhost")
+        ):
             return None
         return Path(unquote(parsed.path)).expanduser().resolve()
     if "://" in value or re.match(r"^[^/\\]+@[^:]+:", value):
@@ -91,15 +126,77 @@ def _local_git_source(value: str) -> Path | None:
     return Path(value).expanduser().resolve()
 
 
+_DEFAULT_GIT_PORTS = {
+    "http": 80,
+    "https": 443,
+    "ssh": 22,
+    "git": 9418,
+}
+
+
+def _canonical_git_hostname(value: str) -> str:
+    hostname = value.strip("[]").rstrip(".").casefold()
+    try:
+        return hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return hostname
+
+
+def _remote_git_source(value: str) -> tuple[object, ...] | None:
+    """Canonicalize definite remote spellings without guessing path aliases."""
+    if "://" in value:
+        parsed = urlparse(value)
+        scheme = parsed.scheme.casefold()
+        hostname = parsed.hostname
+        if not scheme or hostname is None:
+            return None
+        try:
+            port = parsed.port
+        except ValueError:
+            return None
+        if port == _DEFAULT_GIT_PORTS.get(scheme):
+            port = None
+        return (
+            "url",
+            scheme,
+            parsed.username or "",
+            _canonical_git_hostname(hostname),
+            port,
+            parsed.path.rstrip("/") or "/",
+            parsed.query,
+            parsed.fragment,
+        )
+    scp = re.fullmatch(
+        r"(?:(?P<user>[^@/:]+)@)(?P<host>\[[^]]+\]|[^/:]+):(?P<path>.+)",
+        value,
+    )
+    if scp is None:
+        return None
+    return (
+        "scp",
+        scp.group("user"),
+        _canonical_git_hostname(scp.group("host")),
+        scp.group("path").rstrip("/"),
+    )
+
+
 def _git_sources_match(expected: str, actual: str) -> bool:
     if expected.rstrip("/") == actual.rstrip("/"):
         return True
     expected_path = _local_git_source(expected)
     actual_path = _local_git_source(actual)
-    return (
+    if (
         expected_path is not None
         and actual_path is not None
         and expected_path == actual_path
+    ):
+        return True
+    expected_remote = _remote_git_source(expected)
+    actual_remote = _remote_git_source(actual)
+    return (
+        expected_remote is not None
+        and actual_remote is not None
+        and expected_remote == actual_remote
     )
 
 
@@ -125,14 +222,55 @@ def _reject_moved_ref(project: str | Path, source: str, ref: str, commit: str) -
     if not current:
         return
     locked_source = current.get("source", {})
+    locked_git = locked_source.get("git")
     if (
-        locked_source.get("git") == source
+        isinstance(locked_git, str)
+        and _git_sources_match(locked_git, source)
         and locked_source.get("ref") == ref
         and locked_source.get("commit") not in {None, commit}
     ):
         raise DistributionError(
             "Git ref moved to a different commit; use a new immutable tag"
         )
+
+
+def _verify_checkout_claim(
+    checkout: Path,
+    project_root: Path,
+    *,
+    source: str,
+    ref: str,
+    commit: str,
+) -> None:
+    """Bind a public checkout install to its source, ref, HEAD, and worktree."""
+    _validate_git_source(source)
+    if not isinstance(ref, str) or not ref.strip() or ref.startswith("-"):
+        raise DistributionError(
+            "Git ref must be a non-empty immutable tag or full commit"
+        )
+    if not isinstance(commit, str) or not re.fullmatch(
+        r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit
+    ):
+        raise DistributionError("commit must be a full 40- or 64-character hash")
+    if not (checkout / ".git").exists():
+        raise DistributionError(f"checkout is not a Git checkout: {checkout}")
+    _verify_checkout_source(checkout, source)
+    resolved = _resolve_immutable_git_ref(checkout, ref)
+    head = _git(["rev-parse", "--verify", "HEAD^{commit}"], cwd=checkout)
+    if resolved.lower() != commit.lower() or head.lower() != commit.lower():
+        raise DistributionError(
+            "checkout HEAD and immutable ref do not match the claimed commit"
+        )
+    dirty = _git(
+        ["status", "--porcelain", "--untracked-files=normal"], cwd=checkout
+    )
+    if dirty:
+        raise DistributionError(
+            "checkout has uncommitted changes; refusing to record an unrelated "
+            "commit: "
+            + "; ".join(sorted(dirty.splitlines())[:5])
+        )
+    _reject_moved_ref(project_root, source, ref, commit)
 
 
 def install_from_git(
@@ -231,25 +369,17 @@ def plan_git_update(
     include_foundation: bool = False,
 ) -> dict[str, Any]:
     project_root = Path(project).expanduser().resolve()
+    _validate_git_source(source)
     current = load_install_lock(project_root)
     if current is None:
         raise DistributionError("cannot plan an update before ISEKAI is installed")
-    _validate_git_source(source)
     selected = _normalize_runtimes(runtimes)
     with tempfile.TemporaryDirectory(prefix="isekai-release-plan-") as temporary:
         checkout = Path(temporary) / "checkout"
         _git(["clone", "--quiet", "--no-checkout", source, str(checkout)])
         commit = _resolve_immutable_git_ref(checkout, ref)
         _git(["checkout", "--quiet", "--detach", commit], cwd=checkout)
-        locked_source = current.get("source", {})
-        if (
-            locked_source.get("git") == source
-            and locked_source.get("ref") == ref
-            and locked_source.get("commit") not in {None, commit}
-        ):
-            raise DistributionError(
-                "Git ref moved to a different commit; use a new immutable tag"
-            )
+        _reject_moved_ref(project_root, source, ref, commit)
         target = _verify_or_raise(checkout)
 
     def source_digest(entry: object) -> object:

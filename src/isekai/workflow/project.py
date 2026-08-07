@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -14,6 +15,7 @@ from ..foundation import (
     validate_condition_definition,
     validate_rule_definition,
 )
+from ..support.files import UnsafeControlFile, read_control_file
 from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
@@ -31,15 +33,29 @@ def _context_receipt_id(receipt: dict[str, Any]) -> str:
     return "CTX-" + hashlib.sha256(digest_input.encode()).hexdigest()[:16]
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def _load_json(
+    path: Path,
+    *,
+    root: Path | None = None,
+    label: str = "project manifest",
+) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        content = read_control_file(
+            path,
+            root=root or path.parent,
+            label=label,
+        ).decode("utf-8")
+        value = json.loads(content)
     except FileNotFoundError as exc:
-        raise FoundationError(f"missing project manifest: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise FoundationError(f"invalid project manifest: {exc}") from exc
+        raise FoundationError(f"missing {label}: {path}") from exc
+    except UnsafeControlFile as exc:
+        raise FoundationError(str(exc)) from exc
+    except OSError as exc:
+        raise FoundationError(f"cannot safely read {label}: {path}: {exc}") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FoundationError(f"invalid {label}: {exc}") from exc
     if not isinstance(value, dict):
-        raise FoundationError("project manifest must be a JSON object")
+        raise FoundationError(f"{label} must be a JSON object")
     return value
 
 
@@ -61,12 +77,17 @@ def _load_project_extension(
         raise FoundationError("project extension reference needs id")
     if not isinstance(relative_path, str) or not relative_path.strip():
         raise FoundationError(f"project extension {asset_id} needs path")
-    extension_path = (project_root / relative_path).resolve()
+    lexical_extension_path = project_root / relative_path
+    extension_path = lexical_extension_path.resolve()
     try:
         extension_path.relative_to(project_root.resolve())
     except ValueError as exc:
         raise FoundationError(f"project extension path escapes project root: {relative_path}") from exc
-    asset = _load_json(extension_path)
+    asset = _load_json(
+        lexical_extension_path,
+        root=project_root,
+        label=f"project extension {asset_id}",
+    )
     required = {
         "id", "kind", "version", "schema_version", "status", "owner", "provenance",
         "classification", "scope", "content",
@@ -142,12 +163,26 @@ def load_project(
 
         manifest_path = discover_project(requested_path)
     else:
-        manifest_path = requested_path.resolve()
-    project = _load_json(manifest_path)
+        manifest_path = Path(os.path.abspath(requested_path))
+        if manifest_path.name != "project.json":
+            raise FoundationError(
+                f"project manifest must be named project.json: {manifest_path}"
+            )
+    project = _load_json(
+        manifest_path,
+        root=manifest_path.parent,
+        label="project manifest",
+    )
     required = {"id", "kind", "version", "foundation_path", "profiles", "extensions"}
     missing = sorted(required - project.keys())
     if missing:
         raise FoundationError(f"project manifest missing fields: {', '.join(missing)}")
+    for field in ("id", "version", "foundation_path"):
+        value = project.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise FoundationError(
+                f"project manifest {field} must be a non-empty string"
+            )
     if project["kind"] != "project":
         raise FoundationError("project manifest kind must be project")
     schema_version = str(project.get("schema_version", "1.0.0"))
@@ -171,8 +206,13 @@ def load_project(
             raise FoundationError("Project Foundation digest does not match isekai.lock.json")
 
     profiles = project["profiles"]
-    if not isinstance(profiles, list):
-        raise FoundationError("project profiles must be a list")
+    if not isinstance(profiles, list) or any(
+        not isinstance(profile, str) or not profile.strip()
+        for profile in profiles
+    ):
+        raise FoundationError("project profiles must be a list of non-empty strings")
+    if len(set(profiles)) != len(profiles):
+        raise FoundationError("project profiles must not contain duplicates")
     document_language = str(project.get("document_language", "ko"))
     if document_language not in {"ko", "en"}:
         raise FoundationError("project document_language must be ko or en")
@@ -194,6 +234,25 @@ def load_project(
         _load_project_extension(manifest_path.parent, entry, foundation)
         for entry in raw_extensions
     ]
+    extension_ids = [asset["id"] for asset in project_extensions]
+    if len(set(extension_ids)) != len(extension_ids):
+        raise FoundationError("project extensions must not contain duplicate IDs")
+    rule_owners: dict[str, str] = {}
+    for rule in foundation.rules():
+        rule_id = str(rule["id"])
+        if rule_id in rule_owners:
+            raise FoundationError(f"duplicate applied Foundation rule id: {rule_id}")
+        rule_owners[rule_id] = "Foundation"
+    for extension in project_extensions:
+        for rule in extension.get("content", {}).get("rules", []):
+            rule_id = str(rule["id"])
+            previous = rule_owners.get(rule_id)
+            if previous is not None:
+                raise FoundationError(
+                    f"duplicate applied rule id {rule_id}: {previous} and "
+                    f"extension {extension['id']}"
+                )
+            rule_owners[rule_id] = f"extension {extension['id']}"
     normalized_project = dict(project)
     normalized_project["schema_version"] = schema_version
     normalized_project["profiles"] = list(profiles)
@@ -206,7 +265,13 @@ def load_project(
 def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict[str, Any]:
     manifest_path, project, foundation, project_extensions = load_project(path)
     applicable_rules: list[dict[str, Any]] = []
-    for rule in foundation.rules():
+    rule_candidates = list(foundation.rules())
+    rule_candidates.extend(
+        rule
+        for extension in project_extensions
+        for rule in extension.get("content", {}).get("rules", [])
+    )
+    for rule in rule_candidates:
         targets = rule.get("applies_to", [])
         if "*" in targets or route.value in targets:
             applicable_rules.append(dict(rule))

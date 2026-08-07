@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ...support.jsonio import write_bytes_atomic
 from ...support.locking import LockUnavailable
 from ...support.scope import scope_pattern_matches
 from ..routing import AGENT_ALLOWED_ACTIONS, AGENT_PROHIBITED_ACTIONS
@@ -16,6 +17,7 @@ from .authorization import (
     _normalize_authorization_target,
 )
 from .common import (
+    _unit_bytes,
     _unit_json,
     _unit_preflight_issues,
     _write_json,
@@ -23,6 +25,7 @@ from .common import (
 )
 from .decisions import (
     _approved_envelope_decision_issues,
+    _decision_ledger_issues,
     _decision_record_issues,
     _latest_decision,
 )
@@ -307,6 +310,11 @@ def _propose_execution_envelope_locked(
     proposed_by: str,
     expires_in_hours: int,
 ) -> dict[str, Any]:
+    preflight_issues = _unit_preflight_issues(unit_dir)
+    if preflight_issues:
+        raise ValueError(
+            "Execution Envelope proposal blocked: " + "; ".join(preflight_issues)
+        )
     unit = _unit_json(unit_dir, "unit.json")
     if unit.get("status") not in EXECUTION_ENVELOPE_PROPOSABLE_STATUSES:
         raise ValueError(
@@ -344,21 +352,47 @@ def _propose_execution_envelope_locked(
     issues = _execution_envelope_issues(envelope, str(unit.get("id")))
     if issues:
         raise ValueError("Execution Envelope rejected: " + "; ".join(issues))
-    _write_json(unit_dir / "execution-envelope.json", envelope)
-    _write_json(
-        unit_dir / "execution-authorizations.json",
-        {
-            "type": "execution-authorization-ledger",
-            "schema_version": "1.0.0",
-            "unit_id": unit.get("id"),
-            "envelope_id": envelope["id"],
-            "approval_digest": envelope["approval_digest"],
-            "grants": [],
-        },
-    )
-    persisted = _unit_json(unit_dir, "execution-envelope.json")
-    if persisted.get("id") != envelope["id"]:
-        raise ValueError("Execution Envelope postflight blocked: record was not persisted")
+    ledger = {
+        "type": "execution-authorization-ledger",
+        "schema_version": "1.0.0",
+        "unit_id": unit.get("id"),
+        "envelope_id": envelope["id"],
+        "approval_digest": envelope["approval_digest"],
+        "grants": [],
+    }
+    envelope_path = unit_dir / "execution-envelope.json"
+    ledger_path = unit_dir / "execution-authorizations.json"
+    previous_envelope = _unit_bytes(unit_dir, "execution-envelope.json")
+    previous_ledger = _unit_bytes(unit_dir, "execution-authorizations.json")
+    try:
+        _write_json(envelope_path, envelope)
+        _write_json(ledger_path, ledger)
+        persisted = _unit_json(unit_dir, "execution-envelope.json")
+        persisted_ledger = _unit_json(unit_dir, "execution-authorizations.json")
+        if (
+            persisted.get("id") != envelope["id"]
+            or persisted_ledger.get("envelope_id") != envelope["id"]
+            or persisted_ledger.get("approval_digest") != envelope["approval_digest"]
+        ):
+            raise ValueError(
+                "Execution Envelope postflight blocked: records were not persisted"
+            )
+    except Exception as exc:
+        restore_errors: list[str] = []
+        for path, content in (
+            (envelope_path, previous_envelope),
+            (ledger_path, previous_ledger),
+        ):
+            try:
+                write_bytes_atomic(path, content)
+            except Exception as restore_exc:  # pragma: no cover - secondary filesystem failure
+                restore_errors.append(f"{path}: {restore_exc}")
+        if restore_errors:
+            raise ValueError(
+                "Execution Envelope transaction failed and could not be restored: "
+                + "; ".join(restore_errors)
+            ) from exc
+        raise
     return {"path": str(unit_dir / "execution-envelope.json"), "envelope": envelope}
 
 
@@ -419,8 +453,16 @@ def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
             )
         decisions = _unit_json(unit_dir, "decisions.json")
         unit = _unit_json(unit_dir, "unit.json")
-        if decisions.get("unit_id") != unit.get("id"):
-            raise ValueError("decisions.json unit_id does not match Unit")
+        decision_issues = _decision_ledger_issues(
+            decisions,
+            unit_id=str(unit.get("id")),
+            scope=str(unit.get("scope")),
+        )
+        if decision_issues:
+            raise ValueError(
+                "Execution Envelope approval blocked: "
+                + "; ".join(decision_issues)
+            )
         decision = _latest_decision(decisions, "inception")
         if decision is None or decision.get("outcome") != "approved":
             raise ValueError("Execution Envelope needs an approved inception Decision")

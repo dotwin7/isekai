@@ -23,7 +23,7 @@
       {
         "id": "KNOWLEDGE-REVIEW-001",
         "type": "guidance",
-        "status": "draft",
+        "status": "approved",
         "owner": "delivery-domain-owner",
         "body_path": "knowledge/software-delivery-review.md",
         "classification": "internal",

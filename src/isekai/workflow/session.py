@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import json
 import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..support.files import metadata_is_path_alias
 from ..support.jsonio import write_json_atomic
 from .project import resolve_context
 from .routing import WorkRoute
-from .unit.common import UNIT_LOCK_NAME, unit_lock
+from .unit.common import (
+    UNIT_LOCK_NAME,
+    _unit_json,
+    _unit_preflight_issues,
+    unit_lock,
+)
 from .unit.lifecycle import unit_status
 
 
@@ -40,7 +46,7 @@ def _descendant_project_candidates(root: Path) -> list[Path]:
             name for name in directories if name not in PROJECT_DISCOVERY_EXCLUDES
         )
         if "project.json" in files:
-            matches.append(Path(current, "project.json").resolve())
+            matches.append(Path(current, "project.json").absolute())
     return sorted(set(matches))
 
 
@@ -53,11 +59,13 @@ def _multiple_project_error(start: Path, matches: list[Path]) -> SessionError:
 
 
 def discover_project(start: str | Path = ".") -> Path:
-    candidate = Path(start).expanduser().resolve()
-    if candidate.is_file():
-        if candidate.name != "project.json":
-            raise SessionError(f"project path must be project.json: {candidate}")
-        return candidate
+    requested = Path(start).expanduser()
+    if requested.is_file():
+        manifest = requested.absolute()
+        if manifest.name != "project.json":
+            raise SessionError(f"project path must be project.json: {manifest}")
+        return manifest
+    candidate = requested.resolve()
     if not candidate.is_dir():
         raise SessionError(f"project path does not exist: {candidate}")
 
@@ -83,12 +91,35 @@ def discover_project(start: str | Path = ".") -> Path:
 
 def _unit_candidates(project_path: Path) -> list[Path]:
     units_root = project_path.parent / "units"
-    if not units_root.is_dir():
+    try:
+        root_metadata = units_root.lstat()
+    except FileNotFoundError:
         return []
-    return sorted(
-        path for path in units_root.iterdir()
-        if path.is_dir() and not path.name.startswith(".")
-    )
+    except OSError as exc:
+        raise SessionError(f"cannot inspect Unit root {units_root}: {exc}") from exc
+    if metadata_is_path_alias(root_metadata) or not stat.S_ISDIR(
+        root_metadata.st_mode
+    ):
+        return []
+    candidates: list[Path] = []
+    try:
+        children = list(units_root.iterdir())
+    except OSError as exc:
+        raise SessionError(f"cannot list Unit root {units_root}: {exc}") from exc
+    for path in children:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SessionError(f"cannot inspect Unit candidate {path}: {exc}") from exc
+        if (
+            stat.S_ISDIR(metadata.st_mode)
+            and not metadata_is_path_alias(metadata)
+            and not path.name.startswith(".")
+        ):
+            candidates.append(path)
+    return sorted(candidates)
 
 
 def discover_unit(project_path: Path, unit_dir: str | Path | None = None) -> Path | None:
@@ -103,18 +134,6 @@ def discover_unit(project_path: Path, unit_dir: str | Path | None = None) -> Pat
         names = ", ".join(path.name for path in candidates)
         raise SessionError(f"multiple Units found ({names}); pass --unit explicitly")
     return candidates[0] if candidates else None
-
-
-def _read_object(path: Path) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SessionError(f"missing JSON artifact: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise SessionError(f"invalid JSON artifact {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise SessionError(f"JSON artifact must be an object: {path}")
-    return value
 
 
 def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
@@ -201,7 +220,10 @@ def build_session(
             raise SessionError(
                 f"Unit project_id does not match selected Project: {selected_unit}"
             )
-        receipt = _read_object(selected_unit / "context-receipt.json")
+        try:
+            receipt = _unit_json(selected_unit, "context-receipt.json")
+        except ValueError as exc:
+            raise SessionError(str(exc)) from exc
         source_manifest = receipt.get("source_manifest")
         if (
             not isinstance(source_manifest, str)
@@ -253,7 +275,10 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
         raise SessionError("no Unit is available; run plugin unit-init first")
 
     selected = Path(session["unit"]["path"])
-    checkpoint = _read_object(selected / "checkpoint.json")
+    try:
+        checkpoint = _unit_json(selected, "checkpoint.json")
+    except ValueError as exc:
+        raise SessionError(str(exc)) from exc
     return {
         **session,
         "resume": {
@@ -265,6 +290,7 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
                 str(path.relative_to(selected))
                 for path in selected.rglob("*")
                 if path.is_file()
+                and not path.is_symlink()
                 and "__pycache__" not in path.parts
                 and not path.name.startswith(UNIT_LOCK_NAME)
             ),
@@ -320,7 +346,15 @@ def update_checkpoint(
         ):
             raise SessionError(f"{field} must be a list of non-empty strings")
     with unit_lock(path):
-        unit = _read_object(path / "unit.json")
+        preflight_issues = _unit_preflight_issues(path)
+        if preflight_issues:
+            raise SessionError(
+                "checkpoint update blocked: " + "; ".join(preflight_issues)
+            )
+        try:
+            unit = _unit_json(path, "unit.json")
+        except ValueError as exc:
+            raise SessionError(str(exc)) from exc
         checkpoint = _checkpoint_record(unit, completed, pending, blocked_by, next_action)
         write_json_atomic(path / "checkpoint.json", checkpoint)
     return {"path": str(path / "checkpoint.json"), "checkpoint": checkpoint}

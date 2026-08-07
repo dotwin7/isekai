@@ -14,14 +14,29 @@ from .types import (
     FoundationError,
     FoundationRelease,
 )
+from ..support.files import UnsafeControlFile, read_control_file
 from ..support.jsonio import write_json_atomic
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def _load_json(
+    path: Path,
+    *,
+    root: Path | None = None,
+) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        content = read_control_file(
+            path,
+            root=root or path.parent,
+            label="Foundation control file",
+        )
     except FileNotFoundError as exc:
         raise FoundationError(f"missing file: {path}") from exc
+    except (OSError, UnsafeControlFile) as exc:
+        raise FoundationError(f"unsafe Foundation control file {path}: {exc}") from exc
+    try:
+        value = json.loads(content.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise FoundationError(f"invalid UTF-8 in {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise FoundationError(f"invalid JSON in {path}: {exc}") from exc
     if not isinstance(value, dict):
@@ -29,14 +44,44 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def _write_json(path: Path, value: dict[str, Any]) -> None:
+def _write_json(
+    path: Path,
+    value: dict[str, Any],
+    *,
+    root: Path | None = None,
+) -> None:
+    if root is not None:
+        try:
+            read_control_file(
+                path,
+                root=root,
+                label="Foundation control write target",
+            )
+        except FileNotFoundError:
+            # Opening a missing leaf still validates every existing parent on
+            # openat-capable platforms. The atomic writer may now create it.
+            pass
+        except (OSError, UnsafeControlFile) as exc:
+            raise FoundationError(
+                f"unsafe Foundation control write target {path}: {exc}"
+            ) from exc
     write_json_atomic(path, value)
 
 
-def _optional_json(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
+def _optional_json(
+    path: Path,
+    *,
+    root: Path | None = None,
+) -> dict[str, Any] | None:
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return None
-    return _load_json(path)
+    except OSError as exc:
+        raise FoundationError(
+            f"cannot inspect optional Foundation control file {path}: {exc}"
+        ) from exc
+    return _load_json(path, root=root)
 
 def _safe_path(root: Path, relative: str) -> Path:
     if not isinstance(relative, str) or not relative.strip():
@@ -44,7 +89,7 @@ def _safe_path(root: Path, relative: str) -> Path:
     raw = Path(relative)
     if raw.is_absolute() or ".." in raw.parts:
         raise FoundationError(f"unsafe path: {relative}")
-    candidate = (root / raw).resolve()
+    candidate = root / raw
     try:
         candidate.relative_to(root)
     except ValueError as exc:
@@ -110,6 +155,15 @@ def _validate_rule_metadata(rule: dict[str, Any], label: str) -> None:
         not isinstance(item, str) or not item.strip() for item in applies_to
     ):
         raise FoundationError(f"{label} requires non-empty applies_to values")
+    allowed_targets = {"*", "foundation", "query", "quick-change", "unit"}
+    unknown_targets = sorted(set(applies_to) - allowed_targets)
+    if unknown_targets:
+        raise FoundationError(
+            f"{label} has unsupported applies_to values: "
+            + ", ".join(unknown_targets)
+        )
+    if len(set(applies_to)) != len(applies_to):
+        raise FoundationError(f"{label} applies_to must not contain duplicates")
 
 
 def _require_condition_fields(condition: dict[str, Any], fields: set[str], rule_id: str) -> None:
@@ -141,8 +195,20 @@ def _validate_condition(condition: Any, rule_id: str) -> None:
         fields = condition.get("required_fields")
         if not isinstance(fields, list) or not fields or any(not isinstance(item, str) or not item for item in fields):
             raise FoundationError(f"{rule_id} context-scope needs required_fields")
-        if "allowed_routes" in condition and (not isinstance(condition["allowed_routes"], list) or not condition["allowed_routes"]):
-            raise FoundationError(f"{rule_id} context-scope allowed_routes must be a non-empty list")
+        if "allowed_routes" in condition:
+            routes = condition["allowed_routes"]
+            if (
+                not isinstance(routes, list)
+                or not routes
+                or any(
+                    not isinstance(route, str)
+                    or route not in {"query", "quick-change", "unit"}
+                    for route in routes
+                )
+            ):
+                raise FoundationError(
+                    f"{rule_id} context-scope allowed_routes must contain supported routes"
+                )
     elif condition_type == "required-decision":
         _require_condition_fields(condition, {"gate", "decision_ref", "outcome", "decided_by", "scope"}, rule_id)
         _require_condition_strings(condition, {"gate", "decision_ref", "outcome", "decided_by", "scope"}, rule_id)
@@ -177,8 +243,16 @@ def _validate_condition(condition: Any, rule_id: str) -> None:
         _require_condition_fields(condition, {"unit_ref", "required_artifacts", "evaluation_refs", "evidence_ref"}, rule_id)
         _require_condition_strings(condition, {"unit_ref", "evidence_ref"}, rule_id)
         for field in ("required_artifacts", "evaluation_refs"):
-            if not isinstance(condition[field], list) or not condition[field]:
-                raise FoundationError(f"{rule_id} {field} must be a non-empty list")
+            values = condition[field]
+            if (
+                not isinstance(values, list)
+                or not values
+                or any(not isinstance(item, str) or not item.strip() for item in values)
+                or len(set(values)) != len(values)
+            ):
+                raise FoundationError(
+                    f"{rule_id} {field} must be a unique non-empty string list"
+                )
 
 
 def _validate_rules(asset: dict[str, Any]) -> None:
@@ -254,6 +328,11 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
             if not isinstance(entry, dict):
                 raise FoundationError(f"{asset['id']} knowledge entry must be an object")
             _require_fields(entry, {"id", "type", "status", "owner", "body_path", "classification", "scope", "provenance", "review", "effective_from", "expires_at"}, f"{asset['id']} entry")
+            for field in ("id", "type", "owner", "classification", "scope"):
+                if not isinstance(entry[field], str) or not entry[field].strip():
+                    raise FoundationError(
+                        f"{asset['id']} entry {field} must be a non-empty string"
+                    )
             if entry.get("status") not in ALLOWED_STATUSES:
                 raise FoundationError(f"{asset['id']} entry has an invalid status")
             _validate_provenance_record(entry["provenance"], f"{asset['id']} entry provenance")
@@ -263,8 +342,23 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
                 raise FoundationError(f"{asset['id']} entry effective_from must precede expires_at")
             if not isinstance(entry["review"], dict) or not entry["review"].get("reviewed_by") or entry["review"].get("duplicate_checked") is not True or not entry["review"].get("evidence_ref"):
                 raise FoundationError(f"{asset['id']} entry requires provenance-backed duplicate review")
-            if not isinstance(entry["body_path"], str) or not _safe_path(root, entry["body_path"]).is_file():
+            if not isinstance(entry["body_path"], str):
                 raise FoundationError(f"{asset['id']} has a missing knowledge body")
+            body_path = _safe_path(root, entry["body_path"])
+            try:
+                read_control_file(
+                    body_path,
+                    root=root,
+                    label=f"{asset['id']} knowledge body",
+                )
+            except FileNotFoundError as exc:
+                raise FoundationError(
+                    f"{asset['id']} has a missing knowledge body"
+                ) from exc
+            except (OSError, UnsafeControlFile) as exc:
+                raise FoundationError(
+                    f"{asset['id']} has an unsafe knowledge body: {exc}"
+                ) from exc
     elif kind == "evaluation":
         if content.get("visibility") != "evaluation-only":
             raise FoundationError(f"{asset['id']} must be evaluation-only")
@@ -291,6 +385,58 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
                 raise FoundationError(f"{asset['id']} contract rules require id, level, and condition")
             _validate_rule_metadata(rule, f"{asset['id']} rule {rule.get('id', '<unknown>')}")
             _validate_condition(rule["condition"], rule["id"])
+
+
+def _validate_knowledge_promotion_contracts(
+    assets: dict[str, dict[str, Any]],
+) -> None:
+    entries: dict[str, dict[str, Any]] = {}
+    for asset in assets.values():
+        if asset.get("kind") != "knowledge":
+            continue
+        for entry in asset.get("content", {}).get("entries", []):
+            entry_id = entry["id"]
+            if entry_id in entries:
+                raise FoundationError(f"duplicate knowledge entry id: {entry_id}")
+            entries[entry_id] = entry
+
+    conditions: dict[str, list[dict[str, Any]]] = {}
+    for asset in assets.values():
+        for rule in asset.get("content", {}).get("rules", []):
+            condition = rule.get("condition") if isinstance(rule, dict) else None
+            if (
+                isinstance(condition, dict)
+                and condition.get("type") == "required-promotion-review"
+            ):
+                conditions.setdefault(condition["entry_ref"], []).append(condition)
+
+    unknown = sorted(set(conditions) - set(entries))
+    if unknown:
+        raise FoundationError(
+            "Knowledge promotion condition references unknown entries: "
+            + ", ".join(unknown)
+        )
+    for entry_id, entry in entries.items():
+        matching = conditions.get(entry_id, [])
+        if len(matching) != 1:
+            raise FoundationError(
+                f"Knowledge entry {entry_id} requires exactly one promotion-review condition"
+            )
+        condition = matching[0]
+        review = entry["review"]
+        if review.get("reviewed_by") != condition["reviewed_by"]:
+            raise FoundationError(
+                f"Knowledge entry {entry_id} reviewer does not match its promotion contract"
+            )
+        if review.get("evidence_ref") not in condition["evidence_refs"]:
+            raise FoundationError(
+                f"Knowledge entry {entry_id} evidence_ref does not match its promotion contract"
+            )
+        for field in ("effective_from", "expires_at"):
+            if entry[field] != condition[field]:
+                raise FoundationError(
+                    f"Knowledge entry {entry_id} {field} does not match its promotion contract"
+                )
 
 
 def _validate_cross_references(assets: dict[str, dict[str, Any]]) -> None:
@@ -329,13 +475,14 @@ def _validate_cross_references(assets: dict[str, dict[str, Any]]) -> None:
     declared_gates = {gate.get("id") for gate in human_gate["content"].get("gates", []) if isinstance(gate, dict)}
     if matrix_ids != declared_gates:
         raise FoundationError("human-gate-contract gates must match gate-matrix")
+    _validate_knowledge_promotion_contracts(assets)
 
 
 def _load_foundation_documents(
     foundation_root: Path,
     manifest: dict[str, Any],
     *,
-    document_loader: Callable[[Path], dict[str, Any]] = _load_json,
+    document_loader: Callable[[Path], dict[str, Any]] | None = None,
 ) -> FoundationRelease:
     _require_fields(manifest, {"id", "kind", "version", "status", "owner", "artifacts"}, "release")
     if manifest["kind"] != "foundation-release":
@@ -372,7 +519,11 @@ def _load_foundation_documents(
                 f"duplicate artifact path: {descriptor['path']} (also used by {previous})"
             )
         paths[asset_path] = asset_id
-        asset = document_loader(asset_path)
+        asset = (
+            document_loader(asset_path)
+            if document_loader is not None
+            else _load_json(asset_path, root=foundation_root)
+        )
         _require_fields(asset, REQUIRED_ASSET_FIELDS, str(asset_id))
         for key in ("id", "kind", "version"):
             if asset[key] != descriptor[key]:
@@ -388,7 +539,10 @@ def _load_foundation_documents(
 
 def load_foundation(root: str | Path) -> FoundationRelease:
     foundation_root = Path(root).resolve()
-    return _load_foundation_documents(foundation_root, _load_json(foundation_root / "release.json"))
+    return _load_foundation_documents(
+        foundation_root,
+        _load_json(foundation_root / "release.json", root=foundation_root),
+    )
 
 
 def validate_context(context: dict[str, Any]) -> bool:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -58,10 +59,16 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
     current = now or datetime.now(timezone.utc)
     kind = condition["type"]
     if kind == "required-artifact":
-        artifact = value.get("artifacts", {}).get(condition["artifact"], value.get(condition["artifact"]))
+        artifacts = value.get("artifacts")
+        artifact = (
+            artifacts.get(condition["artifact"], value.get(condition["artifact"]))
+            if isinstance(artifacts, dict)
+            else value.get(condition["artifact"])
+        )
         passed = _dict_path(artifact, condition["field"]) == condition["equals"]
         if condition.get("commands_required"):
-            passed = passed and bool(value.get("commands"))
+            commands = value.get("commands")
+            passed = passed and isinstance(commands, list) and bool(commands)
         return passed
     if kind == "context-scope":
         return all(field in value for field in condition["required_fields"]) and (not condition.get("allowed_routes") or value.get("route") in condition["allowed_routes"])
@@ -69,7 +76,10 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
         levels = {"MAY": 0, "SHOULD": 1, "MUST": 2}
         return levels.get(value.get("extension_level"), -1) >= levels["MUST"] and value.get("parent_level") == condition["parent_level"]
     if kind == "required-decision":
-        return any(isinstance(d, dict) and d.get("id") == condition["decision_ref"] and d.get("gate") == condition["gate"] and d.get("outcome") == condition["outcome"] and d.get("decided_by") == condition["decided_by"] and d.get("scope") == condition["scope"] and (not d.get("expires_at") or _not_expired(d["expires_at"], current)) for d in value.get("decisions", []))
+        decisions = value.get("decisions")
+        if not isinstance(decisions, list):
+            return False
+        return any(isinstance(d, dict) and d.get("id") == condition["decision_ref"] and d.get("gate") == condition["gate"] and d.get("outcome") == condition["outcome"] and d.get("decided_by") == condition["decided_by"] and d.get("scope") == condition["scope"] and (not d.get("expires_at") or _not_expired(d["expires_at"], current)) for d in decisions)
     if kind == "required-envelope":
         envelope = value.get("envelope")
         if not isinstance(envelope, dict) or envelope.get("status") != "approved":
@@ -93,13 +103,28 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
             return False
         if not isinstance(scopes, list) or not isinstance(target, str):
             return False
+        normalized_target = target.replace("\\", "/")
+        if (
+            not normalized_target
+            or normalized_target == "."
+            or normalized_target.startswith("/")
+            or re.match(r"^[A-Za-z]:", normalized_target)
+            or ".." in normalized_target.split("/")
+        ):
+            return False
         in_scope = any(
-            isinstance(item, str) and scope_pattern_matches(item, target)
+            isinstance(item, str) and scope_pattern_matches(item, normalized_target)
             for item in scopes
         )
         if not in_scope or stage != condition["stage"]:
             return False
-        if not isinstance(stages, list) or not any(isinstance(item, dict) and item.get("name") == stage and action in item.get("allowed_actions", []) for item in stages):
+        if not isinstance(stages, list) or not any(
+            isinstance(item, dict)
+            and item.get("name") == stage
+            and isinstance(item.get("allowed_actions"), list)
+            and action in item["allowed_actions"]
+            for item in stages
+        ):
             return False
         return isinstance(envelope.get("max_iterations"), int) and not isinstance(envelope.get("max_iterations"), bool) and envelope["max_iterations"] > 0
     if kind == "required-lineage":
@@ -138,9 +163,22 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
         review = value.get("review")
         if not isinstance(review, dict) or review.get("id") != condition["review_ref"] or review.get("status") not in {"approved", "passed"}:
             return False
-        return any(isinstance(decision, dict) and decision.get("id") == condition["decision_ref"] and decision.get("outcome") == "approved" and _not_expired(decision.get("expires_at"), current) for decision in value.get("decisions", []))
+        decisions = value.get("decisions")
+        if not isinstance(decisions, list):
+            return False
+        return any(isinstance(decision, dict) and decision.get("id") == condition["decision_ref"] and decision.get("outcome") == "approved" and _not_expired(decision.get("expires_at"), current) for decision in decisions)
     if kind == "required-dod":
-        return value.get("unit_ref") == condition["unit_ref"] and all(item in value.get("artifacts", []) for item in condition["required_artifacts"]) and all(item in value.get("evaluations", []) for item in condition["evaluation_refs"]) and value.get("evidence_ref") == condition["evidence_ref"] and value.get("evidence_passed") is True
+        artifacts = value.get("artifacts")
+        evaluations = value.get("evaluations")
+        return (
+            value.get("unit_ref") == condition["unit_ref"]
+            and isinstance(artifacts, list)
+            and all(item in artifacts for item in condition["required_artifacts"])
+            and isinstance(evaluations, list)
+            and all(item in evaluations for item in condition["evaluation_refs"])
+            and value.get("evidence_ref") == condition["evidence_ref"]
+            and value.get("evidence_passed") is True
+        )
     return False
 
 

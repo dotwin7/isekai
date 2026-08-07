@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 import isekai.workflow.unit.execution as execution_module
+import isekai.workflow.unit.lifecycle as lifecycle_module
 from isekai.jsonio import write_json_atomic
 from isekai.workflow import (
     authorize_action,
@@ -46,6 +48,41 @@ def make_enveloped_unit(tmp_path: Path) -> Path:
     return unit
 
 
+def test_envelope_proposal_write_failure_restores_both_control_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Atomic Envelope", project.parent / "units")
+    envelope_path = unit / "execution-envelope.json"
+    ledger_path = unit / "execution-authorizations.json"
+    before = (envelope_path.read_bytes(), ledger_path.read_bytes())
+    original_write = execution_module._write_json
+    calls = 0
+
+    def fail_second_write(path: Path, value: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("forced authorization ledger write failure")
+        original_write(path, value)
+
+    monkeypatch.setattr(execution_module, "_write_json", fail_second_write)
+
+    with pytest.raises(OSError, match="forced authorization ledger write failure"):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=envelope_stages(),
+            allowed_actions=["read", "edit", "test"],
+            forbidden_actions=["remote", "deploy", "credential-access"],
+            max_iterations=3,
+            proposed_by="planner-agent",
+        )
+
+    assert (envelope_path.read_bytes(), ledger_path.read_bytes()) == before
+
+
 def approve_inception(unit: Path) -> None:
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")
@@ -64,6 +101,40 @@ def approve_inception(unit: Path) -> None:
         decided_by="human-reviewer",
     )
     transition_unit(unit, "construction")
+
+
+def test_construction_transition_restores_envelope_when_unit_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="approved",
+        summary="Approve the atomic transition regression Envelope.",
+        rationale=["The bounded test scope is ready for Construction."],
+        alternatives=[],
+        tradeoffs=[],
+        risks=["The Unit status write can fail."],
+        references=["execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+    unit_path = unit / "unit.json"
+    envelope_path = unit / "execution-envelope.json"
+    before = (unit_path.read_bytes(), envelope_path.read_bytes())
+
+    def fail_unit_write(path: Path, value: object) -> None:
+        raise OSError("forced Unit lifecycle write failure")
+
+    monkeypatch.setattr(lifecycle_module, "_write_json", fail_unit_write)
+
+    with pytest.raises(OSError, match="forced Unit lifecycle write failure"):
+        transition_unit(unit, "construction")
+
+    assert (unit_path.read_bytes(), envelope_path.read_bytes()) == before
 
 
 def test_action_is_denied_before_envelope_approval(tmp_path: Path) -> None:
@@ -101,6 +172,16 @@ def test_scope_wildcards_stay_within_one_path_segment() -> None:
     assert _scope_pattern_matches("**", "any/depth/of/path.txt") is True
     assert _scope_pattern_matches("?rc/main.py", "src/main.py") is True
     assert _scope_pattern_matches("s?c", "s/c") is False
+
+
+def test_repeated_recursive_scope_wildcards_are_bounded() -> None:
+    count = 12
+    pattern = "/".join(["**"] * count + ["never-match"])
+    target = "/".join(["segment"] * count)
+
+    started = time.perf_counter()
+    assert _scope_pattern_matches(pattern, target) is False
+    assert time.perf_counter() - started < 0.25
 
 
 def test_single_star_scope_denies_paths_below_the_matched_segment(tmp_path: Path) -> None:
@@ -188,7 +269,38 @@ def test_later_rejected_inception_decision_revokes_envelope_authorization(
     result = authorize_action(unit, action="edit", target="src/main.py")
 
     assert result["allowed"] is False
-    assert "revoked" in result["reason"] or "latest" in result["reason"]
+    assert any(
+        marker in result["reason"]
+        for marker in ("revoked", "latest", "digest chain")
+    )
+
+
+def test_reordering_decisions_cannot_restore_a_revoked_envelope(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="rejected",
+        summary="Revoke the previously approved execution scope.",
+        rationale=["The approved scope is no longer valid."],
+        alternatives=[],
+        tradeoffs=[],
+        risks=["Continuing would use revoked authority."],
+        references=["execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+    decisions_path = unit / "decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decisions["decisions"][-2:] = reversed(decisions["decisions"][-2:])
+    write_json_atomic(decisions_path, decisions)
+
+    result = authorize_action(unit, action="edit", target="src/main.py")
+
+    assert result["allowed"] is False
+    assert "digest chain" in result["reason"] or "later than" in result["reason"]
 
 
 def test_authorization_rechecks_approval_after_acquiring_unit_lock(
@@ -200,6 +312,10 @@ def test_authorization_rechecks_approval_after_acquiring_unit_lock(
 
     @contextmanager
     def lock_after_revocation(unit_dir: Path):
+        from datetime import datetime, timezone
+
+        from isekai.workflow import _decision_record_digest
+
         with original_lock(unit_dir):
             path = unit_dir / "decisions.json"
             decisions = json.loads(path.read_text(encoding="utf-8"))
@@ -209,8 +325,13 @@ def test_authorization_rechecks_approval_after_acquiring_unit_lock(
                     "id": "DEC-REVOKED-BEFORE-GRANT",
                     "outcome": "rejected",
                     "summary": "Approval was revoked before the grant lock was acquired.",
+                    "decided_at": datetime.now(timezone.utc).isoformat(),
+                    "previous_decision_digest": decisions["decisions"][-1][
+                        "decision_digest"
+                    ],
                 }
             )
+            revoked["decision_digest"] = _decision_record_digest(revoked)
             decisions["decisions"].append(revoked)
             write_json_atomic(path, decisions)
             yield

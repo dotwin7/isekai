@@ -49,6 +49,29 @@ def make_project(tmp_path: Path) -> Path:
     return project_root / "project.json"
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("id", ["not", "a", "string"]),
+        ("version", {"major": 1}),
+        ("foundation_path", ["foundation"]),
+        ("profiles", [{"id": "security-profile"}]),
+    ],
+)
+def test_project_manifest_rejects_non_string_contract_fields(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    project = make_project(tmp_path)
+    manifest = json.loads(project.read_text(encoding="utf-8"))
+    manifest[field] = value
+    project.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match=f"project .*{field}"):
+        resolve_context(project)
+
+
 def test_canonical_unit_tree_matches_core_required_artifacts() -> None:
     canonical = (ROOT / "docs/unit.md").read_text(encoding="utf-8")
 
@@ -103,6 +126,92 @@ def test_context_receipt_resolves_project_profiles_rules_and_policies(
     assert receipt["receipt_id"].startswith("CTX-")
 
 
+def test_context_receipt_includes_applicable_project_extension_rules(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    extension_path = project.parent / "extension/reference-product.json"
+    extension = json.loads(extension_path.read_text(encoding="utf-8"))
+    extension["content"]["rules"] = [
+        {
+            "id": "PROJECT-EVIDENCE-001",
+            "level": "MUST",
+            "owner": "reference-product-owner",
+            "provenance": {
+                "source": "reference-product",
+                "recorded_by": "reference-product-owner",
+                "recorded_at": "2026-08-05T00:00:00Z",
+            },
+            "applies_to": ["unit"],
+            "condition": {
+                "type": "extension-cannot-weaken-must",
+                "parent_asset": "core-rules",
+                "parent_rule_id": "EVIDENCE-001",
+                "parent_level": "MUST",
+                "comparison": "preserve-or-strengthen",
+            },
+        }
+    ]
+    extension_path.write_text(
+        json.dumps(extension, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    receipt = resolve_context(project, WorkRoute.UNIT)
+
+    assert "PROJECT-EVIDENCE-001" in receipt["rule_ids"]
+    applied = next(
+        rule for rule in receipt["rules"] if rule["id"] == "PROJECT-EVIDENCE-001"
+    )
+    assert applied["condition"]["parent_rule_id"] == "EVIDENCE-001"
+
+
+@pytest.mark.parametrize("field", ["profiles", "extensions"])
+def test_project_rejects_duplicate_profile_and_extension_references(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    project = make_project(tmp_path)
+    manifest = json.loads(project.read_text(encoding="utf-8"))
+    manifest[field].append(manifest[field][0])
+    project.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match="duplicates|duplicate IDs"):
+        resolve_context(project)
+
+
+def test_project_extension_cannot_shadow_a_foundation_rule_id(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    extension_path = project.parent / "extension/reference-product.json"
+    extension = json.loads(extension_path.read_text(encoding="utf-8"))
+    extension["content"]["rules"] = [
+        {
+            "id": "EVIDENCE-001",
+            "level": "MUST",
+            "owner": "reference-product-owner",
+            "provenance": {
+                "source": "reference-product",
+                "recorded_by": "reference-product-owner",
+                "recorded_at": "2026-08-05T00:00:00Z",
+            },
+            "applies_to": ["unit"],
+            "condition": {
+                "type": "extension-cannot-weaken-must",
+                "parent_asset": "core-rules",
+                "parent_rule_id": "EVIDENCE-001",
+                "parent_level": "MUST",
+                "comparison": "preserve-or-strengthen",
+            },
+        }
+    ]
+    extension_path.write_text(json.dumps(extension) + "\n", encoding="utf-8")
+
+    with pytest.raises(FoundationError, match="duplicate applied rule id"):
+        resolve_context(project)
+
+
 def test_unit_init_scaffolds_every_verifier_artifact_but_remains_pending(
     tmp_path: Path,
 ) -> None:
@@ -140,6 +249,43 @@ def test_checkpoint_and_resume_restore_authoritative_next_action(tmp_path: Path)
     assert resumed["resume"]["completed"] == ["scaffold"]
     assert resumed["resume"]["pending"] == ["record inception decision"]
     assert resumed["resume"]["next_action"] == "record inception decision"
+
+
+def test_resume_does_not_advertise_optional_symlink_artifacts(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Resume Alias", project.parent / "units")
+    external = tmp_path / "external-note.md"
+    external.write_text("external\n", encoding="utf-8")
+    (unit / "optional-note.md").symlink_to(external)
+
+    resumed = resume_session(project)
+
+    assert "optional-note.md" not in resumed["resume"]["artifact_references"]
+
+
+@pytest.mark.parametrize("alias_level", ["root", "child"])
+def test_default_unit_discovery_ignores_symlinked_external_units(
+    tmp_path: Path,
+    alias_level: str,
+) -> None:
+    project = make_project(tmp_path)
+    external = initialize_unit(project, "External Resume", tmp_path / "external-units")
+    units_root = project.parent / "units"
+    if alias_level == "root":
+        units_root.symlink_to(external.parent, target_is_directory=True)
+        alias = units_root / external.name
+    else:
+        units_root.mkdir()
+        alias = units_root / "external-alias"
+        alias.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(SessionError, match="no Unit is available"):
+        resume_session(project)
+
+    explicit = resume_session(project, alias)
+    assert explicit["unit"]["path"] == str(external)
 
 
 def test_resume_rejects_foundation_contract_drift_with_same_version(

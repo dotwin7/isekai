@@ -13,7 +13,10 @@ from .release import (
     PLUGIN_ID,
     DistributionError,
     _is_transient,
+    _read_control_bytes,
+    _read_control_json,
     _read_json,
+    _verified_tree_digest,
     _write_json_atomic,
 )
 
@@ -47,8 +50,12 @@ def _slug(value: str) -> str:
 
 def _project_id(project_root: Path) -> str:
     manifest = project_root / "project.json"
-    if manifest.is_file():
-        value = _read_json(manifest).get("id")
+    if manifest.exists() or manifest.is_symlink():
+        value = _read_control_json(
+            manifest,
+            root=project_root,
+            label="project manifest",
+        ).get("id")
         if isinstance(value, str) and value.strip():
             return value
     return project_root.name
@@ -102,10 +109,17 @@ def _prepare_codex_marketplace(
     adapter_source: Path,
     marketplace_name: str,
     commit: str,
+    source_digest: object,
 ) -> tuple[Path, str]:
     root = managed / "marketplaces/codex"
     plugin_root = root / "plugins" / PLUGIN_ID
     _replace_tree(adapter_source, plugin_root)
+    _verified_tree_digest(
+        plugin_root,
+        source_digest,
+        label="codex Adapter",
+        include_transients=True,
+    )
     installed_version = _codex_cachebuster(plugin_root, commit)
     _write_json_atomic(
         root / CODEX_REPO_MARKETPLACE,
@@ -119,10 +133,17 @@ def _prepare_claude_marketplace(
     adapter_source: Path,
     marketplace_name: str,
     version: str,
+    source_digest: object,
 ) -> Path:
     root = managed / "marketplaces/claude"
     plugin_root = root / "plugins" / PLUGIN_ID
     _replace_tree(adapter_source, plugin_root)
+    _verified_tree_digest(
+        plugin_root,
+        source_digest,
+        label="claude Adapter",
+        include_transients=True,
+    )
     _write_json_atomic(
         root / ".claude-plugin/marketplace.json",
         _claude_marketplace_manifest(marketplace_name, version),
@@ -137,16 +158,20 @@ def _launcher_issues(managed: Path) -> list[str]:
     for name, expected in _LAUNCHER_CONTENT.items():
         path = binary / name
         try:
-            actual = path.read_bytes()
-        except OSError:
-            issues.append(f"managed launcher is missing or unreadable: {path}")
+            actual = _read_control_bytes(
+                path,
+                root=managed,
+                label="managed launcher",
+            )
+        except DistributionError as exc:
+            issues.append(str(exc))
             continue
         if actual != expected:
             issues.append(f"managed launcher content mismatch: {path}")
     posix_launcher = binary / "isekai"
     if os.name != "nt" and posix_launcher.is_file():
         try:
-            executable = bool(posix_launcher.stat().st_mode & 0o111)
+            executable = bool(posix_launcher.lstat().st_mode & 0o111)
         except OSError:
             executable = False
         if not executable:
@@ -230,7 +255,15 @@ def _capture_host_slots(
     state: dict[str, Any] = {}
     if "codex" in runtimes:
         path = project_root / CODEX_REPO_MARKETPLACE
-        document = _read_json(path) if path.is_file() else None
+        document = (
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Codex repo marketplace",
+            )
+            if path.exists() or path.is_symlink()
+            else None
+        )
         plugins = document.get("plugins", []) if isinstance(document, dict) else []
         if not isinstance(plugins, list):
             raise DistributionError("Codex repo marketplace plugins must be a list")
@@ -242,7 +275,15 @@ def _capture_host_slots(
         }
     if "claude" in runtimes:
         path = project_root / CLAUDE_PROJECT_SETTINGS
-        document = _read_json(path) if path.is_file() else None
+        document = (
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Claude project settings",
+            )
+            if path.exists() or path.is_symlink()
+            else None
+        )
         settings = document if isinstance(document, dict) else {}
         marketplaces = settings.get("extraKnownMarketplaces", {})
         enabled = settings.get("enabledPlugins", {})
@@ -271,8 +312,12 @@ def _project_host_documents(
     if "codex" in runtimes:
         path = project_root / CODEX_REPO_MARKETPLACE
         document = (
-            _read_json(path)
-            if path.is_file()
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Codex repo marketplace",
+            )
+            if path.exists() or path.is_symlink()
             else _codex_marketplace_manifest(marketplace_name, managed=True)
         )
         plugins = document.get("plugins")
@@ -292,7 +337,15 @@ def _project_host_documents(
         documents[CODEX_REPO_MARKETPLACE.as_posix()] = document
     if "claude" in runtimes:
         path = project_root / CLAUDE_PROJECT_SETTINGS
-        document = _read_json(path) if path.is_file() else {}
+        document = (
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Claude project settings",
+            )
+            if path.exists() or path.is_symlink()
+            else {}
+        )
         marketplaces = document.setdefault("extraKnownMarketplaces", {})
         enabled = document.setdefault("enabledPlugins", {})
         if not isinstance(marketplaces, dict) or not isinstance(enabled, dict):
@@ -325,7 +378,7 @@ def _apply_project_host_documents(
     documents: dict[str, dict[str, Any]],
 ) -> None:
     paths = [project_root / relative for relative in documents]
-    snapshots = _host_file_snapshots(paths)
+    snapshots = _host_file_snapshots(project_root, paths)
     try:
         for relative, document in documents.items():
             _write_json_atomic(project_root / relative, document)
@@ -344,7 +397,7 @@ def _restore_host_slots(
         paths.append(project_root / CODEX_REPO_MARKETPLACE)
     if isinstance(state.get("claude"), dict):
         paths.append(project_root / CLAUDE_PROJECT_SETTINGS)
-    snapshots = _host_file_snapshots(paths)
+    snapshots = _host_file_snapshots(project_root, paths)
     try:
         _restore_host_slots_unchecked(project_root, state, marketplace_name)
     except Exception as exc:
@@ -353,14 +406,19 @@ def _restore_host_slots(
 
 
 def _host_file_snapshots(
+    project_root: Path,
     paths: list[Path],
 ) -> dict[Path, tuple[bytes, int] | None]:
     snapshots: dict[Path, tuple[bytes, int] | None] = {}
     for path in paths:
-        if path.is_file():
+        if path.exists() or path.is_symlink():
             snapshots[path] = (
-                path.read_bytes(),
-                stat.S_IMODE(path.stat().st_mode),
+                _read_control_bytes(
+                    path,
+                    root=project_root,
+                    label="project host configuration",
+                ),
+                stat.S_IMODE(path.lstat().st_mode),
             )
         else:
             snapshots[path] = None
@@ -397,7 +455,15 @@ def _restore_host_slots_unchecked(
     codex = state.get("codex")
     if isinstance(codex, dict):
         path = project_root / CODEX_REPO_MARKETPLACE
-        document = _read_json(path) if path.is_file() else {}
+        document = (
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Codex repo marketplace",
+            )
+            if path.exists() or path.is_symlink()
+            else {}
+        )
         plugins = document.setdefault("plugins", [])
         if not isinstance(plugins, list):
             raise DistributionError("Codex repo marketplace plugins must be a list")
@@ -421,7 +487,15 @@ def _restore_host_slots_unchecked(
     claude = state.get("claude")
     if isinstance(claude, dict):
         path = project_root / CLAUDE_PROJECT_SETTINGS
-        document = _read_json(path) if path.is_file() else {}
+        document = (
+            _read_control_json(
+                path,
+                root=project_root,
+                label="Claude project settings",
+            )
+            if path.exists() or path.is_symlink()
+            else {}
+        )
         name = str(claude.get("marketplace_name") or marketplace_name)
         plugin_key = f"{PLUGIN_ID}@{name}"
         marketplaces = document.setdefault("extraKnownMarketplaces", {})
@@ -498,7 +572,11 @@ def _managed_control_issues(
             )
     for runtime, path, expected in expected_documents:
         try:
-            actual = _read_json(path)
+            actual = _read_control_json(
+                path,
+                root=project_root,
+                label=f"{runtime} marketplace metadata",
+            )
         except DistributionError as exc:
             issues.append(str(exc))
             continue
@@ -506,7 +584,11 @@ def _managed_control_issues(
             issues.append(f"{runtime} marketplace metadata mismatch")
     if "codex" in selected:
         try:
-            document = _read_json(project_root / CODEX_REPO_MARKETPLACE)
+            document = _read_control_json(
+                project_root / CODEX_REPO_MARKETPLACE,
+                root=project_root,
+                label="Codex repo marketplace",
+            )
             plugins = document.get("plugins")
             if not isinstance(plugins, list):
                 raise DistributionError("Codex repo marketplace plugins must be a list")
@@ -517,7 +599,11 @@ def _managed_control_issues(
             issues.append(str(exc))
     if "claude" in selected:
         try:
-            settings = _read_json(project_root / CLAUDE_PROJECT_SETTINGS)
+            settings = _read_control_json(
+                project_root / CLAUDE_PROJECT_SETTINGS,
+                root=project_root,
+                label="Claude project settings",
+            )
             marketplaces = settings.get("extraKnownMarketplaces")
             enabled = settings.get("enabledPlugins")
             expected_marketplace = {

@@ -7,8 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .common import _unit_json, _unit_preflight_issues, _write_json, unit_lock
-from .decisions import _is_iso_timestamp
+from .common import (
+    _unit_json,
+    _unit_path_without_symlinks,
+    _unit_preflight_issues,
+    _write_json,
+    unit_lock,
+)
+from .decisions import _parse_iso_timestamp
 
 
 EVIDENCE_REQUIRED_FIELDS = {
@@ -80,7 +86,8 @@ def _evidence_issues(
         issues.append("verification evidence requires a scope")
     if not isinstance(evidence.get("recorded_by"), str) or not evidence.get("recorded_by", "").strip():
         issues.append("verification evidence requires recorded_by provenance")
-    if not _is_iso_timestamp(evidence.get("recorded_at")):
+    recorded_at = _parse_iso_timestamp(evidence.get("recorded_at"))
+    if recorded_at is None:
         issues.append("verification evidence recorded_at must be an ISO-8601 timestamp")
     for field in ("envelope_id", "envelope_digest", "authorization_ledger_digest"):
         if not isinstance(evidence.get(field), str) or not evidence.get(field, "").strip():
@@ -132,9 +139,14 @@ def _evidence_issues(
                 issues.append(
                     f"evidence command {index} output_digest must be a SHA-256 hex digest"
                 )
-            if not _is_iso_timestamp(command.get("observed_at")):
+            observed_at = _parse_iso_timestamp(command.get("observed_at"))
+            if observed_at is None:
                 issues.append(
                     f"evidence command {index} observed_at must be an ISO-8601 timestamp"
+                )
+            elif recorded_at is not None and observed_at > recorded_at:
+                issues.append(
+                    f"evidence command {index} observed_at is after Evidence recorded_at"
                 )
             authorization_id = command.get("authorization_id")
             if not isinstance(authorization_id, str) or not authorization_id.strip():
@@ -154,6 +166,15 @@ def _evidence_issues(
                             f"evidence command {index} is not bound to a current test authorization"
                         )
                     else:
+                        authorized_at = _parse_iso_timestamp(grant.get("authorized_at"))
+                        if (
+                            observed_at is not None
+                            and authorized_at is not None
+                            and observed_at < authorized_at
+                        ):
+                            issues.append(
+                                f"evidence command {index} observed_at precedes its authorization"
+                            )
                         if isinstance(authorization_count, int) and not isinstance(
                             authorization_count, bool
                         ):
@@ -299,9 +320,9 @@ def _persist_evidence_record(
 ) -> str:
     """Persist Evidence by ID without allowing a prior record to be replaced."""
     relative = _evidence_record_relative(str(evidence.get("id", "")))
-    target = unit_dir / relative
+    target = _unit_path_without_symlinks(unit_dir, relative)
     expected_digest = _verification_evidence_digest(evidence)
-    if target.is_file():
+    if target.exists() or target.is_symlink():
         existing = _unit_json(unit_dir, relative)
         if _verification_evidence_digest(existing) != expected_digest:
             raise ValueError(
