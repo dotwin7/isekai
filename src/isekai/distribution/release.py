@@ -69,8 +69,18 @@ def _is_transient(candidate: Path) -> bool:
     )
 
 
-def tree_digest(path: str | Path) -> str:
-    """Return a deterministic SHA-256 for a directory without following symlinks."""
+def tree_digest(
+    path: str | Path,
+    *,
+    include_transients: bool = False,
+) -> str:
+    """Return a deterministic SHA-256 for a directory without following symlinks.
+
+    Release checkouts may contain interpreter caches created while the bootstrap
+    imports Core, so source-release digests omit those transient files. Installed
+    trees use ``include_transients=True``: no unhashed file may live beside code
+    that the project launcher can execute.
+    """
     root = Path(path).resolve()
     if not root.is_dir():
         raise DistributionError(f"digest target is not a directory: {root}")
@@ -80,7 +90,7 @@ def tree_digest(path: str | Path) -> str:
     for candidate in root.rglob("*"):
         if candidate.is_symlink():
             raise DistributionError(f"release components cannot contain symlinks: {candidate}")
-        if _is_transient(candidate):
+        if not include_transients and _is_transient(candidate):
             continue
         if candidate.is_file():
             files.append(candidate)

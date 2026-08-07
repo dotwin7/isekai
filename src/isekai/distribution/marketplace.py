@@ -12,6 +12,7 @@ from .release import (
     MANAGED_ROOT,
     PLUGIN_ID,
     DistributionError,
+    _is_transient,
     _read_json,
     _write_json_atomic,
 )
@@ -20,7 +21,11 @@ from .release import (
 _PYTHON_LAUNCHER = (
     "from pathlib import Path\n"
     "import sys\n\n"
-    "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))\n"
+    "runtime = Path(__file__).resolve().parents[1] / 'runtime'\n"
+    "if any(path.name == '__pycache__' for path in runtime.rglob('__pycache__')):\n"
+    "    raise SystemExit('ISEKAI runtime contains unchecked bytecode; run doctor and repair the installation')\n"
+    "sys.dont_write_bytecode = True\n"
+    "sys.path.insert(0, str(runtime))\n"
     "from isekai.cli import main\n\n"
     "raise SystemExit(main())\n"
 ).encode("utf-8")
@@ -53,14 +58,20 @@ def _replace_tree(source: Path, target: Path) -> None:
     if target.exists():
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, target)
+    shutil.copytree(source, target, ignore=_ignore_transient_files)
+
+
+def _ignore_transient_files(path: str, names: list[str]) -> set[str]:
+    directory = Path(path)
+    return {name for name in names if _is_transient(directory / name)}
 
 
 def _copy_managed_root(source: Path, destination: Path) -> None:
     def ignore(path: str, names: list[str]) -> set[str]:
+        ignored = _ignore_transient_files(path, names)
         if Path(path).resolve() == source.resolve():
-            return {"rollback"} & set(names)
-        return set()
+            ignored.update({"rollback"} & set(names))
+        return ignored
 
     shutil.copytree(source, destination, ignore=ignore)
 

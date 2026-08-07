@@ -53,6 +53,11 @@ def _normalize_authorization_target(
 ) -> tuple[str | None, str | None]:
     if not isinstance(target, str) or not target.strip():
         return None, "Authorization requires a non-empty target"
+    portable_target = target.replace("\\", "/")
+    if portable_target.startswith("/") or re.match(r"^[A-Za-z]:", portable_target):
+        return None, f"Authorization target must be project-relative: {target}"
+    if ".." in portable_target.split("/"):
+        return None, f"Target escapes the selected Project: {target}"
     try:
         receipt = _unit_json(unit_dir, "context-receipt.json")
     except ValueError as exc:
@@ -64,7 +69,10 @@ def _normalize_authorization_target(
     if manifest_path.name != "project.json":
         return None, "Context Receipt source_manifest is not project.json"
     project_root = manifest_path.parent
-    requested = Path(target).expanduser()
+    # Interpret both separator styles consistently. On POSIX, ``Path`` otherwise
+    # treats a Windows drive path as an ordinary relative filename and only the
+    # postflight ledger validator notices the mismatch.
+    requested = Path(portable_target).expanduser()
     candidate = (
         requested.resolve()
         if requested.is_absolute()
@@ -243,7 +251,7 @@ def _validate_grant_target(
     normalized_target = target.replace("\\", "/")
     if (
         normalized_target.startswith("/")
-        or re.match(r"^[A-Za-z]:/", normalized_target)
+        or re.match(r"^[A-Za-z]:", normalized_target)
         or ".." in normalized_target.split("/")
         or normalized_target in {"", "."}
     ):

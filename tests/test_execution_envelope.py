@@ -281,6 +281,40 @@ def test_authorization_rejects_project_escape_and_stage_spoofing(
     assert "does not match" in spoofed_stage["reason"]
 
 
+@pytest.mark.parametrize(
+    "target",
+    [r"C:\outside.txt", r"C:drive-relative.txt", r"\\server\share\outside.txt"],
+)
+def test_cross_platform_absolute_target_does_not_poison_authorization_ledger(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Portable Target", project.parent / "units")
+    propose_execution_envelope(
+        unit,
+        scope=["**"],
+        stages=envelope_stages(),
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=2,
+        proposed_by="planner-agent",
+    )
+    approve_inception(unit)
+
+    rejected = authorize_action(unit, action="edit", target=target)
+    after_rejection = json.loads(
+        (unit / "execution-authorizations.json").read_text(encoding="utf-8")
+    )
+    accepted = authorize_action(unit, action="edit", target="src/main.py")
+
+    assert rejected["allowed"] is False
+    assert "project-relative" in rejected["reason"]
+    assert after_rejection["grants"] == []
+    assert accepted["allowed"] is True
+    assert accepted["iteration"] == 1
+
+
 def test_authorization_grants_consume_the_iteration_budget(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Iteration Budget", project.parent / "units")

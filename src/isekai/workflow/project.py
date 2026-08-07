@@ -165,7 +165,9 @@ def load_project(
             raise FoundationError("isekai.lock.json has no Foundation pin")
         if foundation.version != foundation_pin.get("version"):
             raise FoundationError("Project Foundation version does not match isekai.lock.json")
-        if tree_digest(foundation.root) != foundation_pin.get("digest"):
+        if tree_digest(
+            foundation.root, include_transients=True
+        ) != foundation_pin.get("digest"):
             raise FoundationError("Project Foundation digest does not match isekai.lock.json")
 
     profiles = project["profiles"]

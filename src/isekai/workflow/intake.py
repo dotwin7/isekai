@@ -67,6 +67,7 @@ def _infer_change(text: str, source: str) -> str:
         "요약",
         "분석",
         "검토",
+        "리뷰",
         "what ",
         "why ",
         "how ",

@@ -96,7 +96,7 @@ def _scope_pattern_issue(pattern: str) -> str | None:
     if (
         not normalized.strip()
         or normalized.startswith("/")
-        or re.match(r"^[A-Za-z]:/", normalized)
+        or re.match(r"^[A-Za-z]:", normalized)
         or ".." in normalized.split("/")
     ):
         return f"Execution Envelope scope must be a project-relative pattern: {pattern}"
@@ -563,13 +563,30 @@ def authorize_action(
                 "envelope_digest": envelope.get("approval_digest"),
                 "authorized_at": now.isoformat(),
             }
-            grants.append(grant)
-            _write_json(unit_dir / "execution-authorizations.json", ledger)
+            candidate_ledger = {
+                **ledger,
+                "grants": [*grants, grant],
+            }
+            candidate_issues = _authorization_ledger_issues(
+                candidate_ledger, unit, envelope, unit_dir=unit_dir
+            )
+            if candidate_issues:
+                return {
+                    "allowed": False,
+                    "reason": "Authorization receipt rejected: "
+                    + "; ".join(candidate_issues),
+                }
+            _write_json(
+                unit_dir / "execution-authorizations.json", candidate_ledger
+            )
             persisted = _unit_json(unit_dir, "execution-authorizations.json")
             persisted_issues = _authorization_ledger_issues(
                 persisted, unit, envelope, unit_dir=unit_dir
             )
             if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
+                # A denied authorization must never consume budget or leave an
+                # invalid grant that blocks every later action.
+                _write_json(unit_dir / "execution-authorizations.json", ledger)
                 return {
                     "allowed": False,
                     "reason": "Authorization receipt postflight failed",

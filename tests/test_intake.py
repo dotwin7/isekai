@@ -24,6 +24,7 @@ def test_direct_question_routes_to_query_without_workflow() -> None:
     [
         "프로젝트 구조를 먼저 파악해봐",
         "현재 구현 성숙도를 분석해줘",
+        "이 프로젝트 리뷰해줘",
         "Review the current architecture",
     ],
 )

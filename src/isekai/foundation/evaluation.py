@@ -74,6 +74,10 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
         envelope = value.get("envelope")
         if not isinstance(envelope, dict) or envelope.get("status") != "approved":
             return False
+        if value.get("envelope_ref") != condition["envelope_ref"]:
+            return False
+        if value.get("target_scope") != condition["target_scope"]:
+            return False
         if not _not_expired(envelope.get("expires_at"), current) or not _not_expired(condition["expires_at"], current):
             return False
         action = value.get("action")

@@ -214,6 +214,50 @@ def test_doctor_and_update_fail_closed_after_managed_file_tampering(
         )
 
 
+def test_install_excludes_unhashed_bytecode_and_doctor_rejects_new_cache(
+    tmp_path: Path,
+) -> None:
+    release = _copy_release(tmp_path)
+    source_cache = release / "src/isekai/__pycache__/unchecked.pyc"
+    source_cache.parent.mkdir()
+    source_cache.write_bytes(b"unchecked release bytecode")
+    assert verify_distribution(release)["valid"] is True
+
+    project = _project_with_foundation(tmp_path / "project-root")
+    _install(project, release)
+    installed_core = project / ".isekai/runtime/isekai"
+
+    assert not list(installed_core.rglob("__pycache__"))
+    clean_launch = subprocess.run(
+        [str(project / ".isekai/bin/isekai"), "plugin", "compatibility"],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert clean_launch.returncode == 0, clean_launch.stderr
+    assert not list(installed_core.rglob("__pycache__"))
+    assert doctor_install(project)["ready"] is True
+
+    installed_cache = installed_core / "__pycache__/poisoned.pyc"
+    installed_cache.parent.mkdir()
+    installed_cache.write_bytes(b"unchecked installed bytecode")
+
+    health = doctor_install(project)
+    launched = subprocess.run(
+        [str(project / ".isekai/bin/isekai"), "plugin", "compatibility"],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert health["ready"] is False
+    assert "core digest mismatch" in health["issues"]
+    assert launched.returncode != 0
+    assert "unchecked bytecode" in launched.stderr
+
+
 @pytest.mark.parametrize(
     ("relative", "expected_issue"),
     [

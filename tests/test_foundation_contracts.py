@@ -120,9 +120,20 @@ def test_reviewer_probes_fail_closed_for_envelope_lineage_exception_and_knowledg
     }
     subject = {
         "action": "edit", "target": "src/main.py", "stage": "construction",
+        "envelope_ref": "execution-envelope.json", "target_scope": "approved-unit",
         "envelope": {"status": "approved", "scope": ["src/**"], "stages": [{"name": "construction", "allowed_actions": ["edit"]}], "allowed_actions": ["edit"], "forbidden_actions": ["deploy"], "max_iterations": 2, "expires_at": "2027-08-05T00:00:00Z"},
     }
     assert evaluate_condition(envelope, subject, now=now)
+    assert not evaluate_condition(
+        envelope,
+        {**subject, "envelope_ref": "other-envelope.json"},
+        now=now,
+    )
+    assert not evaluate_condition(
+        envelope,
+        {**subject, "target_scope": "other-scope"},
+        now=now,
+    )
     assert not evaluate_condition(envelope, {**subject, "envelope": {**subject["envelope"], "status": "draft"}}, now=now)
     assert not evaluate_condition(envelope, {**subject, "envelope": {**subject["envelope"], "max_iterations": 0}}, now=now)
     assert not evaluate_condition(

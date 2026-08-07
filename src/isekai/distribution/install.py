@@ -147,7 +147,7 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             target = _installed_path(
                 project_root, entry.get("path"), label=f"{label}.path"
             )
-            actual = tree_digest(target)
+            actual = tree_digest(target, include_transients=True)
         except DistributionError as exc:
             issues.append(str(exc))
             continue
@@ -181,7 +181,9 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             selected = load_foundation(project_root / foundation_path)
             if selected.version != foundation_entry.get("version"):
                 issues.append("Project Foundation version does not match lock")
-            if tree_digest(selected.root) != foundation_entry.get("digest"):
+            if tree_digest(
+                selected.root, include_transients=True
+            ) != foundation_entry.get("digest"):
                 issues.append("Project Foundation digest does not match lock")
         except (DistributionError, FoundationError) as exc:
             issues.append(str(exc))
@@ -211,7 +213,10 @@ def _current_foundation_matches(
         return False
     try:
         foundation = load_foundation(project_root / foundation_path)
-        return foundation.version == version and tree_digest(foundation.root) == digest
+        return (
+            foundation.version == version
+            and tree_digest(foundation.root, include_transients=True) == digest
+        )
     except (DistributionError, FoundationError):
         return False
 
@@ -452,7 +457,7 @@ def _install_from_checkout_locked(
                     "version": installed_version,
                     "path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
                     "source_digest": source_entry["digest"],
-                    "digest": tree_digest(skill_source),
+                    "digest": tree_digest(skill_source, include_transients=True),
                 }
             elif runtime == "codex":
                 plugin_root, installed_version = _prepare_codex_marketplace(
@@ -463,7 +468,7 @@ def _install_from_checkout_locked(
                     "installed_version": installed_version,
                     "path": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{PLUGIN_ID}",
                     "source_digest": source_entry["digest"],
-                    "digest": tree_digest(plugin_root),
+                    "digest": tree_digest(plugin_root, include_transients=True),
                 }
             else:
                 plugin_root = _prepare_claude_marketplace(
@@ -473,7 +478,7 @@ def _install_from_checkout_locked(
                     "version": installed_version,
                     "path": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{PLUGIN_ID}",
                     "source_digest": source_entry["digest"],
-                    "digest": tree_digest(plugin_root),
+                    "digest": tree_digest(plugin_root, include_transients=True),
                 }
 
         if current_lock:
@@ -482,7 +487,7 @@ def _install_from_checkout_locked(
             (rollback / LOCK_NAME).write_bytes(lock_before or b"")
             for runtime in sorted(current_adapters):
                 if _workspace_adapter_owned(current_adapters, runtime):
-                    shutil.copytree(
+                    _replace_tree(
                         workspace_targets[runtime],
                         rollback / "adapters" / runtime,
                     )
@@ -502,7 +507,9 @@ def _install_from_checkout_locked(
                 "version": manifest["core"]["version"],
                 "path": f"{MANAGED_ROOT}/runtime/isekai",
                 "source_digest": manifest["core"]["digest"],
-                "digest": tree_digest(staged / "runtime/isekai"),
+                "digest": tree_digest(
+                    staged / "runtime/isekai", include_transients=True
+                ),
             },
             "foundation": foundation_entry,
             "adapters": dict(sorted(adapter_entries.items())),
@@ -526,7 +533,7 @@ def _install_from_checkout_locked(
                 )
                 source_skill = _adapter_skill_source(adapter_source, runtime)
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(source_skill, target)
+                _replace_tree(source_skill, target)
 
         _apply_project_host_documents(project_root, host_documents)
         host_applied = bool(host_documents)

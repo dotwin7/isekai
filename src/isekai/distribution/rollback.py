@@ -131,7 +131,7 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
 
     try:
         for runtime in sorted(previous_workspace):
-            shutil.copytree(
+            install_module._replace_tree(
                 previous_snapshots[runtime],
                 previous_adapter_copies / runtime,
             )
@@ -140,7 +140,7 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
         install_module._copy_managed_root(managed, redo / "install")
         install_module._write_json_atomic(redo / LOCK_NAME, current)
         for runtime in sorted(current_workspace):
-            shutil.copytree(
+            install_module._replace_tree(
                 adapter_targets[runtime],
                 redo / "adapters" / runtime,
             )
@@ -161,7 +161,7 @@ def _rollback_install_locked(project: str | Path) -> dict[str, Any]:
             previous_copy = previous_adapter_copies / runtime
             if previous_copy.is_dir():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(previous_copy, target)
+                install_module._replace_tree(previous_copy, target)
         if host_restore_state:
             _restore_host_slots(
                 project_root,
