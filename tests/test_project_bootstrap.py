@@ -104,9 +104,9 @@ def test_discover_project_ignores_generated_directories_and_suggests_init(
 
 
 def test_canonical_docs_define_project_bootstrap_and_persistence_contract() -> None:
-    canonical = (ROOT / "docs/isekai.md").read_text(encoding="utf-8")
+    canonical = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
 
-    assert "### 4.1 Project bootstrap과 discovery" in canonical
+    assert "## Project bootstrap과 discovery" in canonical
     assert "direct current directory → nearest ancestor → filtered descendants" in canonical
     assert "project-root/units/" in canonical
     assert "units/**/evidence/raw/" in canonical

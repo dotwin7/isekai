@@ -257,7 +257,7 @@ isekai/
 ├── scripts/                # POSIX / PowerShell bootstrap installer
 ├── src/isekai/             # 로컬 Core와 CLI
 ├── tests/                  # 계약, lifecycle, 설치·업데이트 테스트
-├── docs/isekai.md          # canonical 설계 문서
+├── docs/                   # canonical 설계 문서 집합 (isekai.md가 입구)
 └── project.json            # 이 저장소 자체의 Project 계약
 ```
 
@@ -276,4 +276,4 @@ uv run python -m isekai distribution-build --root .
 uv run python -m isekai distribution-check --root .
 ```
 
-세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서](docs/isekai.md)를 참고하세요. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.
+세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.

@@ -50,7 +50,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def test_canonical_unit_tree_matches_core_required_artifacts() -> None:
-    canonical = (ROOT / "docs/isekai.md").read_text(encoding="utf-8")
+    canonical = (ROOT / "docs/unit.md").read_text(encoding="utf-8")
 
     for relative in UNIT_REQUIRED_FILES:
         assert relative in canonical
