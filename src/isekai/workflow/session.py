@@ -140,6 +140,8 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": str(path),
         "unit_id": status.get("unit_id"),
+        "title": status.get("title"),
+        "document_language": status.get("document_language"),
         "phase": status.get("phase"),
         "status": status.get("status"),
         "foundation_version": status.get("foundation_version"),
@@ -150,6 +152,28 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
         "pending": status.get("pending", []),
         "blocked_by": status.get("blocked_by", []),
         "decision_count": status.get("decision_count", 0),
+    }
+
+
+def _unit_candidate_ref(path: Path) -> dict[str, Any]:
+    try:
+        unit = _unit_json(path, "unit.json")
+    except ValueError as exc:
+        return {
+            "path": str(path),
+            "unit_id": None,
+            "title": None,
+            "document_language": None,
+            "status": None,
+            "issue": str(exc),
+        }
+    return {
+        "path": str(path),
+        "unit_id": unit.get("id"),
+        "title": unit.get("title"),
+        "document_language": unit.get("document_language"),
+        "status": unit.get("status"),
+        "issue": None,
     }
 
 
@@ -173,6 +197,7 @@ def build_project_session(
     """Build Project context without selecting, validating, or resuming a Unit."""
     project_path = discover_project(project)
     context = resolve_context(project_path, route)
+    unit_candidates = _unit_candidates(project_path)
     return {
         "project": {
             "manifest": str(project_path),
@@ -182,7 +207,10 @@ def build_project_session(
         "context": context,
         "unit": None,
         "active_unit": None,
-        "unit_candidates": [str(path) for path in _unit_candidates(project_path)],
+        "unit_candidates": [str(path) for path in unit_candidates],
+        "unit_candidate_details": [
+            _unit_candidate_ref(path) for path in unit_candidates
+        ],
     }
 
 

@@ -83,6 +83,92 @@ def test_envelope_proposal_write_failure_restores_both_control_records(
     assert (envelope_path.read_bytes(), ledger_path.read_bytes()) == before
 
 
+def test_envelope_accepts_an_adaptive_stage_plan_with_explicit_skip(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Adaptive Stage Plan", project.parent / "units")
+
+    result = propose_execution_envelope(
+        unit,
+        scope=["src/**", "tests/**"],
+        stages=[
+            {
+                "name": "construction",
+                "disposition": "apply",
+                "depth": "standard",
+                "reason": "The product change needs implementation and tests.",
+                "allowed_actions": ["read", "edit", "test"],
+            },
+            {
+                "name": "release",
+                "disposition": "skip",
+                "depth": "light",
+                "reason": "This Unit has no deployment or publication scope.",
+                "allowed_actions": [],
+            },
+        ],
+        allowed_actions=["read", "edit", "test"],
+        forbidden_actions=["remote", "deploy", "credential-access"],
+        max_iterations=3,
+        proposed_by="planner-agent",
+    )
+
+    assert result["envelope"]["stages"][1]["disposition"] == "skip"
+
+
+@pytest.mark.parametrize(
+    ("stage", "issue"),
+    [
+        (
+            {
+                "name": "construction",
+                "disposition": "apply",
+                "depth": "exhaustive",
+                "reason": "Invalid depth.",
+                "allowed_actions": ["read"],
+            },
+            "depth must be one of",
+        ),
+        (
+            {
+                "name": "release",
+                "disposition": "skip",
+                "depth": "light",
+                "reason": "No release scope.",
+                "allowed_actions": ["read"],
+            },
+            "skipped stage 0 cannot allow actions",
+        ),
+        (
+            {
+                "name": "release",
+                "disposition": "skip",
+                "depth": "light",
+                "allowed_actions": [],
+            },
+            "with a disposition needs reason",
+        ),
+    ],
+)
+def test_envelope_rejects_invalid_adaptive_stage_contract(
+    tmp_path: Path, stage: dict[str, object], issue: str
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Invalid Adaptive Plan", project.parent / "units")
+
+    with pytest.raises(ValueError, match=issue):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=[stage],
+            allowed_actions=["read"],
+            forbidden_actions=["remote"],
+            max_iterations=1,
+            proposed_by="planner-agent",
+        )
+
+
 def approve_inception(unit: Path) -> None:
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")

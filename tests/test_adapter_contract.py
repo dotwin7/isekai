@@ -66,8 +66,6 @@ def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
     human = set(manifest["human_decision_actions"])
     assert human == {
         "decision",
-        "envelope-approve",
-        "transition",
         "foundation-decision",
         "foundation-promote",
     }
@@ -146,6 +144,35 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
             assert phrase in content, f"{path} is missing mode contract: {phrase}"
 
 
+def test_runtime_skills_share_adaptive_driver_contract() -> None:
+    skill_paths = [
+        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
+        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
+        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+    ]
+    required_contract = [
+        "The host agent drives the lifecycle",
+        "returned `workflow` object as the orchestration contract",
+        "For `direct-response`",
+        "For `bounded-change`",
+        "For `adaptive-unit`",
+        "Level-1 plan",
+        "every lifecycle stage with `apply` or `skip`",
+        "Ask only questions whose answers would materially change the plan.",
+        "one explicit user approval for the complete Level-1 plan",
+        "Do not ask again for every file, checkpoint, `envelope-approve`, or `transition`.",
+        "human_decision_actions",
+        "Read `document_language` from the selected Project and Unit",
+        "Decision descriptions in Korean",
+        "Never replace a Project's language merely to simplify generation",
+        "human-facing `title` from `unit_candidate_details`",
+    ]
+    for path in skill_paths:
+        content = path.read_text(encoding="utf-8")
+        for phrase in required_contract:
+            assert phrase in content, f"{path} is missing driver contract: {phrase}"
+
+
 def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     skill_commands = {
         ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md": (
@@ -182,6 +209,18 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
         assert "discovery" in frontmatter.lower()
         for phrase in shared_gate:
             assert phrase in content, f"{path} is missing activation gate: {phrase}"
+
+    codex = (
+        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "repo-local `$isekai ACTION`" in codex
+    assert "`$isekai on [--project PATH]`" in codex
+
+    claude = (
+        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "repo-local `/isekai ACTION`" in claude
+    assert "`/isekai on [--project PATH]`" in claude
 
 
 def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> None:

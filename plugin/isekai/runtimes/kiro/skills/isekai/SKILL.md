@@ -25,7 +25,20 @@ The adapter may be discoverable by Kiro, but discovery is not activation. ISEKAI
 
 While mode is active, normalize each new request through `intake` and follow its Query, Quick Change, or Unit route. Mode is conversation-local and separate from Unit lifecycle status. In a new or interrupted session, invoke `on` to activate the Project, then invoke `resume` separately only when continuing an existing Unit.
 
-The user can invoke this skill as `/isekai <action> [arguments]`. Use an explicit project path when supplied; otherwise let Core discover `project.json` from the current directory, ancestors, or descendant workspace candidates. If none exists, explain `isekai init` and get explicit user confirmation before initializing. If multiple candidates are reported, present every path and ask the user to choose one. `unit-init` without `--output` uses the selected Project root's `units/`; relative outputs are also Project-relative.
+## Adaptive workflow driver
+
+The host agent drives the lifecycle; Core classifies work, validates boundaries, and records durable state. After `intake`, treat the returned `workflow` object as the orchestration contract.
+
+- For `direct-response`, inspect only what is needed, answer, and create no ISEKAI artifact.
+- For `bounded-change`, state a compact scope/change/verification plan, perform the smallest reversible change, verify it, and report the result in the conversation. The user's explicit change request covers that bounded plan. Re-route to Unit before acting if scope, persistence, uncertainty, or risk expands.
+- For `adaptive-unit`, perform read-only project discovery first, then propose a Level-1 plan before creating a Unit. The plan must contain the goal, expected outcome, scope, non-goals, acceptance criteria, risks, verification, and every lifecycle stage with `apply` or `skip` plus `light`, `standard`, or `deep` depth and a reason. Inception, Construction, Validation, and Learn are required; propose whether Release and Operations apply to this specific request.
+- Ask only questions whose answers would materially change the plan. Make reasonable, visible assumptions for the rest. Do not turn Inception into a fixed questionnaire.
+- Obtain one explicit user approval for the complete Level-1 plan before `unit-init` or any other Unit write. Pass the normalized intent to `unit-init --intent-json`, translate the approved stage plan into the Execution Envelope, and keep the Unit artifacts and Checkpoint aligned as work progresses. Preserve each stage's `disposition`, `depth`, `reason`, and bounded `allowed_actions`; a skipped stage has no allowed actions.
+- That plan approval covers local Unit artifact writes and mechanical Core transitions within the approved scope. Do not ask again for every file, checkpoint, `envelope-approve`, or `transition`. Obtain a new user decision when a consequential gate is reached or the approved scope, risk, external effects, or stage plan changes materially.
+- A manifest `human_decision_actions` entry means the Adapter must have an actual user decision to record or apply. Never invent a Decision from plan approval when the relevant consequential choice was not part of that approval.
+- Read `document_language` from the selected Project and Unit before writing human-facing artifacts. For `ko`, write `intent.md`, `requirements.md`, `architecture.md`, `implementation-guide.md`, `plan.md`, `acceptance.md`, `release.md`, `operations.md`, Execution Envelope reasons, Checkpoint descriptions, and Decision descriptions in Korean. Keep IDs, JSON keys, enums, CLI commands, code, paths, and logs in their interoperable form. For `en`, write those human-facing descriptions in English. Never replace a Project's language merely to simplify generation; `verify` treats a mismatch as a blocker.
+
+The user can invoke this skill as `/isekai <action> [arguments]`. Use an explicit project path when supplied; otherwise let Core discover `project.json` from the current directory, ancestors, or descendant workspace candidates. If none exists, explain `isekai init` and get explicit user confirmation before initializing. If multiple candidates are reported, present every ASCII path together with its human-facing `title` from `unit_candidate_details`, then ask the user to choose one. `unit-init` without `--output` uses the selected Project root's `units/`; relative outputs are also Project-relative.
 
 Use only the launcher inside the selected Project:
 
@@ -73,9 +86,9 @@ rollback [--path PATH]
 
 ## Workflow rules
 
-1. Start with `status` or `route` before proposing a persistent change.
-2. For `inception`, ask the listed questions and summarize intent, scope, acceptance criteria, risks, and non-goals before writing artifacts.
-3. Ask for explicit user confirmation immediately before `install`, applying `update`, `rollback`, `unit-init`, `checkpoint`, lifecycle transitions, or any other user-visible write. A successful `authorize` call only writes the audit grant already covered by the approved Envelope and does not need separate confirmation. `update --check` is read-only and must precede an applied update.
+1. Run `intake` for every active-mode request. Use `status` before persistent work and before choosing whether to create or resume a Unit.
+2. Follow the returned adaptive workflow contract. The approved Level-1 plan, not a fixed full lifecycle, determines stage depth and whether Release and Operations apply.
+3. Ask for explicit user confirmation before `install`, applying `update`, or `rollback`. For Unit work, use the Adaptive workflow driver approval and consequential-decision rules above. A successful `authorize` call only writes the audit grant already covered by the approved Envelope and does not need separate confirmation. `update --check` is read-only and must precede an applied update.
 4. Use `resume` after a new session or context interruption. Treat `checkpoint.json`, `context-receipt.json`, Decisions, and Evidence as authoritative.
 5. Use `verify` after implementation and report its actual result. Do not claim success from an unexecuted command.
 6. If the route is Unit, a human Decision is required before progressing through a consequential gate.

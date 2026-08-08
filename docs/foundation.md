@@ -71,6 +71,8 @@ examples/reference-product/
 
 문서 언어 정책은 Project의 `document_language`로 정한다. 기본값은 `ko`이며 `intent.md`, `requirements.md`, `architecture.md`, `implementation-guide.md`, `plan.md`, `acceptance.md`, `release.md`, `operations.md`와 Decision 설명은 한국어로 생성한다. `id`, JSON key, enum, CLI 명령, 코드와 로그는 호환성을 위해 영어를 유지한다. Project가 `document_language: "en"`을 지정하면 Human-facing template만 영어로 생성한다.
 
+Core `verify`는 Unit과 Context Receipt의 `document_language` 일치 여부, 여덟 Human-facing 문서의 언어별 제목과 한국어 본문, 한국어 Unit의 Decision 설명을 검사한다. Runtime Skill도 문서 작성 전에 이 값을 읽어야 하며, 생성 편의를 위해 Project 언어를 바꾸면 안 된다. 언어 계약 위반은 완료를 막는 blocker다. 이 정책은 기계 계약을 번역하라는 뜻이 아니다. Unit ID와 디렉터리, JSON key, enum, CLI 명령, 코드 경로, digest, timestamp와 로그는 ASCII·영어 호환 형식을 유지하고, 사람이 읽고 결정하는 `title`, 문서 본문, 계획·Envelope 사유와 Decision 설명만 Project 언어를 따른다.
+
 ## 규칙 계층
 
 규칙 계층은 다음과 같다.

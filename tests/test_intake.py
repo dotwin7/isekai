@@ -11,11 +11,19 @@ from isekai.workflow import initialize_unit
 from test_core_workflow import make_project
 
 
-def test_direct_question_routes_to_query_without_workflow() -> None:
+def test_direct_question_routes_to_query_without_unit_artifacts() -> None:
     result = intake({"source": "direct-request", "goal": "Entity가 뭐야?"})
 
     assert result["intent"]["change"] == "none"
     assert result["route"]["route"] == "query"
+    assert result["workflow"] == {
+        "version": "1.0.0",
+        "driver": "direct-response",
+        "artifact_mode": "none",
+        "plan": {"required": False},
+        "human_gate": "none",
+        "steps": ["inspect-as-needed", "answer"],
+    }
     assert "without creating a Unit" in result["next_action"]
 
 
@@ -77,6 +85,15 @@ def test_direct_small_text_change_routes_to_quick_change() -> None:
 
     assert result["intent"]["change"] == "local"
     assert result["route"]["route"] == "quick-change"
+    assert result["workflow"]["driver"] == "bounded-change"
+    assert result["workflow"]["artifact_mode"] == "conversation"
+    assert result["workflow"]["plan"] == {
+        "required": True,
+        "level": "compact",
+        "approval": "covered-by-explicit-request",
+        "required_sections": ["scope", "change", "verification"],
+    }
+    assert result["workflow"]["human_gate"] == "only-if-scope-or-risk-expands"
 
 
 def test_host_goal_routes_to_unit_and_preserves_outcome_and_scope() -> None:
@@ -96,6 +113,45 @@ def test_host_goal_routes_to_unit_and_preserves_outcome_and_scope() -> None:
     assert result["route"]["route"] == "unit"
     assert result["intent"]["scope"] == ["src/payment_events/**", "tests/**"]
     assert result["intent"]["acceptance_criteria"] == ["분류 테스트 통과"]
+    workflow = result["workflow"]
+    assert workflow["driver"] == "adaptive-unit"
+    assert workflow["artifact_mode"] == "unit"
+    assert workflow["plan"]["level"] == "level-1"
+    assert workflow["plan"]["approval"] == "explicit-before-unit-write"
+    assert workflow["plan"]["suggested_depth"] == "standard"
+    assert workflow["plan"]["stage_decisions"]["release"] == (
+        "agent-proposes-apply-or-skip"
+    )
+    assert workflow["question_policy"] == (
+        "ask-only-when-answer-materially-changes-plan"
+    )
+    assert result["next_action"] == (
+        "inspect read-only and obtain approval for a Level-1 plan before Unit writes"
+    )
+
+
+@pytest.mark.parametrize(
+    "risk_flags",
+    [
+        {"risk": "high"},
+        {"remote": True},
+        {"sensitive": True},
+        {"multi_party": True},
+    ],
+)
+def test_unit_workflow_suggests_deep_planning_for_consequential_work(
+    risk_flags: dict[str, object],
+) -> None:
+    result = intake(
+        {
+            "goal": "인증 흐름을 변경해줘",
+            "expected_outcome": "인증 계약을 갱신한다",
+            **risk_flags,
+        }
+    )
+
+    assert result["route"]["route"] == "unit"
+    assert result["workflow"]["plan"]["suggested_depth"] == "deep"
 
 
 def test_persistent_direct_request_without_outcome_is_marked_ambiguous() -> None:
@@ -103,6 +159,7 @@ def test_persistent_direct_request_without_outcome_is_marked_ambiguous() -> None
 
     assert result["route"]["route"] == "unit"
     assert "ambiguous acceptance criteria" in result["route"]["reasons"]
+    assert result["workflow"]["plan"]["suggested_depth"] == "deep"
 
 
 @pytest.mark.parametrize(

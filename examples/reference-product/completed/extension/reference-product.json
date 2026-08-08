@@ -1,0 +1,13 @@
+{
+  "id": "reference-product-extension",
+  "kind": "extension",
+  "version": "0.1.0",
+  "schema_version": "1.0.0",
+  "status": "draft",
+  "owner": "reference-product-owner",
+  "provenance": {"source": "reference-product", "recorded_by": "reference-product-owner", "recorded_at": "2026-08-05T00:00:00Z"},
+  "classification": "internal",
+  "scope": "project:reference-product",
+  "extends": [{"id": "software-delivery-profile", "version": "0.1.0"}],
+  "content": {"namespace": "reference-product", "types": {"FeatureProposal": "delivery:Requirement"}, "metrics": [{"id": "delivery_lead_time", "unit": "seconds"}]}
+}

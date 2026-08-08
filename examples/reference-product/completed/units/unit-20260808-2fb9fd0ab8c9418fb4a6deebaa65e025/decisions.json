@@ -1,0 +1,154 @@
+{
+  "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+  "decisions": [
+    {
+      "id": "DEC-20260808055444169537",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "gate": "inception",
+      "outcome": "approved",
+      "summary": "범위가 제한된 Level-1 계획과 Execution Envelope를 승인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "plan.md",
+        "requirements.md",
+        "execution-envelope.json"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-08T05:54:44.169537+00:00",
+      "previous_decision_digest": null,
+      "approval_subject": {
+        "type": "execution-envelope",
+        "id": "ENV-UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025-20260808055443931338",
+        "digest": "sha256:cf30c328cfee9e15d3608fc9ab9bd642f2fa55b5c3550566f31464baa26465ce"
+      },
+      "decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04"
+    },
+    {
+      "id": "DEC-20260808055444699887",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "gate": "architecture",
+      "outcome": "approved",
+      "summary": "순수 도메인 함수 구현을 승인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "architecture.md",
+        "implementation-guide.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-08T05:54:44.699887+00:00",
+      "previous_decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04",
+      "decision_digest": "sha256:16c2eb614f02ae929fc120f833c49425cb6fa0077db0e0f498fc6111d50805c5"
+    },
+    {
+      "id": "DEC-20260808055444820076",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "gate": "release",
+      "outcome": "approved",
+      "summary": "현재 Evidence를 승인하고 Release disposition을 skip으로 유지한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "release.md",
+        "evidence/verification.json",
+        "plan.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-08T05:54:44.820076+00:00",
+      "previous_decision_digest": "sha256:16c2eb614f02ae929fc120f833c49425cb6fa0077db0e0f498fc6111d50805c5",
+      "approval_subject": {
+        "type": "verification-evidence",
+        "id": "EVD-20260808055444640058",
+        "digest": "sha256:d529f80d8a11dfc2bb98b62c7502a976cbf56cfbe4228bbab2ea7e526bdc4707",
+        "reference": "evidence/records/EVD-20260808055444640058.json"
+      },
+      "decision_digest": "sha256:77cfa64a257ff26111395728ecbff366b1bd05bd4218696966acfa87e0501e8d"
+    },
+    {
+      "id": "DEC-20260808055445000732",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "gate": "operation",
+      "outcome": "approved",
+      "summary": "이 로컬 Unit에서 Operations를 의도적으로 건너뛰었음을 확인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "operations.md",
+        "plan.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-08T05:54:45.000732+00:00",
+      "previous_decision_digest": "sha256:77cfa64a257ff26111395728ecbff366b1bd05bd4218696966acfa87e0501e8d",
+      "decision_digest": "sha256:e97520ffcf8866825e0c856b52d21bb1b45f0f3685702a8b0a1fd83799300a6f"
+    }
+  ]
+}

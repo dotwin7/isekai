@@ -61,7 +61,7 @@ ISEKAI는 다섯 가지로 구성된다.
                 기존 Agent + Persistent Context
 ```
 
-Agent Integration은 사용자가 별도의 Python 모듈 명령을 실행하는 구조가 아니다. 사용자는 Kiro에서 `/isekai`, Claude Code에서 `/isekai-agent-plugin:isekai`, Codex에서 `$isekai-agent-plugin:isekai`를 호출하고 Runtime Adapter가 Project-local `isekai` launcher를 내부적으로 호출한다. launcher는 같은 로컬 환경의 ISEKAI Core dispatch를 실행하고, Core는 프로젝트가 선택한 Foundation·Profile·Extension과 Unit artifact를 읽고 검증한다. 직접 CLI를 사용하는 경우에는 `isekai <action>`을 사용하며, `isekai plugin <action>`은 Runtime Adapter의 내부 호환 계약이다.
+Agent Integration은 사용자가 별도의 Python 모듈 명령을 실행하는 구조가 아니다. 사용자는 Kiro와 Claude Code에서 `/isekai`, Codex에서 `$isekai`를 호출하고 Runtime Adapter가 Project-local `isekai` launcher를 내부적으로 호출한다. Marketplace에서 Plugin을 별도로 설치한 Claude·Codex 세션은 namespaced alias도 제공한다. launcher는 같은 로컬 환경의 ISEKAI Core dispatch를 실행하고, Core는 프로젝트가 선택한 Foundation·Profile·Extension과 Unit artifact를 읽고 검증한다. 직접 CLI를 사용하는 경우에는 `isekai <action>`을 사용하며, `isekai plugin <action>`은 Runtime Adapter의 내부 호환 계약이다.
 
 ```text
 User / Agent Host
@@ -86,4 +86,5 @@ Core는 기본적으로 서버가 아니며, Plugin은 Host 연결과 사용자 
 | [foundation.md](foundation.md) | Engineering Foundation 계층, Security Profile, v0.1 완료 조건과 승인 절차 |
 | [information-model.md](information-model.md) | 범용 Data·Semantic·Knowledge Model과 Persistent Context |
 | [agent-integration.md](agent-integration.md) | Runtime Adapter, 세션 모드, 실행 통제 |
+| [live-smoke.md](live-smoke.md) | 실제 Runtime Skill 발견, 활성화, intake와 Golden Path 검증 |
 | [roadmap.md](roadmap.md) | 제품·서비스 적용, 단계적 구현, 백로그, 성공 기준, 책임, 지표, 비목표, 남은 결정 |

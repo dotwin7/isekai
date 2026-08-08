@@ -1,0 +1,148 @@
+{
+  "receipt_id": "CTX-e45e8802074c560c",
+  "generated_at": "2026-08-08T05:54:43.868496+00:00",
+  "project_id": "reference-product",
+  "project_version": "0.1.0",
+  "project_schema_version": "1.0.0",
+  "document_language": "ko",
+  "foundation_id": "isekai-foundation",
+  "foundation_version": "0.1.0",
+  "foundation_digest": "sha256:8562d5601ab80c45865207b19a50f4eaa121dd0244efcf412ee8a7da7de280b0",
+  "profiles": [
+    "software-delivery-profile"
+  ],
+  "extensions": [
+    "reference-product-extension"
+  ],
+  "extension_assets": [
+    {
+      "id": "reference-product-extension",
+      "kind": "extension",
+      "version": "0.1.0",
+      "schema_version": "1.0.0",
+      "status": "draft",
+      "owner": "reference-product-owner",
+      "provenance": {
+        "source": "reference-product",
+        "recorded_by": "reference-product-owner",
+        "recorded_at": "2026-08-05T00:00:00Z"
+      },
+      "classification": "internal",
+      "scope": "project:reference-product",
+      "extends": [
+        {
+          "id": "software-delivery-profile",
+          "version": "0.1.0"
+        }
+      ],
+      "content": {
+        "namespace": "reference-product",
+        "types": {
+          "FeatureProposal": "delivery:Requirement"
+        },
+        "metrics": [
+          {
+            "id": "delivery_lead_time",
+            "unit": "seconds"
+          }
+        ]
+      },
+      "source_path": "extension/reference-product.json"
+    }
+  ],
+  "route": "unit",
+  "maximum_agent_level": "L0",
+  "rule_ids": [
+    "CONTEXT-001",
+    "EVIDENCE-001",
+    "FOUNDATION-001"
+  ],
+  "rules": [
+    {
+      "id": "CONTEXT-001",
+      "level": "SHOULD",
+      "title": "Only task-relevant context should be delivered",
+      "owner": "foundation-owner",
+      "provenance": {
+        "source": "core-rules",
+        "recorded_by": "foundation-owner",
+        "recorded_at": "2026-08-05T00:00:00Z"
+      },
+      "applies_to": [
+        "*"
+      ],
+      "condition": {
+        "type": "context-scope",
+        "required_fields": [
+          "project_id",
+          "route",
+          "rules",
+          "profiles",
+          "extensions"
+        ],
+        "allowed_routes": [
+          "query",
+          "quick-change",
+          "unit"
+        ]
+      },
+      "enforcement": [
+        "context"
+      ]
+    },
+    {
+      "id": "EVIDENCE-001",
+      "level": "MUST",
+      "title": "Completion claims require verification evidence",
+      "owner": "foundation-owner",
+      "provenance": {
+        "source": "core-rules",
+        "recorded_by": "foundation-owner",
+        "recorded_at": "2026-08-05T00:00:00Z"
+      },
+      "applies_to": [
+        "unit"
+      ],
+      "condition": {
+        "type": "required-artifact",
+        "artifact": "evidence/verification.json",
+        "field": "passed",
+        "equals": true,
+        "commands_required": true
+      },
+      "enforcement": [
+        "context",
+        "release-gate"
+      ]
+    },
+    {
+      "id": "FOUNDATION-001",
+      "level": "MUST",
+      "title": "Core contract cannot be weakened by an extension",
+      "owner": "foundation-owner",
+      "provenance": {
+        "source": "core-rules",
+        "recorded_by": "foundation-owner",
+        "recorded_at": "2026-08-05T00:00:00Z"
+      },
+      "applies_to": [
+        "*"
+      ],
+      "condition": {
+        "type": "extension-cannot-weaken-must",
+        "parent_asset": "core-model",
+        "parent_rule_id": "FOUNDATION-001",
+        "parent_level": "MUST",
+        "comparison": "preserve-or-strengthen"
+      },
+      "enforcement": [
+        "validator",
+        "review"
+      ]
+    }
+  ],
+  "policy_ids": [
+    "high-risk-policy"
+  ],
+  "source_manifest": "project.json"
+}

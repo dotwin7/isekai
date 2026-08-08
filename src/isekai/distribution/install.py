@@ -109,6 +109,13 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             continue
         if isinstance(entry, dict):
             components.append((f"adapter:{runtime}", entry))
+            if "workspace_path" in entry or "workspace_digest" in entry:
+                components.append(
+                    (f"adapter:{runtime}.workspace", {
+                        "path": entry.get("workspace_path"),
+                        "digest": entry.get("workspace_digest"),
+                    })
+                )
         else:
             issues.append(f"adapter lock is invalid: {runtime}")
 
@@ -337,7 +344,7 @@ def _install_from_checkout_locked(
         for runtime in RUNTIMES
         if _workspace_adapter_owned(current_adapters, runtime)
     }
-    desired_workspace = {"kiro"} & set(selected)
+    desired_workspace = set(selected)
     workspace_changes = desired_workspace | (current_workspace & set(selected))
     workspace_targets: dict[str, Path] = {}
     for runtime in sorted(current_workspace | desired_workspace):
@@ -388,12 +395,13 @@ def _install_from_checkout_locked(
         current_adapters,
     )
     installed_runtimes = sorted(set(current_adapters) | set(selected))
-    selected_layout_current = all(
-        _workspace_adapter_owned(current_adapters, runtime)
-        if runtime == "kiro"
-        else _adapter_uses_managed_plugin(current_adapters, runtime)
-        for runtime in selected
-    )
+    def adapter_layout_current(runtime: str) -> bool:
+        workspace_ready = _workspace_adapter_owned(current_adapters, runtime)
+        if runtime == "kiro":
+            return workspace_ready
+        return _adapter_uses_managed_plugin(current_adapters, runtime) and workspace_ready
+
+    selected_layout_current = all(adapter_layout_current(runtime) for runtime in selected)
     if (
         current_lock
         and current_lock.get("release") == manifest["version"]
@@ -521,12 +529,18 @@ def _install_from_checkout_locked(
                     commit,
                     source_entry["digest"],
                 )
+                source_skill = _adapter_skill_source(adapter_source, runtime)
                 adapter_entries[runtime] = {
                     "version": str(source_entry["version"]),
                     "installed_version": installed_version,
                     "path": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{PLUGIN_ID}",
                     "source_digest": source_entry["digest"],
                     "digest": tree_digest(plugin_root, include_transients=True),
+                    "workspace_path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
+                    "workspace_digest": tree_digest(
+                        source_skill,
+                        include_transients=True,
+                    ),
                 }
             else:
                 plugin_root = _prepare_claude_marketplace(
@@ -536,11 +550,17 @@ def _install_from_checkout_locked(
                     installed_version,
                     source_entry["digest"],
                 )
+                source_skill = _adapter_skill_source(adapter_source, runtime)
                 adapter_entries[runtime] = {
                     "version": installed_version,
                     "path": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{PLUGIN_ID}",
                     "source_digest": source_entry["digest"],
                     "digest": tree_digest(plugin_root, include_transients=True),
+                    "workspace_path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
+                    "workspace_digest": tree_digest(
+                        source_skill,
+                        include_transients=True,
+                    ),
                 }
 
         rollback_entry: dict[str, str] | None = None

@@ -1,7 +1,7 @@
 interface:
   display_name: "ISEKAI"
-  short_description: "Run ISEKAI only through an explicit $isekai-agent-plugin:isekai command"
-  default_prompt: "$isekai-agent-plugin:isekai status"
+  short_description: "Run ISEKAI only through an explicit $isekai command"
+  default_prompt: "$isekai on"
 
 policy:
   allow_implicit_invocation: false

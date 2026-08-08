@@ -11,6 +11,91 @@ CHANGE_VALUES = {"none", "local", "persistent"}
 RISK_VALUES = {"low", "high"}
 
 
+def _workflow_directive(
+    intent: Mapping[str, Any], decision: RouteDecision
+) -> dict[str, Any]:
+    """Describe how the host agent should drive the selected route.
+
+    Core classifies and constrains the work, but the host agent remains the
+    planner.  This contract keeps that boundary explicit and gives every
+    runtime Adapter the same orchestration vocabulary.
+    """
+    if decision.route is WorkRoute.QUERY:
+        return {
+            "version": "1.0.0",
+            "driver": "direct-response",
+            "artifact_mode": "none",
+            "plan": {"required": False},
+            "human_gate": "none",
+            "steps": ["inspect-as-needed", "answer"],
+        }
+    if decision.route is WorkRoute.QUICK_CHANGE:
+        return {
+            "version": "1.0.0",
+            "driver": "bounded-change",
+            "artifact_mode": "conversation",
+            "plan": {
+                "required": True,
+                "level": "compact",
+                "approval": "covered-by-explicit-request",
+                "required_sections": ["scope", "change", "verification"],
+            },
+            "human_gate": "only-if-scope-or-risk-expands",
+            "steps": ["inspect", "change", "verify", "report"],
+        }
+
+    planning_depth = (
+        "deep"
+        if intent["risk"] == "high"
+        or intent["ambiguous"]
+        or intent["sensitive"]
+        or intent["remote"]
+        or intent["multi_party"]
+        else "standard"
+    )
+    return {
+        "version": "1.0.0",
+        "driver": "adaptive-unit",
+        "artifact_mode": "unit",
+        "plan": {
+            "required": True,
+            "level": "level-1",
+            "approval": "explicit-before-unit-write",
+            "suggested_depth": planning_depth,
+            "required_sections": [
+                "goal",
+                "expected_outcome",
+                "scope",
+                "non_goals",
+                "acceptance_criteria",
+                "risks",
+                "stages",
+                "verification",
+            ],
+            "stage_decisions": {
+                "inception": "required",
+                "construction": "required",
+                "validation": "required",
+                "release": "agent-proposes-apply-or-skip",
+                "operations": "agent-proposes-apply-or-skip",
+                "learn": "required",
+            },
+            "depth_options": ["light", "standard", "deep"],
+        },
+        "question_policy": "ask-only-when-answer-materially-changes-plan",
+        "human_gate": "approve-level-1-plan-and-consequential-decisions",
+        "steps": [
+            "inspect-read-only",
+            "propose-level-1-plan",
+            "resolve-material-questions",
+            "obtain-plan-approval",
+            "initialize-unit",
+            "execute-approved-stages",
+            "verify-and-learn",
+        ],
+    }
+
+
 def _text(value: Any, field: str, *, required: bool = False) -> str:
     if value is None:
         if required:
@@ -201,11 +286,16 @@ def intake(payload: Mapping[str, Any]) -> dict[str, Any]:
     )
     next_action = {
         WorkRoute.QUERY: "answer directly without creating a Unit",
-        WorkRoute.QUICK_CHANGE: "confirm intent, make the minimal local change, and verify it",
-        WorkRoute.UNIT: "run Inception questions and create a Unit before implementation",
+        WorkRoute.QUICK_CHANGE: (
+            "state a compact plan, make the minimal local change, and verify it"
+        ),
+        WorkRoute.UNIT: (
+            "inspect read-only and obtain approval for a Level-1 plan before Unit writes"
+        ),
     }[decision.route]
     return {
         "intent": intent,
         "route": decision.as_dict(),
+        "workflow": _workflow_directive(intent, decision),
         "next_action": next_action,
     }

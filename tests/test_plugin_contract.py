@@ -44,6 +44,7 @@ def test_plugin_on_activates_project_and_resume_restores_unit(
     assert activated_without_unit["result"]["unit"] is None
     assert activated_without_unit["result"]["active_unit"] is None
     assert activated_without_unit["result"]["unit_candidates"] == []
+    assert activated_without_unit["result"]["unit_candidate_details"] == []
     assert activated_without_unit["result"]["adapter_mode"] == {
         "state": "on",
         "default_state": "off",
@@ -69,6 +70,14 @@ def test_plugin_on_activates_project_and_resume_restores_unit(
     assert result["active_unit"] is None
     assert "resume" not in result
     assert set(result["unit_candidates"]) == {str(first), str(second)}
+    assert {candidate["title"] for candidate in result["unit_candidate_details"]} == {
+        "Plugin Mode First",
+        "Plugin Mode Second",
+    }
+    assert all(
+        Path(candidate["path"]).name.isascii()
+        for candidate in result["unit_candidate_details"]
+    )
 
     with pytest.raises(PluginError, match="use resume --unit PATH"):
         dispatch("on", {"project": str(project), "unit": str(first)})

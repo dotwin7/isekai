@@ -25,16 +25,16 @@
       "id": "claude",
       "cli": "claude",
       "tested_versions": ["2.1.220"],
-      "surface": "claude-plugin",
-      "host_checks": ["claude plugin validate"],
+      "surface": "claude-plugin+project-skill",
+      "host_checks": ["claude plugin validate", "project Skill frontmatter and path"],
       "core_checks": ["status", "resume", "verify"]
     },
     {
       "id": "codex",
       "cli": "codex",
-      "tested_versions": ["0.146.0"],
-      "surface": "codex-plugin",
-      "host_checks": ["plugin manifest structure", "codex plugin command surface"],
+      "tested_versions": ["0.146.0", "0.147.0"],
+      "surface": "codex-plugin+repo-skill",
+      "host_checks": ["plugin manifest structure", "repo Skill injection", "codex exec two-turn activation and intake"],
       "core_checks": ["status", "resume", "verify"]
     }
   ]

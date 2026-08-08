@@ -1,0 +1,81 @@
+{
+  "id": "ENV-UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025-20260808055443931338",
+  "type": "execution-envelope",
+  "schema_version": "1.0.0",
+  "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+  "status": "approved",
+  "scope": [
+    "src/**",
+    "tests/**"
+  ],
+  "stages": [
+    {
+      "name": "inception",
+      "disposition": "apply",
+      "depth": "standard",
+      "reason": "동작과 경계에 대한 명시적인 합의가 필요하다.",
+      "allowed_actions": [
+        "read"
+      ]
+    },
+    {
+      "name": "construction",
+      "disposition": "apply",
+      "depth": "standard",
+      "reason": "소스 파일 하나와 해당 테스트를 로컬에서 변경해야 한다.",
+      "allowed_actions": [
+        "read",
+        "edit",
+        "test"
+      ]
+    },
+    {
+      "name": "validation",
+      "disposition": "apply",
+      "depth": "standard",
+      "reason": "인수 동작을 자동화된 테스트로 검증해야 한다.",
+      "allowed_actions": [
+        "test"
+      ]
+    },
+    {
+      "name": "release",
+      "disposition": "skip",
+      "depth": "light",
+      "reason": "게시 또는 배포가 작업 범위에 없다.",
+      "allowed_actions": []
+    },
+    {
+      "name": "operations",
+      "disposition": "skip",
+      "depth": "light",
+      "reason": "운영 환경이 작업 범위에 없다.",
+      "allowed_actions": []
+    },
+    {
+      "name": "learn",
+      "disposition": "apply",
+      "depth": "light",
+      "reason": "E2E 결과를 감사 가능한 상태로 보존해야 한다.",
+      "allowed_actions": []
+    }
+  ],
+  "allowed_actions": [
+    "read",
+    "edit",
+    "test"
+  ],
+  "forbidden_actions": [
+    "remote",
+    "deploy",
+    "credential-access"
+  ],
+  "max_iterations": 4,
+  "proposed_by": "codex-reference-agent",
+  "proposed_at": "2026-08-08T05:54:43.931338+00:00",
+  "expires_at": "2026-08-15T05:54:43.931338+00:00",
+  "approval_digest": "sha256:cf30c328cfee9e15d3608fc9ab9bd642f2fa55b5c3550566f31464baa26465ce",
+  "approval_decision_id": "DEC-20260808055444169537",
+  "approval_decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04",
+  "approved_at": "2026-08-08T05:54:44.229252+00:00"
+}

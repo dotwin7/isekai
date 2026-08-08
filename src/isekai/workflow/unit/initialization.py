@@ -18,11 +18,11 @@ from .execution import (
 )
 
 
-def _slugify(value: str) -> str:
-    slug = re.sub(r"[^\w]+", "-", value.lower(), flags=re.UNICODE).strip("-")
-    if not slug:
+def _validated_title(value: str) -> str:
+    title = value.strip()
+    if not title or not re.search(r"\w", title, flags=re.UNICODE):
         raise ValueError("title must contain at least one letter or number")
-    return slug[:48]
+    return title
 
 def initialize_unit(
     project_path: str | Path,
@@ -31,6 +31,7 @@ def initialize_unit(
     owner: str = "unassigned",
     intent: dict[str, Any] | None = None,
 ) -> Path:
+    title = _validated_title(title)
     receipt = resolve_context(project_path, WorkRoute.UNIT)
     manifest_path = Path(str(receipt["source_manifest"])).resolve()
     project_root = manifest_path.parent.resolve()
@@ -63,10 +64,9 @@ def initialize_unit(
     constraints = normalized_intent["constraints"]
     acceptance_criteria = normalized_intent["acceptance_criteria"]
     document_language = receipt["document_language"]
-    slug = _slugify(title)
     unit_id = (
         f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-"
-        f"{slug.upper()}-{uuid.uuid4().hex.upper()}"
+        f"{uuid.uuid4().hex.upper()}"
     )
     output_root = resolved_output_root.resolve()
     output_root.mkdir(parents=True, exist_ok=True)

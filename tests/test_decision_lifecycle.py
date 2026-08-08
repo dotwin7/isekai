@@ -54,11 +54,16 @@ def approve(unit: Path, gate: str) -> None:
         unit,
         gate=gate,
         outcome="approved",
-        summary=f"Approve {gate} gate for the test Unit.",
-        rationale=[f"The {gate} gate criteria are understood and satisfied for this test."],
-        alternatives=[{"option": "Defer the gate", "reason": "Rejected because the test gate is ready."}],
-        tradeoffs=["The test records a minimal but explicit Decision Packet."],
-        risks=["This is test-only evidence."],
+        summary=f"테스트 Unit의 {gate} Gate를 승인한다.",
+        rationale=[f"이 테스트에서 {gate} Gate 조건을 이해하고 충족했다."],
+        alternatives=[
+            {
+                "option": "Gate 결정을 연기한다.",
+                "reason": "테스트 Gate가 준비되어 기각했다.",
+            }
+        ],
+        tradeoffs=["최소 범위지만 명시적인 Decision Packet을 기록한다."],
+        risks=["테스트 전용 Evidence다."],
         references=references,
         decided_by="human-reviewer",
     )
@@ -83,8 +88,36 @@ def authorize_test(unit: Path) -> str:
 
 def complete_acceptance(unit: Path) -> None:
     (unit / "acceptance.md").write_text(
-        "# Acceptance Criteria\n\n- [x] Lifecycle behavior is verified.\n",
+        "# 인수 조건\n\n- [x] 생명주기 동작을 검증했다.\n",
         encoding="utf-8",
+    )
+
+
+def test_verify_rejects_english_decision_descriptions_in_korean_unit(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    record_decision(
+        unit,
+        gate="inception",
+        outcome="approved",
+        summary="Approve the English Decision Packet.",
+        rationale=["The text is intentionally written only in English."],
+        alternatives=[
+            {"option": "Defer", "reason": "Rejected for the language regression."}
+        ],
+        tradeoffs=["This packet is invalid for a Korean Unit."],
+        risks=["A reviewer cannot rely on the configured document language."],
+        references=["execution-envelope.json"],
+        decided_by="human-reviewer",
+    )
+
+    result = verify_unit(unit)
+
+    assert any(
+        "decision 0 summary must use Korean" in issue for issue in result["issues"]
     )
 
 

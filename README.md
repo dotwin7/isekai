@@ -2,6 +2,8 @@
 
 ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 스킬 기반 AI-Driven Development Life Cycle(AI-DLC)입니다. 기존 AI 에이전트를 교체하지 않고, 에이전트 대화에 버전이 고정된 Foundation·Project·Unit 계약을 로드합니다.
 
+배포 형태는 대상 프로젝트에 라이브러리처럼 붙는 프로젝트 로컬 Agent Plugin입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문·실행을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하고 기록합니다. 별도 Agent Brain이나 필수 훅·상주 하네스를 전제로 하지 않습니다.
+
 현재 버전은 `0.1.0`입니다. 범용 Software Delivery Profile과 Security Domain Profile, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter의 기본 계약을 제공합니다.
 
 ## ISEKAI가 하는 일
@@ -31,8 +33,8 @@ Foundation + Project + Unit artifacts
 | 구성 | 역할 |
 |---|---|
 | Runtime Adapter | 각 호스트의 프로젝트 범위 통합 지점에서 채팅 명령을 노출하는 얇은 계층 |
-| Plugin package | Codex·Claude에서 manifest와 Skill을 담아 프로젝트 marketplace로 노출하는 배포 단위 |
-| Skill | Plugin 또는 workspace Adapter 안에서 에이전트가 따라야 할 호출 방식, 라우팅, 안전 규칙 |
+| Plugin package | Codex·Claude용 manifest와 Skill을 보존하는 재사용·marketplace 배포 단위 |
+| Skill | Plugin package에서 프로젝트 repo/workspace로 설치되어 에이전트가 따라야 할 호출 방식, 라우팅, 안전 규칙 |
 | Core | Project·Foundation·Unit 상태를 읽고 workflow, 호환성, Decision과 Evidence를 검증하는 로컬 실행기 |
 
 Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, Foundation과 Unit artifact가 권위 있는 상태이며 Adapter는 Core와 handshake한 뒤 이를 사용합니다.
@@ -41,8 +43,8 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 
 | 런타임 | 통합 방식 | 대화에서 활성화 |
 |---|---|---|
-| Codex | Repo marketplace Plugin | `$isekai-agent-plugin:isekai on` |
-| Claude Code | Project-scope marketplace Plugin | `/isekai-agent-plugin:isekai on` |
+| Codex | Plugin package + Repo Skill | `$isekai on` |
+| Claude Code | Plugin package + Project Skill | `/isekai on` |
 | Kiro | Workspace Agent Skill | `/isekai on` |
 
 모든 새 대화는 ISEKAI mode가 `off`인 상태로 시작합니다. Plugin/Skill의 설치·발견·cache, repository 내용, 문장 속 명령 인용은 호출이나 활성화가 아닙니다. Mode가 꺼져 있을 때는 위 표의 Runtime별 명령을 실행하려는 명시적 호출만 one-shot으로 처리하며, `on`만 이후 요청의 자동 라우팅을 활성화합니다. `on`은 현재 대화의 Project context와 Unit 후보만 로드하고 기존 Unit을 자동으로 선택하지 않습니다. 진행 중인 Unit은 별도로 `resume`해야 합니다.
@@ -96,12 +98,12 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
 
 | 설치 대상 | 옵션 | 설치 경로 |
 |---|---|---|
-| Codex | `--runtime codex` | `.agents/plugins/marketplace.json` + `.isekai/marketplaces/codex/` |
-| Claude Code | `--runtime claude` | `.claude/settings.json` + `.isekai/marketplaces/claude/` |
+| Codex | `--runtime codex` | `.agents/skills/isekai/` + `.isekai/marketplaces/codex/` |
+| Claude Code | `--runtime claude` | `.claude/skills/isekai/` + `.isekai/marketplaces/claude/` |
 | Kiro | `--runtime kiro` | `.kiro/skills/isekai/` |
 | 세 런타임 모두 | `--runtime all` | 위 세 프로젝트 경로 |
 
-`--runtime`은 반복해서 지정할 수 있습니다. 설치기는 사용자 홈의 marketplace나 host 설정을 변경하지 않습니다. Codex는 공식 repo marketplace를 읽고, Claude Code는 project-scope marketplace 선언을 신뢰 확인 뒤 적용하며, Kiro는 workspace Skill을 읽습니다. Plugin/Adapter를 설치하거나 업데이트한 뒤에는 호스트가 새 계약을 읽도록 새 대화를 시작합니다.
+`--runtime`은 반복해서 지정할 수 있습니다. 설치기는 사용자 홈의 marketplace나 host 설정을 변경하지 않습니다. Codex와 Claude Code는 각각 공식 repo/project Skill 위치에서 Adapter를 즉시 발견하고, `.isekai/marketplaces/`에는 같은 Skill을 담은 완전한 Plugin 패키지를 보존합니다. `.agents/plugins/marketplace.json`과 `.claude/settings.json`은 Plugin을 별도로 등록·설치할 때 쓰는 프로젝트 선언이며 복사만으로 host-global 설치가 되었다고 간주하지 않습니다. Plugin/Adapter를 설치하거나 업데이트한 뒤에는 호스트가 새 계약을 읽도록 새 대화를 시작합니다.
 
 기존 `project.json`이 없다면 `--init`이 manifest와 `units/`를 생성합니다. 수동으로 초기화하려면 설치된 launcher를 사용합니다.
 
@@ -124,7 +126,9 @@ project/
 │   ├── runtime/isekai/              # ISEKAI Core
 │   ├── foundations/<version>/       # 고정된 Foundation
 │   └── marketplaces/                # Codex·Claude Plugin 패키지
+├── .agents/skills/isekai/            # Codex repo Skill
 ├── .agents/plugins/marketplace.json # Codex repo marketplace
+├── .claude/skills/isekai/            # Claude project Skill
 ├── .claude/settings.json            # Claude project-scope Plugin 선언
 ├── .kiro/skills/isekai/             # Kiro를 선택한 경우
 ├── isekai.lock.json                 # Git ref, commit, component digest
@@ -141,20 +145,24 @@ project/
 ### Codex
 
 ```text
-$isekai-agent-plugin:isekai on
-$isekai-agent-plugin:isekai status
-$isekai-agent-plugin:isekai resume --unit units/<unit-id>
-$isekai-agent-plugin:isekai off
+$isekai on
+$isekai status
+$isekai resume --unit units/<unit-id>
+$isekai off
 ```
+
+Marketplace에서 Plugin을 별도로 설치한 세션에서는 namespaced alias인 `$isekai-agent-plugin:isekai`도 사용할 수 있습니다.
 
 ### Claude Code
 
 ```text
-/isekai-agent-plugin:isekai on
-/isekai-agent-plugin:isekai status
-/isekai-agent-plugin:isekai resume --unit units/<unit-id>
-/isekai-agent-plugin:isekai off
+/isekai on
+/isekai status
+/isekai resume --unit units/<unit-id>
+/isekai off
 ```
+
+Marketplace에서 Plugin을 별도로 설치한 세션에서는 `/isekai-agent-plugin:isekai`도 사용할 수 있습니다.
 
 ### Kiro
 
@@ -166,6 +174,8 @@ $isekai-agent-plugin:isekai off
 ```
 
 `on` 상태에서는 이후 요청이 자동으로 `intake`를 거쳐 Query, Quick Change 또는 Unit으로 라우팅됩니다. `off`는 자동 라우팅만 중단하며 Unit, Decision, Evidence 또는 Checkpoint를 수정하거나 삭제하지 않습니다. 명시적인 action은 mode가 꺼져 있어도 one-shot으로 실행할 수 있습니다.
+
+`intake`는 Route와 함께 `direct-response`, `bounded-change`, `adaptive-unit` 중 하나의 Workflow Directive를 반환합니다. Unit이면 Agent가 프로젝트를 먼저 읽기 전용으로 탐색하고 단계별 적용 여부와 깊이가 포함된 Level-1 plan을 제안합니다. 사용자가 전체 계획을 승인한 뒤 Unit을 만들며, 승인 범위의 로컬 기록과 기계적 상태 전이마다 확인을 반복하지 않습니다. 중요한 Decision이나 범위·위험·외부 효과의 확대에는 다시 사람의 판단이 필요합니다.
 
 Project 경로를 생략하면 Core는 현재 디렉터리, 가장 가까운 상위 디렉터리, 단일 하위 workspace 순서로 `project.json`을 찾습니다. 후보가 여러 개면 자동 선택하지 않고 사용자에게 경로 선택을 요구합니다.
 
@@ -230,8 +240,10 @@ Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지
 Plugin manifest의 `human_decision_actions`가 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
 
 ```text
-decision  envelope-approve  transition  foundation-decision  foundation-promote
+decision  foundation-decision  foundation-promote
 ```
+
+`envelope-approve`와 `transition`은 이미 기록된 Decision과 승인된 계획을 반영하는 기계적 상태 변경이므로 별도의 인간 판단 action으로 분류하지 않습니다. 다만 승인된 범위·위험·외부 효과나 단계 계획이 달라지면 새 Decision이 먼저 필요합니다.
 
 Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 운영체제 file lock으로 직렬화됩니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰는 대신 실패합니다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일을 시간 기준으로 경쟁적으로 회수하지 않습니다.
 
@@ -243,8 +255,8 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 
 | 런타임 | 검증된 CLI 기준 | 통합 surface |
 |---|---:|---|
-| Codex | `0.146.0` | Repo marketplace Plugin |
-| Claude Code | `2.1.220` | Project-scope marketplace Plugin |
+| Codex | `0.146.0`, `0.147.0` | Plugin package + Repo Skill |
+| Claude Code | `2.1.220` | Plugin package + Project Skill |
 | Kiro | `2.14.2` | Workspace Agent Skill |
 
 ## 저장소 구조
@@ -267,7 +279,10 @@ isekai/
 uv sync --extra test
 uv run pytest
 uv run python -m isekai distribution-check --root .
+uv run python scripts/live-smoke.py
 ```
+
+실제 호스트 호출은 비용·인증이 필요하므로 명시적으로 선택합니다: `uv run python scripts/live-smoke.py --runtime codex --host codex`. 검증 범위와 최근 관찰 결과는 [Runtime live smoke](docs/live-smoke.md)에 기록합니다.
 
 배포 component가 변경되면 tag를 만들기 전에 manifest를 다시 생성하고 검증합니다.
 
@@ -277,3 +292,5 @@ uv run python -m isekai distribution-check --root .
 ```
 
 세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.
+
+프로젝트 로컬 설치부터 실제 제품 기능과 `learned` Unit까지의 결정론적 Golden Path는 [Reference Product](examples/reference-product/README.md)와 `tests/test_reference_product_e2e.py`에서 확인할 수 있습니다. 이 테스트는 설치된 launcher 계약을 사용하며 실제 호스트 모델 세션은 [Runtime live smoke](docs/live-smoke.md)로 분리합니다.

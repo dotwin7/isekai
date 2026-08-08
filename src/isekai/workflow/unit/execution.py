@@ -48,6 +48,8 @@ EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
     "approval_digest",
 }
 EXECUTION_ENVELOPE_STATUSES = {"proposed", "approved"}
+EXECUTION_STAGE_DEPTHS = {"light", "standard", "deep"}
+EXECUTION_STAGE_DISPOSITIONS = {"apply", "skip"}
 # An Envelope bounds how long an approval keeps authorizing actions. Units are
 # meant to span sessions, so the default is a working week rather than a day,
 # and an expired Envelope is renewed through a fresh human Decision.
@@ -230,8 +232,23 @@ def _execution_envelope_issues(
                 issues.append(f"Execution Envelope has duplicate stage: {stage['name']}")
             else:
                 seen_stage_names.add(stage["name"])
-            if not isinstance(stage.get("depth"), str) or not stage["depth"].strip():
-                issues.append(f"Execution Envelope stage {index} needs depth")
+            depth = stage.get("depth")
+            if depth not in EXECUTION_STAGE_DEPTHS:
+                issues.append(
+                    f"Execution Envelope stage {index} depth must be one of: "
+                    + ", ".join(sorted(EXECUTION_STAGE_DEPTHS))
+                )
+            disposition = stage.get("disposition")
+            if disposition is not None:
+                if disposition not in EXECUTION_STAGE_DISPOSITIONS:
+                    issues.append(
+                        f"Execution Envelope stage {index} disposition must be one of: "
+                        + ", ".join(sorted(EXECUTION_STAGE_DISPOSITIONS))
+                    )
+                if not isinstance(stage.get("reason"), str) or not stage["reason"].strip():
+                    issues.append(
+                        f"Execution Envelope stage {index} with a disposition needs reason"
+                    )
             actions = stage.get("allowed_actions")
             if not isinstance(actions, list) or any(
                 not isinstance(item, str) or not item.strip() for item in actions
@@ -253,6 +270,10 @@ def _execution_envelope_issues(
                             f"Execution Envelope stage {index} actions are not allowed by the envelope: "
                             + ", ".join(outside_envelope)
                         )
+                if disposition == "skip" and actions:
+                    issues.append(
+                        f"Execution Envelope skipped stage {index} cannot allow actions"
+                    )
     if require_approved or envelope.get("status") == "approved":
         if not isinstance(envelope.get("approval_decision_id"), str) or not envelope.get("approval_decision_id", "").strip():
             issues.append("approved Execution Envelope needs approval_decision_id")

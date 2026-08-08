@@ -5,6 +5,12 @@
 
 ## Unit 구조와 lifecycle
 
+Unit의 기계 식별자와 사람이 읽는 제목은 분리한다. `unit.json.id`와 Unit
+디렉터리는 `UNIT-YYYYMMDD-<UUID>` 형식의 ASCII 값이며 CLI·경로·로그·외부
+도구가 사용한다. `unit.json.title`은 사람이 Unit을 찾고 검토하는 표시
+이름이므로 Project의 `document_language`를 따른다. 제목을 변경해도 Unit
+identity는 바뀌지 않는다.
+
 Unit은 의도에서 운영 결과까지 추적하는 정식 AI-DLC 작업 단위다.
 
 ```text

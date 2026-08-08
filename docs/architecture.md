@@ -3,6 +3,19 @@
 - 설명: Core 내부 모듈 경계와 Project bootstrap·discovery 계약
 - 문서 역할: [ISEKAI canonical 문서 집합](isekai.md)의 일부
 
+## 프로젝트 부착형 구성
+
+ISEKAI는 중앙 실행 서비스가 아니라 대상 프로젝트 디렉터리에 배치되는 Agent Plugin이다. 설치기는 선택한 Runtime Adapter, 프로젝트 로컬 Python Core, 고정 Foundation과 lock을 함께 복사한다. 사용자는 대상 프로젝트에서 기존 Codex·Claude·Kiro를 시작하고 Plugin을 활성화한다.
+
+```text
+Host Agent (planner and executor)
+  └─ Runtime Skill (adaptive workflow driver)
+       └─ Project-local Core (classification, validation, records)
+            └─ Foundation + Project + Unit artifacts
+```
+
+Agent 추론을 Core에 복제하지 않는다. Skill은 Host Agent가 `intake`의 Workflow Directive를 해석해 Level-1 plan을 제안하도록 만들고, Core는 Agent가 제안한 계획의 승인 경계와 결과 기록을 검증한다. 훅은 향후 자동 관측을 위한 선택적 Adapter일 수 있지만 이 기본 호출 구조의 필수 구성요소는 아니다.
+
 ## Core 내부 모듈 경계
 
 Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`, `isekai.foundation`, `isekai.plugin_contract`만 안정적인 façade로 사용한다. façade는 기존 import와 응답 계약을 유지하고, 구현 책임은 다음 경계로 분리한다.

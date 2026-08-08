@@ -70,6 +70,31 @@ AI가 계획·질문·선택지를 제시
 → 산출물·결정·증거를 다음 단계에 영속화
 ```
 
+### 프로젝트 부착형 Adaptive Driver
+
+ISEKAI는 새 프로젝트에 라이브러리처럼 설치되는 Agent Plugin이다. 별도 Agent Brain이나 상주 하네스가 생명주기를 수행하지 않는다. 활성화된 Runtime Skill을 따르는 Codex·Claude·Kiro가 Driver이고, 프로젝트 로컬 Core는 공통 분류·검증·기록 계약이다.
+
+```text
+사용자 요청
+→ Core intake: Normalized Intent + Route + Workflow Directive
+→ Host Agent: 프로젝트 탐색 + Level-1 계획 제안
+→ 사용자: 계획과 중요한 결정 승인
+→ Host Agent: 승인 범위 실행
+→ Core: Unit·Decision·Envelope·Evidence·Checkpoint 검증 및 기록
+```
+
+`intake`의 `workflow.driver`는 Route별 실행 형태를 기계가 읽을 수 있게 반환한다.
+
+| Driver | 계획 | 영속 산출물 | 인간 확인 |
+|---|---|---|---|
+| `direct-response` | 없음 | 없음 | 없음 |
+| `bounded-change` | Scope·Change·Verification의 compact plan | 대화 결과 | 범위·위험 확대 시 |
+| `adaptive-unit` | Level-1 plan | Unit artifact | 첫 계획과 중요한 Decision |
+
+Level-1 plan에는 Goal, Expected Outcome, Scope, Non-goal, Acceptance Criteria, Risk, Verification과 단계별 적용 여부·깊이·이유가 들어간다. Inception·Construction·Validation·Learn은 적용하고 Release·Operations는 실제 배포·운영 범위가 있을 때만 실행한다. 실행을 건너뛴 단계도 lifecycle 추적에는 명시적인 `skip` disposition과 이유를 남긴다. 깊이는 `light`, `standard`, `deep` 중 Agent가 제안하며, 모호한 완료 조건·고위험·민감정보·원격 효과·여러 의사결정자가 있으면 Core가 `deep`을 권고한다. Execution Envelope는 disposition이 `skip`인 단계에 action을 허용하지 않는다.
+
+Agent는 답이 계획을 실질적으로 바꾸는 질문만 한다. 사용자가 전체 Level-1 plan을 승인하면 그 범위의 로컬 Unit artifact와 기계적 상태 전이를 수행할 때 파일마다 다시 묻지 않는다. 승인 범위·위험·외부 효과 또는 단계 계획이 바뀌거나 중요한 gate에 도달하면 새 인간 Decision을 받는다.
+
 ### Inception
 
 사업·보안 의도를 검증 가능한 Unit으로 바꾼다.

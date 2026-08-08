@@ -9,8 +9,8 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 | Runtime | Project-local surface | Local test |
 |---|---|---|
 | Kiro | `.kiro/skills/isekai/SKILL.md` | invoke `/isekai` in Kiro |
-| Claude Code | `.isekai/marketplaces/claude/` + `.claude/settings.json` | invoke `/isekai-agent-plugin:isekai` |
-| Codex | `.isekai/marketplaces/codex/` + `.agents/plugins/marketplace.json` | invoke `$isekai-agent-plugin:isekai` |
+| Claude Code | `.claude/skills/isekai/` + `.isekai/marketplaces/claude/` | invoke `/isekai` |
+| Codex | `.agents/skills/isekai/` + `.isekai/marketplaces/codex/` | invoke `$isekai` |
 
 Install the project-local launcher and adapters from an immutable Git tag first:
 
@@ -33,7 +33,9 @@ The user-facing CLI uses direct actions through that launcher:
 
 Run the Agent CLI from a Project root containing `project.json`; Core also searches ancestors and unambiguous descendant workspace candidates. `init` creates a validated manifest and `units/` without overwriting existing configuration. Unit output defaults to the selected Project root.
 
-The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. Installation writes Plugin sources and declarations only inside the Project and never registers a Project path in user-global host settings.
+The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. Installation writes Plugin packages, repo/project Skills, and declarations only inside the Project and never registers a Project path in user-global host settings.
+
+The selected host agent is the adaptive workflow driver. The Runtime Skill tells it to interpret Core's machine-readable `workflow` directive, inspect the project, and propose a Level-1 plan. ISEKAI does not add a second agent brain, required hook, or resident harness.
 
 `<PROJECT_ROOT>/.isekai/bin/isekai plugin <action>` is the internal Runtime Adapter contract. Adapters must resolve it from the selected Project and never use a global executable fallback.
 
@@ -64,7 +66,7 @@ The promotion command rejects missing approval or failing Evidence and does not 
 
 Verification Evidence preserves command exit codes and output digests. Each command must reference the unique `authorization_id` returned by its immediately preceding `test` authorization in the same stage. Core rejects pre-Construction, unapproved, non-test, reused, or stale grants. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
 
-Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Runtime adapters call `authorize` with a Project target before an action. Core canonicalizes that target, uses the Unit's actual phase, records each successful grant in `execution-authorizations.json`, and denies work after the iteration budget is exhausted.
+Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, disposition, reason, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Depth is `light`, `standard`, or `deep`. A stage with `disposition: skip` must state a reason and cannot allow actions. Runtime adapters call `authorize` with a Project target before an action. Core canonicalizes that target, uses the Unit's actual phase, records each successful grant in `execution-authorizations.json`, and denies work after the iteration budget is exhausted.
 
 The adapters invoke the installed local launcher, which calls the shared Core dispatch contract internally:
 
@@ -72,7 +74,7 @@ The adapters invoke the installed local launcher, which calls the shared Core di
 ./.isekai/bin/isekai plugin <action> ...
 ```
 
-Intake accepts either a host Goal or a direct request and returns a normalized intent plus `query`, `quick-change`, or `unit` routing result:
+Intake accepts either a host Goal or a direct request and returns a normalized intent, a `query`, `quick-change`, or `unit` route, and a `direct-response`, `bounded-change`, or `adaptive-unit` workflow directive:
 
 ```bash
 ./.isekai/bin/isekai plugin intake --source host-goal --goal "Add event classifier" --expected-outcome "Store classification and lineage" --scope 'src/events/**' --acceptance-criterion 'tests pass'

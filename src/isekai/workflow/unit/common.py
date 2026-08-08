@@ -147,6 +147,8 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         )
     if receipt.get("project_id") != unit.get("project_id"):
         issues.append("Context Receipt project_id does not match Unit")
+    if receipt.get("document_language") != unit.get("document_language"):
+        issues.append("Context Receipt document_language does not match Unit")
     if receipt.get("route") != WorkRoute.UNIT.value:
         issues.append("Context Receipt route must be unit")
     if receipt.get("foundation_version") != unit.get("foundation_version"):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -422,6 +423,19 @@ def test_unit_templates_default_to_korean(tmp_path: Path) -> None:
     assert unit_json["document_language"] == "ko"
 
 
+def test_unit_machine_identity_is_ascii_and_separate_from_korean_title(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "기능 제안 우선순위 결정")
+    unit_json = json.loads((unit / "unit.json").read_text(encoding="utf-8"))
+
+    assert unit_json["title"] == "기능 제안 우선순위 결정"
+    assert re.fullmatch(r"UNIT-\d{8}-[A-F0-9]{32}", unit_json["id"])
+    assert unit.name == unit_json["id"].lower()
+    assert unit.name.isascii()
+
+
 def test_unit_templates_support_english_override(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     manifest_path = project
@@ -438,6 +452,24 @@ def test_unit_templates_support_english_override(tmp_path: Path) -> None:
     assert "## Goal" in intent
     assert requirements.startswith("# Requirements")
     assert checkpoint["next_action"] == "clarify intent and acceptance criteria"
+
+
+def test_verify_rejects_english_human_document_in_korean_unit(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "문서 언어 검증", tmp_path / "project" / "units")
+    (unit / "requirements.md").write_text(
+        "# Requirements\n\nEnglish-only requirements.\n",
+        encoding="utf-8",
+    )
+
+    result = verify_unit(unit)
+
+    assert "requirements.md must use the ko document heading" in result["issues"]
+    assert "requirements.md must contain Korean human-facing content" in result[
+        "issues"
+    ]
 
 
 def test_repository_root_project_resolves_local_foundation() -> None:
@@ -466,6 +498,18 @@ def test_unit_default_and_relative_outputs_are_project_relative(
     assert activated["unit"] is None
     assert activated["active_unit"] is None
     assert activated["unit_candidates"] == [str(default_unit)]
+    assert activated["unit_candidate_details"] == [
+        {
+            "path": str(default_unit),
+            "unit_id": json.loads(
+                (default_unit / "unit.json").read_text(encoding="utf-8")
+            )["id"],
+            "title": "Project Relative Default",
+            "document_language": "ko",
+            "status": "proposed",
+            "issue": None,
+        }
+    ]
 
     resumed = resume_session(project)
     assert resumed["unit"]["path"] == str(default_unit)

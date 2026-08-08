@@ -44,6 +44,92 @@ _ACCEPTANCE_ITEM = re.compile(
     r"^[ \t]*[-*+][ \t]+\[(?P<state>[ xX]*)\][ \t]*(?P<body>.*)$",
     re.MULTILINE,
 )
+_HANGUL = re.compile(r"[가-힣]")
+_HUMAN_DOCUMENT_HEADINGS = {
+    "ko": {
+        "intent.md": "# ",
+        "requirements.md": "# 요구사항",
+        "architecture.md": "# 아키텍처",
+        "implementation-guide.md": "# 구현 가이드",
+        "plan.md": "# ",
+        "acceptance.md": "# 인수 조건",
+        "release.md": "# 릴리스",
+        "operations.md": "# 운영",
+    },
+    "en": {
+        "intent.md": "# ",
+        "requirements.md": "# Requirements",
+        "architecture.md": "# Architecture",
+        "implementation-guide.md": "# Implementation Guide",
+        "plan.md": "# Plan",
+        "acceptance.md": "# Acceptance Criteria",
+        "release.md": "# Release",
+        "operations.md": "# Operations",
+    },
+}
+
+
+def _decision_language_issues(
+    decisions: dict[str, Any] | None,
+    document_language: str,
+) -> list[str]:
+    if document_language != "ko" or decisions is None:
+        return []
+    entries = decisions.get("decisions")
+    if not isinstance(entries, list):
+        return []
+    issues: list[str] = []
+    for index, decision in enumerate(entries):
+        if not isinstance(decision, dict):
+            continue
+        descriptions: list[tuple[str, Any]] = [("summary", decision.get("summary"))]
+        for field in ("rationale", "tradeoffs", "risks"):
+            values = decision.get(field)
+            if isinstance(values, list):
+                descriptions.extend((field, value) for value in values)
+        alternatives = decision.get("alternatives")
+        if isinstance(alternatives, list):
+            for alternative in alternatives:
+                if isinstance(alternative, dict):
+                    descriptions.extend(
+                        (
+                            ("alternatives.option", alternative.get("option")),
+                            ("alternatives.reason", alternative.get("reason")),
+                        )
+                    )
+        for field, value in descriptions:
+            if isinstance(value, str) and value.strip() and not _HANGUL.search(value):
+                issues.append(
+                    f"decision {index} {field} must use Korean for "
+                    "document_language ko"
+                )
+    return issues
+
+
+def _human_document_language_issues(
+    unit_dir: Path,
+    unit: dict[str, Any],
+    decisions: dict[str, Any] | None,
+) -> list[str]:
+    document_language = unit.get("document_language")
+    headings = _HUMAN_DOCUMENT_HEADINGS.get(str(document_language))
+    if headings is None:
+        return ["Unit document_language must be ko or en"]
+    issues: list[str] = []
+    for relative, heading in headings.items():
+        try:
+            content = _unit_text(unit_dir, relative)
+        except ValueError as exc:
+            issues.append(str(exc))
+            continue
+        if not content.startswith(heading):
+            issues.append(
+                f"{relative} must use the {document_language} document heading"
+            )
+        if document_language == "ko" and not _HANGUL.search(content):
+            issues.append(f"{relative} must contain Korean human-facing content")
+    issues.extend(_decision_language_issues(decisions, str(document_language)))
+    return issues
 
 
 def _acceptance_criteria_issues(unit_dir: Path) -> list[str]:
@@ -273,6 +359,7 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
                 scope=str(unit.get("scope")),
             )
         )
+    issues.extend(_human_document_language_issues(unit_dir, unit, decisions))
     if isinstance(decision_entries, list) and not decision_entries:
         issues.append("at least one recorded decision is required")
     elif isinstance(decision_entries, list):
@@ -343,6 +430,8 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     return {
         "valid": valid,
         "unit_id": unit.get("id"),
+        "title": unit.get("title"),
+        "document_language": unit.get("document_language"),
         "phase": unit.get("phase"),
         "status": unit.get("status"),
         "artifact_count": len(present),

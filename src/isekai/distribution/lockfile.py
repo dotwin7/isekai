@@ -146,6 +146,27 @@ def _install_lock_issues(lock: object) -> list[str]:
                         label=f"adapter:{runtime}.installed_version",
                     )
                 )
+            if isinstance(entry, dict):
+                has_workspace_path = "workspace_path" in entry
+                has_workspace_digest = "workspace_digest" in entry
+                if has_workspace_path != has_workspace_digest:
+                    issues.append(
+                        f"lock adapter:{runtime} workspace_path and workspace_digest "
+                        "must be supplied together"
+                    )
+                elif has_workspace_path:
+                    issues.extend(
+                        _relative_path_issues(
+                            entry.get("workspace_path"),
+                            label=f"adapter:{runtime}.workspace_path",
+                        )
+                    )
+                    issues.extend(
+                        _digest_issues(
+                            entry.get("workspace_digest"),
+                            label=f"adapter:{runtime}.workspace_digest",
+                        )
+                    )
 
     rollback = lock.get("rollback")
     if rollback is not None:
@@ -212,4 +233,6 @@ def _workspace_adapter_owned(adapters: object, runtime: str) -> bool:
         return False
     entry = adapters.get(runtime)
     expected = WORKSPACE_ADAPTER_PATHS[runtime].as_posix()
-    return isinstance(entry, dict) and entry.get("path") == expected
+    return isinstance(entry, dict) and (
+        entry.get("path") == expected or entry.get("workspace_path") == expected
+    )

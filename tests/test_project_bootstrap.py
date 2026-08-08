@@ -120,7 +120,11 @@ def test_inception_does_not_select_from_existing_units(tmp_path: Path) -> None:
 
     assert session["unit"] is None
     assert session["active_unit"] is None
-    assert session["unit_candidates"] == [str(first), str(second)]
+    assert session["unit_candidates"] == sorted([str(first), str(second)])
+    assert {candidate["title"] for candidate in session["unit_candidate_details"]} == {
+        "First Existing Unit",
+        "Second Existing Unit",
+    }
     assert session["inception"]["decision_required"] is True
 
 

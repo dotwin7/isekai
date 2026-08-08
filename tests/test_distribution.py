@@ -225,12 +225,20 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert lock["adapters"]["codex"]["path"] == (
         ".isekai/marketplaces/codex/plugins/isekai-agent-plugin"
     )
+    assert lock["adapters"]["codex"]["workspace_path"] == (
+        ".agents/skills/isekai"
+    )
     assert lock["adapters"]["claude"]["path"] == (
         ".isekai/marketplaces/claude/plugins/isekai-agent-plugin"
+    )
+    assert lock["adapters"]["claude"]["workspace_path"] == (
+        ".claude/skills/isekai"
     )
     assert lock["adapters"]["kiro"]["path"] == ".kiro/skills/isekai"
     assert (project / ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/.codex-plugin/plugin.json").is_file()
     assert (project / ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/.claude-plugin/plugin.json").is_file()
+    assert (project / ".agents/skills/isekai/SKILL.md").is_file()
+    assert (project / ".claude/skills/isekai/SKILL.md").is_file()
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
     codex_marketplace = json.loads(
         (project / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
@@ -249,8 +257,6 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     )
     plugin_key = f"isekai-agent-plugin@{lock['marketplace']}"
     assert claude_settings["enabledPlugins"][plugin_key] is True
-    assert not (project / ".agents/skills/isekai").exists()
-    assert not (project / ".claude/skills/isekai").exists()
     assert "registration_commands" not in first
     assert first["host_registration_required"] is False
     assert doctor_install(project)["ready"] is True
@@ -415,8 +421,16 @@ def test_install_excludes_unhashed_bytecode_and_doctor_rejects_new_cache(
             "adapter:codex digest mismatch",
         ),
         (
+            ".agents/skills/isekai/agents/openai.yaml",
+            "adapter:codex.workspace digest mismatch",
+        ),
+        (
             ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/skills/isekai/SKILL.md",
             "adapter:claude digest mismatch",
+        ),
+        (
+            ".claude/skills/isekai/SKILL.md",
+            "adapter:claude.workspace digest mismatch",
         ),
         (".kiro/skills/isekai/SKILL.md", "adapter:kiro digest mismatch"),
         (".agents/plugins/marketplace.json", "Codex repo marketplace"),
@@ -849,12 +863,20 @@ def test_later_kiro_install_refuses_unmanaged_skill(tmp_path: Path) -> None:
     assert set(load_install_lock(project)["adapters"]) == {"codex"}
 
 
-def test_install_refuses_an_unmanaged_kiro_workspace_adapter(
+@pytest.mark.parametrize(
+    ("runtime", "relative"),
+    [
+        ("codex", ".agents/skills/isekai"),
+        ("claude", ".claude/skills/isekai"),
+        ("kiro", ".kiro/skills/isekai"),
+    ],
+)
+def test_install_refuses_an_unmanaged_workspace_adapter(
     tmp_path: Path,
+    runtime: str,
+    relative: str,
 ) -> None:
     project = _project_with_foundation(tmp_path)
-    runtime = "kiro"
-    relative = ".kiro/skills/isekai"
     target = project / relative
     target.mkdir(parents=True)
     marker = target / "UNMANAGED.txt"
@@ -1562,20 +1584,24 @@ def test_new_kiro_install_rejects_symlinked_parent_paths(
 
 
 @pytest.mark.parametrize(
-    ("runtime", "symlink_parent"),
-    [("codex", ".agents"), ("claude", ".claude")],
+    ("runtime", "symlink_parent", "expected_label"),
+    [
+        ("codex", ".agents", "adapter:codex.path"),
+        ("claude", ".claude", "adapter:claude.path"),
+    ],
 )
 def test_plugin_install_rejects_symlinked_host_configuration_paths(
     tmp_path: Path,
     runtime: str,
     symlink_parent: str,
+    expected_label: str,
 ) -> None:
     project = _project_with_foundation(tmp_path)
     external = tmp_path / f"external-{runtime}-root"
     external.mkdir()
     (project / symlink_parent).symlink_to(external, target_is_directory=True)
 
-    with pytest.raises(DistributionError, match=f"host:{runtime}.path contains a symlink"):
+    with pytest.raises(DistributionError, match=f"{expected_label} contains a symlink"):
         install_from_checkout(
             ROOT,
             project,
