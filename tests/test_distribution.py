@@ -79,18 +79,96 @@ def _bump_release(release: Path, version: str) -> None:
     replacements = [
         release / "pyproject.toml",
         release / "src/isekai/__init__.py",
-        release / "plugin/isekai/manifest.json",
-        release / "plugin/isekai/runtimes/codex/.codex-plugin/plugin.json",
-        release / "plugin/isekai/runtimes/claude/.claude-plugin/plugin.json",
-        release / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
-        release / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
-        release / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
+        release / "runtime/manifest.json",
+        release / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+        release / "runtime/adapters/codex/skills/isekai/SKILL.md",
+        release / "runtime/adapters/claude/skills/isekai/SKILL.md",
     ]
     replacements.extend(path for path in (release / "foundation").rglob("*.json"))
     for path in replacements:
         content = path.read_text(encoding="utf-8").replace("0.1.0", version)
         path.write_text(content, encoding="utf-8")
     write_distribution_manifest(release)
+
+
+def _convert_to_legacy_plugin_install(project: Path) -> None:
+    """Turn a current test install into the former Plugin-first 0.1.0 layout."""
+    from isekai.distribution import marketplace as marketplace_module
+
+    lock = load_install_lock(project)
+    assert lock is not None
+    marketplace_name = "isekai-product"
+    managed = project / ".isekai"
+    adapters = dict(lock["adapters"])
+    for runtime in ("codex", "claude"):
+        workspace_entry = adapters[runtime]
+        workspace_path = str(workspace_entry["path"])
+        workspace_digest = str(workspace_entry["digest"])
+        plugin_root = (
+            managed
+            / "marketplaces"
+            / runtime
+            / "plugins/isekai-agent-plugin"
+        )
+        shutil.copytree(
+            ROOT / f"runtime/adapters/{runtime}/skills/isekai",
+            plugin_root / "skills/isekai",
+        )
+        manifest_path = plugin_root / f".{runtime}-plugin/plugin.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "name": "isekai-agent-plugin",
+                    "version": "0.1.0",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        plugin_digest = tree_digest(plugin_root, include_transients=True)
+        adapters[runtime] = {
+            "version": "0.1.0",
+            "path": plugin_root.relative_to(project).as_posix(),
+            "source_digest": plugin_digest,
+            "digest": plugin_digest,
+            "workspace_path": workspace_path,
+            "workspace_digest": workspace_digest,
+        }
+
+    codex_metadata = managed / "marketplaces/codex/.agents/plugins/marketplace.json"
+    codex_metadata.parent.mkdir(parents=True)
+    codex_metadata.write_text(
+        json.dumps(marketplace_module._codex_marketplace_manifest(marketplace_name))
+        + "\n",
+        encoding="utf-8",
+    )
+    claude_metadata = managed / "marketplaces/claude/.claude-plugin/marketplace.json"
+    claude_metadata.parent.mkdir(parents=True)
+    claude_metadata.write_text(
+        json.dumps(
+            marketplace_module._claude_marketplace_manifest(
+                marketplace_name,
+                "0.1.0",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    documents, _ = marketplace_module._project_host_documents(
+        project,
+        marketplace_name,
+        {"codex", "claude"},
+        {},
+    )
+    marketplace_module._apply_project_host_documents(project, documents)
+    lock["marketplace"] = marketplace_name
+    lock["adapters"] = adapters
+    (project / "isekai.lock.json").write_text(
+        json.dumps(lock, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    assert doctor_install(project)["ready"] is True
 
 
 def test_checked_in_distribution_manifest_matches_release_components() -> None:
@@ -185,20 +263,20 @@ def test_distribution_digest_binds_the_executable_bit(tmp_path: Path) -> None:
     assert any("bootstrap digest mismatch" in issue for issue in result["issues"])
 
 
-def test_distribution_digest_binds_the_host_neutral_plugin_contract(
+def test_distribution_digest_binds_the_host_neutral_runtime_contract(
     tmp_path: Path,
 ) -> None:
     release = _copy_release(tmp_path)
-    plugin_manifest = release / "plugin/isekai/manifest.json"
-    manifest = json.loads(plugin_manifest.read_text(encoding="utf-8"))
+    runtime_manifest = release / "runtime/manifest.json"
+    manifest = json.loads(runtime_manifest.read_text(encoding="utf-8"))
     manifest["trust_model"]["human_identity"] = "silently-weakened"
-    plugin_manifest.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    runtime_manifest.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
     result = verify_distribution(release)
 
     assert result["valid"] is False
     assert any(
-        "isekai-agent-plugin-contract digest mismatch" in issue
+        "isekai-project-runtime-contract digest mismatch" in issue
         for issue in result["issues"]
     )
 
@@ -240,41 +318,16 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert lock["source"]["ref"] == "v0.1.0"
     assert lock["source"]["commit"] == "a" * 40
     assert set(lock["adapters"]) == {"kiro", "claude", "codex"}
-    assert lock["adapters"]["codex"]["path"] == (
-        ".isekai/marketplaces/codex/plugins/isekai-agent-plugin"
-    )
-    assert lock["adapters"]["codex"]["workspace_path"] == (
-        ".agents/skills/isekai"
-    )
-    assert lock["adapters"]["claude"]["path"] == (
-        ".isekai/marketplaces/claude/plugins/isekai-agent-plugin"
-    )
-    assert lock["adapters"]["claude"]["workspace_path"] == (
-        ".claude/skills/isekai"
-    )
+    assert lock["adapters"]["codex"]["path"] == ".agents/skills/isekai"
+    assert lock["adapters"]["claude"]["path"] == ".claude/skills/isekai"
     assert lock["adapters"]["kiro"]["path"] == ".kiro/skills/isekai"
-    assert (project / ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/.codex-plugin/plugin.json").is_file()
-    assert (project / ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/.claude-plugin/plugin.json").is_file()
+    assert not (project / ".isekai/marketplaces").exists()
     assert (project / ".agents/skills/isekai/SKILL.md").is_file()
     assert (project / ".claude/skills/isekai/SKILL.md").is_file()
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
-    codex_marketplace = json.loads(
-        (project / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
-    )
-    codex_entry = next(
-        entry
-        for entry in codex_marketplace["plugins"]
-        if entry["name"] == "isekai-agent-plugin"
-    )
-    assert codex_entry["source"]["path"] == (
-        "./.isekai/marketplaces/codex/plugins/isekai-agent-plugin"
-    )
-    assert codex_entry["policy"]["installation"] == "INSTALLED_BY_DEFAULT"
-    claude_settings = json.loads(
-        (project / ".claude/settings.json").read_text(encoding="utf-8")
-    )
-    plugin_key = f"isekai-agent-plugin@{lock['marketplace']}"
-    assert claude_settings["enabledPlugins"][plugin_key] is True
+    assert not (project / ".agents/plugins/marketplace.json").exists()
+    assert not (project / ".claude/settings.json").exists()
+    assert "marketplace" not in lock
     assert "registration_commands" not in first
     assert first["host_registration_required"] is False
     assert doctor_install(project)["ready"] is True
@@ -284,7 +337,7 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
         verify_adapter_handshake("codex", "0.2.0", "1.0.0", project)
 
     completed = subprocess.run(
-        [str(project / ".isekai/bin/isekai"), "plugin", "compatibility"],
+        [str(project / ".isekai/bin/isekai"), "runtime", "compatibility"],
         cwd=project,
         text=True,
         capture_output=True,
@@ -401,7 +454,7 @@ def test_install_excludes_unhashed_bytecode_and_doctor_rejects_new_cache(
 
     assert not list(installed_core.rglob("__pycache__"))
     clean_launch = subprocess.run(
-        [str(project / ".isekai/bin/isekai"), "plugin", "compatibility"],
+        [str(project / ".isekai/bin/isekai"), "runtime", "compatibility"],
         cwd=project,
         text=True,
         capture_output=True,
@@ -417,7 +470,7 @@ def test_install_excludes_unhashed_bytecode_and_doctor_rejects_new_cache(
 
     health = doctor_install(project)
     launched = subprocess.run(
-        [str(project / ".isekai/bin/isekai"), "plugin", "compatibility"],
+        [str(project / ".isekai/bin/isekai"), "runtime", "compatibility"],
         cwd=project,
         text=True,
         capture_output=True,
@@ -435,24 +488,14 @@ def test_install_excludes_unhashed_bytecode_and_doctor_rejects_new_cache(
     [
         (".isekai/bin/isekai", "managed launcher"),
         (
-            ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/skills/isekai/agents/openai.yaml",
+            ".agents/skills/isekai/agents/openai.yaml",
             "adapter:codex digest mismatch",
         ),
         (
-            ".agents/skills/isekai/agents/openai.yaml",
-            "adapter:codex.workspace digest mismatch",
-        ),
-        (
-            ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/skills/isekai/SKILL.md",
+            ".claude/skills/isekai/SKILL.md",
             "adapter:claude digest mismatch",
         ),
-        (
-            ".claude/skills/isekai/SKILL.md",
-            "adapter:claude.workspace digest mismatch",
-        ),
         (".kiro/skills/isekai/SKILL.md", "adapter:kiro digest mismatch"),
-        (".agents/plugins/marketplace.json", "Codex repo marketplace"),
-        (".claude/settings.json", "Claude project marketplace declaration"),
     ],
 )
 def test_doctor_fails_closed_after_generated_control_file_tampering(
@@ -472,24 +515,14 @@ def test_doctor_fails_closed_after_generated_control_file_tampering(
 
 
 @pytest.mark.parametrize("alias_kind", ["symlink", "hardlink"])
-@pytest.mark.parametrize(
-    "relative",
-    [
-        ".isekai/bin/isekai.py",
-        ".isekai/marketplaces/codex/.agents/plugins/marketplace.json",
-        ".agents/plugins/marketplace.json",
-        ".claude/settings.json",
-    ],
-)
-def test_doctor_rejects_aliased_launcher_and_host_control_files(
+def test_doctor_rejects_an_aliased_launcher(
     tmp_path: Path,
     alias_kind: str,
-    relative: str,
 ) -> None:
     project = _project_with_foundation(tmp_path)
     _install(project)
-    control = project / relative
-    external = tmp_path / (relative.replace("/", "-").replace(".", "_") + ".external")
+    control = project / ".isekai/bin/isekai.py"
+    external = tmp_path / "isekai-launcher.external"
     control.rename(external)
     if alias_kind == "symlink":
         control.symlink_to(external)
@@ -914,7 +947,7 @@ def test_install_refuses_an_unmanaged_workspace_adapter(
     assert not (project / "isekai.lock.json").exists()
 
 
-def test_codex_install_refuses_an_unmanaged_isekai_marketplace_entry(
+def test_codex_runtime_skill_install_preserves_unrelated_plugin_configuration(
     tmp_path: Path,
 ) -> None:
     project = _project_with_foundation(tmp_path)
@@ -935,18 +968,21 @@ def test_codex_install_refuses_an_unmanaged_isekai_marketplace_entry(
         encoding="utf-8",
     )
 
-    with pytest.raises(DistributionError, match="unmanaged isekai-agent-plugin"):
-        install_from_checkout(
-            ROOT,
-            project,
-            source="https://example.invalid/isekai.git",
-            ref="v0.1.0",
-            commit="a" * 40,
-            runtimes=("codex",),
-        )
+    before = marketplace.read_bytes()
+    install_from_checkout(
+        ROOT,
+        project,
+        source="https://example.invalid/isekai.git",
+        ref="v0.1.0",
+        commit="a" * 40,
+        runtimes=("codex",),
+    )
+
+    assert marketplace.read_bytes() == before
+    assert (project / ".agents/skills/isekai/SKILL.md").is_file()
 
 
-def test_project_host_merge_and_rollback_preserve_unrelated_settings(
+def test_runtime_skill_install_and_rollback_preserve_unrelated_host_settings(
     tmp_path: Path,
 ) -> None:
     project = _project_with_foundation(tmp_path)
@@ -1033,12 +1069,12 @@ def test_rollback_removes_kiro_added_after_codex_only_install(tmp_path: Path) ->
         (
             "kiro",
             "codex",
-            ".isekai/marketplaces/codex/plugins/isekai-agent-plugin",
+            ".agents/skills/isekai",
         ),
         (
             "kiro",
             "claude",
-            ".isekai/marketplaces/claude/plugins/isekai-agent-plugin",
+            ".claude/skills/isekai",
         ),
     ],
 )
@@ -1097,12 +1133,22 @@ def test_post_install_failure_restores_new_project_state(
     assert not (project / "isekai.lock.json").exists()
 
 
-def test_partial_host_configuration_failure_restores_every_host_file(
+def test_legacy_plugin_migration_failure_restores_every_host_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from isekai.distribution import marketplace as marketplace_module
 
     project = _project_with_foundation(tmp_path).resolve()
+    _install(project)
+    _convert_to_legacy_plugin_install(project)
+    codex_path = project / ".agents/plugins/marketplace.json"
+    claude_path = project / ".claude/settings.json"
+    claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    claude["permissions"] = {"allow": ["Read"]}
+    claude_path.write_text(json.dumps(claude), encoding="utf-8")
+    codex_before = codex_path.read_bytes()
+    claude_before = claude_path.read_bytes()
+    lock_before = (project / "isekai.lock.json").read_bytes()
     original_write = marketplace_module._write_json_atomic
 
     def fail_claude_write(path: Path, value: dict[str, object]) -> None:
@@ -1120,12 +1166,75 @@ def test_partial_host_configuration_failure_restores_every_host_file(
             ref="v0.1.0",
             commit="a" * 40,
             runtimes=("codex", "claude"),
+            update=True,
         )
 
-    assert not (project / ".agents/plugins/marketplace.json").exists()
-    assert not (project / ".claude/settings.json").exists()
-    assert not (project / ".isekai").exists()
-    assert not (project / "isekai.lock.json").exists()
+    assert codex_path.read_bytes() == codex_before
+    assert claude_path.read_bytes() == claude_before
+    assert (project / "isekai.lock.json").read_bytes() == lock_before
+    assert (project / ".isekai/marketplaces/codex").is_dir()
+    assert (project / ".isekai/marketplaces/claude").is_dir()
+    assert doctor_install(project)["ready"] is True
+
+
+def test_update_migrates_legacy_plugins_to_project_runtime_skills(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path).resolve()
+    _install(project)
+    _convert_to_legacy_plugin_install(project)
+    codex_path = project / ".agents/plugins/marketplace.json"
+    claude_path = project / ".claude/settings.json"
+    codex = json.loads(codex_path.read_text(encoding="utf-8"))
+    codex["plugins"].append({"name": "other-plugin", "source": "./other"})
+    codex_path.write_text(json.dumps(codex), encoding="utf-8")
+    claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    claude["permissions"] = {"allow": ["Read"]}
+    claude_path.write_text(json.dumps(claude), encoding="utf-8")
+
+    updated = install_from_checkout(
+        ROOT,
+        project,
+        source="https://example.invalid/isekai.git",
+        ref="v0.1.0",
+        commit="a" * 40,
+        runtimes=("codex", "claude"),
+        update=True,
+    )
+    lock = load_install_lock(project)
+    assert lock is not None
+
+    assert updated["updated"] is True
+    assert lock["adapters"]["codex"]["path"] == ".agents/skills/isekai"
+    assert lock["adapters"]["claude"]["path"] == ".claude/skills/isekai"
+    assert "marketplace" not in lock
+    assert not (project / ".isekai/marketplaces").exists()
+    migrated_codex = json.loads(codex_path.read_text(encoding="utf-8"))
+    assert [entry["name"] for entry in migrated_codex["plugins"]] == [
+        "other-plugin"
+    ]
+    migrated_claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    assert migrated_claude == {"permissions": {"allow": ["Read"]}}
+    assert doctor_install(project)["ready"] is True
+
+    rolled_back = rollback_install(project)
+    restored = load_install_lock(project)
+    assert rolled_back["rolled_back"] is True
+    assert restored is not None
+    assert restored["adapters"]["codex"]["path"].startswith(
+        ".isekai/marketplaces/codex/"
+    )
+    assert restored["adapters"]["claude"]["path"].startswith(
+        ".isekai/marketplaces/claude/"
+    )
+    restored_codex = json.loads(codex_path.read_text(encoding="utf-8"))
+    assert {entry["name"] for entry in restored_codex["plugins"]} == {
+        "isekai-agent-plugin",
+        "other-plugin",
+    }
+    restored_claude = json.loads(claude_path.read_text(encoding="utf-8"))
+    assert restored_claude["permissions"] == {"allow": ["Read"]}
+    assert doctor_install(project)["ready"] is True
 
 
 def test_rollback_failure_restores_current_project_lock_and_adapters(
@@ -1608,7 +1717,7 @@ def test_new_kiro_install_rejects_symlinked_parent_paths(
         ("claude", ".claude", "adapter:claude.path"),
     ],
 )
-def test_plugin_install_rejects_symlinked_host_configuration_paths(
+def test_runtime_skill_install_rejects_symlinked_skill_parent_paths(
     tmp_path: Path,
     runtime: str,
     symlink_parent: str,
@@ -1641,7 +1750,7 @@ def test_plugin_install_rejects_symlinked_host_configuration_paths(
         ("claude", ".claude/settings.json"),
     ],
 )
-def test_plugin_install_rejects_non_file_host_configuration(
+def test_runtime_skill_install_does_not_touch_plugin_configuration(
     tmp_path: Path,
     runtime: str,
     relative: str,
@@ -1650,16 +1759,14 @@ def test_plugin_install_rejects_non_file_host_configuration(
     target = project / relative
     target.mkdir(parents=True)
 
-    with pytest.raises(DistributionError, match="single-link regular file"):
-        install_from_checkout(
-            ROOT,
-            project,
-            source="https://example.invalid/isekai.git",
-            ref="v0.1.0",
-            commit="a" * 40,
-            runtimes=(runtime,),
-        )
+    install_from_checkout(
+        ROOT,
+        project,
+        source="https://example.invalid/isekai.git",
+        ref="v0.1.0",
+        commit="a" * 40,
+        runtimes=(runtime,),
+    )
 
     assert target.is_dir()
-    assert not (project / ".isekai").exists()
-    assert not (project / "isekai.lock.json").exists()
+    assert (project / "isekai.lock.json").is_file()

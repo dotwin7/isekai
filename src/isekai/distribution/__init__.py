@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Stable distribution API backed by release, marketplace, install, and Git modules."""
+"""Stable distribution API backed by release, install, and Git modules."""
 
 from .git import (
     _git,
@@ -28,7 +28,6 @@ from .release import (
     LOCK_SCHEMA_VERSION,
     MANAGED_ROOT,
     MANIFEST_PATH,
-    PLUGIN_ID,
     PROTOCOL_VERSION,
     RUNTIMES,
     DistributionError,

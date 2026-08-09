@@ -76,7 +76,7 @@ AI가 계획·질문·선택지를 제시
 
 ### 프로젝트 부착형 Adaptive Driver
 
-ISEKAI는 새 프로젝트에 라이브러리처럼 설치되는 Agent Plugin이다. 별도 Agent Brain이나 상주 하네스가 생명주기를 수행하지 않는다. 활성화된 Runtime Skill을 따르는 Codex·Claude·Kiro가 Driver이고, 프로젝트 로컬 Core는 공통 분류·검증·기록 계약이다.
+ISEKAI는 새 프로젝트에 라이브러리처럼 설치되는 project-local Runtime이다. 별도 Agent Brain이나 상주 하네스가 생명주기를 수행하지 않는다. 활성화된 Runtime Skill을 따르는 Codex·Claude·Kiro가 Driver이고, 프로젝트 로컬 Core는 공통 분류·검증·기록 계약이다.
 
 ```text
 사용자 요청

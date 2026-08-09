@@ -1,7 +1,7 @@
 # ISEKAI Reference Product
 
 Reference Product는 작지만 실제적인 소프트웨어 변경을 통해 ISEKAI를
-프로젝트 로컬 Agent Plugin으로 검증한다. 도메인 Extension은
+프로젝트 로컬 AI-DLC Runtime으로 검증한다. 도메인 Extension은
 `FeatureProposal`을 Software Delivery Profile에 연결한다. `starter/`에는
 의존성이 없는 시작 Python 제품이 있고, `completed/`에는 manifest,
 Extension, 소스, 테스트, 전체 생명주기 기록을 담은 검증된 Golden Unit이
@@ -18,7 +18,7 @@ high 영향도 → medium 영향도 → low 영향도 → 제안 ID로 동률 �
 시나리오는 설치된 프로젝트 로컬 launcher를 통해 다음 흐름을 증명한다.
 
 ```text
-Codex Plugin 설치
+Codex Runtime Skill 설치
 → handshake와 Project init
 → on과 adaptive-unit intake
 → 승인된 Level-1 계획과 Execution Envelope
@@ -69,7 +69,7 @@ uv run pytest tests/test_reference_product_e2e.py -q
 ```
 
 이 테스트는 원격 모델이나 실제 Codex UI 세션을 실행하지 않는다. Runtime
-Skill이 사용하는 것과 같은 설치된 launcher와 Plugin action 계약을 통해
+Skill이 사용하는 것과 같은 설치된 launcher와 Runtime action 계약을 통해
 호스트 에이전트를 결정적으로 시뮬레이션한다. 모델 없는 설치 스모크는 다음
 명령으로 별도 실행한다.
 

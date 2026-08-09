@@ -41,7 +41,7 @@ Constitution, 규칙, Profile, Exception, Evaluation과 DoD를 정의하고 책�
 
 첫 결정론적 Reference Product E2E는 `FeatureProposal` 우선순위 기능을 사용한다. 테스트는 빈 임시 프로젝트에 Codex Plugin과 Core를 설치하고, 프로젝트 초기화·adaptive intake·Level-1 plan·Unit·Execution Envelope·실제 제품 코드/테스트·Evidence·Decision·Checkpoint를 거쳐 `learned`까지 검증한다. Release와 Operations가 범위에 없을 때는 `skip` disposition과 이유를 승인 Envelope에 남긴다.
 
-이 E2E는 설치된 launcher와 Plugin action 계약을 통해 Host Agent 행동을 결정론적으로 시뮬레이션한다. 실제 Codex·Claude·Kiro 모델 세션의 Skill 준수와 대화 UX는 Runtime별 live smoke로 별도 검증해야 하므로 Stage 2 전체 완료로 간주하지 않는다.
+이 E2E는 설치된 launcher와 Runtime action 계약을 통해 Host Agent 행동을 결정론적으로 시뮬레이션한다. 실제 Codex·Claude·Kiro 모델 세션의 Skill 준수와 대화 UX는 Runtime별 live smoke로 별도 검증해야 하므로 Stage 2 전체 완료로 간주하지 않는다.
 
 ### Stage 3: Shared Foundation Services
 

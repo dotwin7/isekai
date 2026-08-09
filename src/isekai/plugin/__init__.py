@@ -1,1 +1,0 @@
-"""Plugin protocol action implementations."""

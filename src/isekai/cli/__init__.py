@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .parser import DIRECT_PLUGIN_ACTIONS, _parser
-from .plugin_request import plugin_exit_code, plugin_request
+from .parser import DIRECT_RUNTIME_ACTIONS, _parser
+from .runtime_request import runtime_exit_code, runtime_request
 from ..distribution import (
     doctor_install,
     install_from_bootstrap_checkout,
@@ -18,7 +18,7 @@ from ..distribution import (
     write_distribution_manifest,
 )
 from ..foundation import FoundationError, load_foundation
-from ..plugin_contract import dispatch
+from ..runtime_contract import dispatch
 from ..support.locking import LockUnavailable
 from ..workflow import WorkRoute, resolve_context, unit_status, verify_unit
 
@@ -29,8 +29,8 @@ def _json(value: object) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] in DIRECT_PLUGIN_ACTIONS:
-        arguments = ["plugin", *arguments]
+    if arguments and arguments[0] in DIRECT_RUNTIME_ACTIONS:
+        arguments = ["runtime", *arguments]
     args = _parser().parse_args(arguments)
     try:
         if args.command == "install":
@@ -118,11 +118,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if path.is_file() and "__pycache__" not in path.parts
             ]
             _json({"root": str(root), "files": files})
-        elif args.command == "plugin":
-            action, payload = plugin_request(args)
+        elif args.command == "runtime":
+            action, payload = runtime_request(args)
             result = dispatch(action, payload)
             _json(result)
-            return plugin_exit_code(action, result)
+            return runtime_exit_code(action, result)
         return 0
     except (FoundationError, ValueError, FileExistsError, LockUnavailable) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)

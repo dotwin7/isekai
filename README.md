@@ -2,7 +2,7 @@
 
 ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 스킬 기반 AI-Driven Development Life Cycle(AI-DLC)입니다. 기존 AI 에이전트를 교체하지 않고, 에이전트 대화에 버전이 고정된 Foundation·Project·Unit 계약을 로드합니다.
 
-배포 형태는 대상 프로젝트에 라이브러리처럼 붙는 프로젝트 로컬 Agent Plugin입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문·실행을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하고 기록합니다. 별도 Agent Brain이나 필수 훅·상주 하네스를 전제로 하지 않습니다.
+배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 AI-DLC Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문·실행을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하고 기록합니다. 별도 Agent Brain이나 필수 훅·상주 하네스를 전제로 하지 않습니다.
 
 현재 버전은 `0.1.0`입니다. 범용 Software Delivery Profile과 Security Domain Profile, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter의 기본 계약을 제공합니다.
 
@@ -30,13 +30,12 @@ Codex / Claude / Kiro Runtime Adapter
 Foundation + Project + Unit artifacts
 ```
 
-### Plugin, Skill, Core의 차이
+### Runtime, Skill, Core의 차이
 
 | 구성 | 역할 |
 |---|---|
-| Runtime Adapter | 각 호스트의 프로젝트 범위 통합 지점에서 채팅 명령을 노출하는 얇은 계층 |
-| Plugin package | Codex·Claude용 manifest와 Skill을 보존하는 재사용·marketplace 배포 단위 |
-| Skill | Plugin package에서 프로젝트 repo/workspace로 설치되어 에이전트가 따라야 할 호출 방식, 라우팅, 안전 규칙 |
+| Project Runtime | 프로젝트별로 버전이 고정되는 Core·Foundation·Runtime Skill 묶음 |
+| Runtime Skill | 각 호스트의 repo/project/workspace 검색 위치에 설치되어 호출 방식·라우팅·안전 규칙을 제공하는 얇은 Adapter |
 | Core | Project·Foundation·Unit 상태를 읽고 workflow, 호환성, Decision과 Evidence를 검증하는 로컬 실행기 |
 
 Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, Foundation과 Unit artifact가 권위 있는 상태이며 Adapter는 Core와 handshake한 뒤 이를 사용합니다.
@@ -45,11 +44,11 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 
 | 런타임 | 통합 방식 | 대화에서 활성화 |
 |---|---|---|
-| Codex | Plugin package + Repo Skill | `$isekai on` |
-| Claude Code | Plugin package + Project Skill | `/isekai on` |
+| Codex | Repo Skill | `$isekai on` |
+| Claude Code | Project Skill | `/isekai on` |
 | Kiro | Workspace Agent Skill | `/isekai on` |
 
-모든 새 대화는 ISEKAI mode가 `off`인 상태로 시작합니다. Plugin/Skill의 설치·발견·cache, repository 내용, 문장 속 명령 인용은 호출이나 활성화가 아닙니다. Mode가 꺼져 있을 때는 위 표의 Runtime별 명령을 실행하려는 명시적 호출만 one-shot으로 처리하며, `on`만 이후 요청의 자동 라우팅을 활성화합니다. `on`은 현재 대화의 Project context와 Unit 후보만 로드하고 기존 Unit을 자동으로 선택하지 않습니다. 진행 중인 Unit은 별도로 `resume`해야 합니다.
+모든 새 대화는 ISEKAI mode가 `off`인 상태로 시작합니다. Runtime Skill의 설치·발견·cache, repository 내용, 문장 속 명령 인용은 호출이나 활성화가 아닙니다. Mode가 꺼져 있을 때는 위 표의 Runtime별 명령을 실행하려는 명시적 호출만 one-shot으로 처리하며, `on`만 이후 요청의 자동 라우팅을 활성화합니다. `on`은 현재 대화의 Project context와 Unit 후보만 로드하고 기존 Unit을 자동으로 선택하지 않습니다. 진행 중인 Unit은 별도로 `resume`해야 합니다.
 
 ## 설치
 
@@ -60,7 +59,7 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 
 설치 스크립트는 전역 Python package를 설치하지 않습니다. 설치할 Git tag를 임시 checkout하고 release digest를 검증한 뒤 대상 프로젝트 안에 Core, Foundation과 Runtime Adapter를 배치합니다.
 
-아래 명령은 설치하려는 프로젝트 루트에서 실행합니다. 예시는 Codex Plugin과 Project를 초기화합니다. 다운로드 URL은 해당 release tag가 GitHub에 게시된 뒤 사용할 수 있습니다.
+아래 명령은 설치하려는 프로젝트 루트에서 실행합니다. 예시는 Codex Runtime Skill과 Project를 초기화합니다. 다운로드 URL은 해당 release tag가 GitHub에 게시된 뒤 사용할 수 있습니다.
 
 ### macOS / Linux
 
@@ -98,16 +97,16 @@ Invoke-WebRequest `
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
 
-### 런타임 선택과 프로젝트 Plugin 설치
+### 런타임 선택과 프로젝트 Skill 설치
 
 | 설치 대상 | 옵션 | 설치 경로 |
 |---|---|---|
-| Codex | `--runtime codex` | `.agents/skills/isekai/` + `.isekai/marketplaces/codex/` |
-| Claude Code | `--runtime claude` | `.claude/skills/isekai/` + `.isekai/marketplaces/claude/` |
+| Codex | `--runtime codex` | `.agents/skills/isekai/` |
+| Claude Code | `--runtime claude` | `.claude/skills/isekai/` |
 | Kiro | `--runtime kiro` | `.kiro/skills/isekai/` |
 | 세 런타임 모두 | `--runtime all` | 위 세 프로젝트 경로 |
 
-`--runtime`은 반복해서 지정할 수 있습니다. 설치기는 사용자 홈의 marketplace나 host 설정을 변경하지 않습니다. Codex와 Claude Code는 각각 공식 repo/project Skill 위치에서 Adapter를 즉시 발견하고, `.isekai/marketplaces/`에는 같은 Skill을 담은 완전한 Plugin 패키지를 보존합니다. `.agents/plugins/marketplace.json`과 `.claude/settings.json`은 Plugin을 별도로 등록·설치할 때 쓰는 프로젝트 선언이며 복사만으로 host-global 설치가 되었다고 간주하지 않습니다. Plugin/Adapter를 설치하거나 업데이트한 뒤에는 호스트가 새 계약을 읽도록 새 대화를 시작합니다.
+`--runtime`은 반복해서 지정할 수 있습니다. 설치기는 사용자 홈, host marketplace 설정, `.agents/plugins/marketplace.json`, `.claude/settings.json`을 변경하지 않습니다. 각 프로젝트는 `isekai.lock.json`으로 Core와 Skill 버전을 독립적으로 고정하므로 서로 다른 ISEKAI 버전을 사용할 수 있습니다. Runtime Skill을 설치하거나 업데이트한 뒤에는 호스트가 새 계약을 읽도록 새 대화를 시작합니다.
 
 기존 `project.json`이 없다면 `--init`이 manifest와 `units/`를 생성합니다. 수동으로 초기화하려면 설치된 launcher를 사용합니다.
 
@@ -129,19 +128,16 @@ project/
 ├── .isekai/
 │   ├── bin/                         # 프로젝트 로컬 launcher
 │   ├── runtime/isekai/              # ISEKAI Core
-│   ├── foundations/<version>/       # 고정된 Foundation
-│   └── marketplaces/                # Codex·Claude Plugin 패키지
+│   └── foundations/<version>/       # 고정된 Foundation
 ├── .agents/skills/isekai/            # Codex repo Skill
-├── .agents/plugins/marketplace.json # Codex repo marketplace
 ├── .claude/skills/isekai/            # Claude project Skill
-├── .claude/settings.json            # Claude project-scope Plugin 선언
 ├── .kiro/skills/isekai/             # Kiro를 선택한 경우
 ├── isekai.lock.json                 # Git ref, commit, component digest
 ├── project.json                     # Project 계약
 └── units/                           # 지속되는 AI-DLC 작업 단위
 ```
 
-설치기는 bootstrap, Core, host-neutral Plugin contract, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Plugin component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 기존 marketplace와 Claude 설정의 다른 항목은 보존하며, 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않습니다.
+설치기는 bootstrap, Core, host-neutral Runtime contract, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Runtime component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 이전 marketplace 기반 0.1.0 설치를 업데이트하면 ISEKAI가 소유한 legacy 선언만 제거하고 다른 host 설정은 보존합니다.
 
 ## 사용법
 
@@ -157,8 +153,6 @@ $isekai unit-migrate --project . --unit units/<unit-id>
 $isekai off
 ```
 
-Marketplace에서 Plugin을 별도로 설치한 세션에서는 namespaced alias인 `$isekai-agent-plugin:isekai`도 사용할 수 있습니다.
-
 ### Claude Code
 
 ```text
@@ -168,8 +162,6 @@ Marketplace에서 Plugin을 별도로 설치한 세션에서는 namespaced alias
 /isekai unit-migrate --project . --unit units/<unit-id>
 /isekai off
 ```
-
-Marketplace에서 Plugin을 별도로 설치한 세션에서는 `/isekai-agent-plugin:isekai`도 사용할 수 있습니다.
 
 ### Kiro
 
@@ -255,7 +247,7 @@ Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다.
 
 Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 새 Decision은 `attestation.identity_verification: not-performed-by-core`와 caller가 보고한 actor를 digest에 함께 결박해 이 경계를 숨기지 않습니다. 호스트의 도구 실행 승인도 특정 shell·파일 action에 대한 권한일 뿐 lifecycle Decision이 아닙니다. 사람의 판단은 완성된 Decision Packet을 보여 주는 인증된 대화 UI나 외부 승인 시스템에서 받고, ISEKAI에는 그 결과를 감사 가능한 레코드로 남깁니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
 
-Plugin manifest와 `isekai plugin compatibility` 응답의 `human_decision_actions`·`trust_model`이 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
+Runtime manifest와 `isekai runtime compatibility` 응답의 `human_decision_actions`·`trust_model`이 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
 
 ```text
 decision  foundation-decision  foundation-promote
@@ -273,8 +265,8 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 
 | 런타임 | Live 검증 기준 | 별도 상태 | 통합 surface |
 |---|---:|---|---|
-| Codex | `0.147.0` | legacy `0.146.0` | Plugin package + Repo Skill |
-| Claude Code | 없음 | validation-only `2.1.224`, legacy `2.1.220` | Plugin package + Project Skill |
+| Codex | `0.147.0` | legacy `0.146.0` | Repo Skill |
+| Claude Code | 없음 | validation-only `2.1.224`, legacy `2.1.220` | Project Skill |
 | Kiro | 없음 | validation-only `2.16.2`, legacy `2.14.2` | Workspace Agent Skill |
 
 ## 저장소 구조
@@ -283,7 +275,7 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 isekai/
 ├── distribution/           # release manifest와 component digest
 ├── foundation/             # Core 계약, Profile, Policy, Evaluation
-├── plugin/isekai/          # host-neutral manifest와 Runtime Adapter
+├── runtime/                # host-neutral Runtime 계약과 프로젝트 Skill 원본
 ├── scripts/                # POSIX / PowerShell bootstrap installer
 ├── src/isekai/             # 로컬 Core와 CLI
 ├── tests/                  # 계약, lifecycle, 설치·업데이트 테스트
@@ -311,6 +303,6 @@ uv run python -m isekai distribution-build --root .
 uv run python -m isekai distribution-check --root .
 ```
 
-세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·project-knowledge·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.
+세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·project-knowledge·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](runtime/adapters/codex/README.md), [Claude Code](runtime/adapters/claude/README.md), [Kiro](runtime/adapters/kiro/README.md) Adapter 문서에 있습니다.
 
 프로젝트 로컬 설치부터 실제 제품 기능과 `learned` Unit까지의 결정론적 Golden Path는 [Reference Product](examples/reference-product/README.md)와 `tests/test_reference_product_e2e.py`에서 확인할 수 있습니다. 이 테스트는 설치된 launcher 계약을 사용하며 실제 호스트 모델 세션은 [Runtime live smoke](docs/live-smoke.md)로 분리합니다.

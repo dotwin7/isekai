@@ -1,6 +1,6 @@
 # Reference Product 시작 상태
 
-이 작은 Python 제품은 ISEKAI 프로젝트 로컬 Agent Plugin E2E 테스트에서
+이 작은 Python 제품은 ISEKAI 프로젝트 로컬 Runtime E2E 테스트에서
 사용하는 결정적인 시작 상태다. `FeatureProposal` 레코드를 포함한 제품
 backlog를 모델링한다.
 

@@ -61,13 +61,13 @@ ISEKAI는 다섯 가지로 구성된다.
                 기존 Agent + Persistent Context
 ```
 
-Agent Integration은 사용자가 별도의 Python 모듈 명령을 실행하는 구조가 아니다. 사용자는 Kiro와 Claude Code에서 `/isekai`, Codex에서 `$isekai`를 호출하고 Runtime Adapter가 Project-local `isekai` launcher를 내부적으로 호출한다. Marketplace에서 Plugin을 별도로 설치한 Claude·Codex 세션은 namespaced alias도 제공한다. launcher는 같은 로컬 환경의 ISEKAI Core dispatch를 실행하고, Core는 프로젝트가 선택한 Foundation·Profile·Extension과 Unit artifact를 읽고 검증한다. 직접 CLI를 사용하는 경우에는 `isekai <action>`을 사용하며, `isekai plugin <action>`은 Runtime Adapter의 내부 호환 계약이다.
+Agent Integration은 사용자가 별도의 Python 모듈 명령을 실행하는 구조가 아니다. 사용자는 Kiro와 Claude Code에서 `/isekai`, Codex에서 `$isekai`를 호출하고 Runtime Adapter가 Project-local `isekai` launcher를 내부적으로 호출한다. launcher는 같은 로컬 환경의 ISEKAI Core dispatch를 실행하고, Core는 프로젝트가 선택한 Foundation·Profile·Extension과 Unit artifact를 읽고 검증한다. 직접 CLI를 사용하는 경우에는 `isekai <action>`을 사용하며, `isekai runtime <action>`은 Runtime Adapter의 내부 호환 계약이다.
 
 ```text
 User / Agent Host
         ↓ /isekai
-Runtime Plugin Adapter
-        ↓ isekai plugin <action>
+Runtime Skill Adapter
+        ↓ isekai runtime <action>
 Local ISEKAI Core
         ↓
 Foundation + Project + Unit artifacts

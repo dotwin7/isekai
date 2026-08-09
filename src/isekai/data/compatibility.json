@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "protocol_version": "1.0.0",
-  "plugin_contract": {
+  "runtime_contract": {
     "high_risk_actions": [],
     "human_decision_actions": [
       "decision",
@@ -25,11 +25,11 @@
     "tested_versions_are": "observed CLI versions with recorded adapter and Core smoke evidence; they are not minimum-version claims",
     "legacy_versions_are": "historical repository claims without linked raw smoke evidence; they are not verified baselines",
     "unknown_version": "unverified",
-    "upgrade_rule": "keep the adapter path unless the host changes its documented plugin discovery contract",
+    "upgrade_rule": "keep the project-local Skill path unless the host changes its documented Skill discovery contract",
     "required_upgrade_checks": [
-      "host plugin or skill validation when available",
-      "manifest and skill structure validation",
-      "Core plugin status/resume/verify smoke against the Golden Path"
+      "host Skill validation when available",
+      "runtime manifest and Skill structure validation",
+      "Core runtime status/resume/verify smoke against the Golden Path"
     ]
   },
   "runtimes": [
@@ -57,10 +57,8 @@
       "tested_versions": [],
       "legacy_versions": ["2.1.220"],
       "evidence_refs": ["OBS-20260809-CLAUDE-2.1.224", "LEGACY-CLAUDE-2.1.220"],
-      "surface": "claude-plugin+project-skill",
+      "surface": "project-skill",
       "host_checks": [
-        "claude plugin validate --strict",
-        "enabled inline Plugin discovery",
         "project Skill frontmatter and documented path"
       ],
       "core_checks": ["status", "resume", "verify"]
@@ -71,8 +69,8 @@
       "tested_versions": ["0.147.0"],
       "legacy_versions": ["0.146.0"],
       "evidence_refs": ["OBS-20260808-CODEX-0.147.0", "LEGACY-CODEX-0.146.0"],
-      "surface": "codex-plugin+repo-skill",
-      "host_checks": ["plugin manifest structure", "repo Skill injection", "codex exec two-turn activation and intake"],
+      "surface": "repo-skill",
+      "host_checks": ["repo Skill injection", "codex exec two-turn activation and intake"],
       "core_checks": ["status", "resume", "verify"]
     }
   ],
@@ -101,9 +99,7 @@
       "observed_on": "2026-08-09",
       "source_ref": "docs/live-smoke.md#2026-08-09-host-contract-observation",
       "checks": [
-        "strict source plugin validation succeeded",
-        "plugin was discovered as enabled from an inline session directory",
-        "one isekai Skill was discovered in the Plugin",
+        "project Skill source contract validation succeeded",
         "authenticated model session was unavailable"
       ]
     },
@@ -140,7 +136,7 @@
       "status": "unlinked-legacy",
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
-      "source_ref": "plugin/isekai/runtimes/codex/README.md",
+      "source_ref": "runtime/adapters/codex/README.md",
       "checks": ["historical verified-baseline claim retained for provenance"]
     },
     {
@@ -150,7 +146,7 @@
       "status": "unlinked-legacy",
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
-      "source_ref": "plugin/isekai/runtimes/claude/README.md",
+      "source_ref": "runtime/adapters/claude/README.md",
       "checks": ["historical verified-baseline claim retained for provenance"]
     },
     {
@@ -160,7 +156,7 @@
       "status": "unlinked-legacy",
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
-      "source_ref": "plugin/isekai/runtimes/kiro/README.md",
+      "source_ref": "runtime/adapters/kiro/README.md",
       "checks": ["historical verified-baseline claim retained for provenance"]
     }
   ]

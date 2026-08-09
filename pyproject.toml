@@ -3,9 +3,9 @@ requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "isekai-agent-plugin"
+name = "isekai-ai-dlc-runtime"
 version = "0.1.0"
-description = "ISEKAI AI-DLC agent plugin with local Core runtime"
+description = "Project-local ISEKAI AI-DLC runtime with host-specific Skills"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

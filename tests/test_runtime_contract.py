@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai.plugin_contract import PluginError, dispatch
+from isekai.runtime_contract import RuntimeContractError, dispatch
 from isekai.workflow.errors import AuthorizationError
 
 from test_core_workflow import make_project
@@ -13,15 +13,15 @@ from test_execution_envelope import approve_inception, make_enveloped_unit
 from isekai.workflow import authorize_action, initialize_unit
 
 
-def test_plugin_golden_path_exposes_core_session_contract(tmp_path: Path) -> None:
+def test_runtime_golden_path_exposes_core_session_contract(tmp_path: Path) -> None:
     project = make_project(tmp_path)
 
     inception = dispatch("inception", {"project": str(project)})
-    assert inception["plugin"] == "isekai-agent-plugin"
+    assert inception["runtime"] == "isekai-project-runtime"
     assert inception["action"] == "inception"
     assert inception["result"]["inception"]["decision_required"] is True
 
-    unit = initialize_unit(project, "Plugin Golden Path", project.parent / "units")
+    unit = initialize_unit(project, "Runtime Golden Path", project.parent / "units")
     status = dispatch("status", {"project": str(project)})
     assert status["result"]["project"]["id"] == "test-project"
     assert status["result"]["unit"]["unit_id"] == json_unit_id(unit)
@@ -37,7 +37,7 @@ def test_plugin_golden_path_exposes_core_session_contract(tmp_path: Path) -> Non
     assert verified["result"]["missing"] == []
 
 
-def test_plugin_on_activates_project_and_resume_restores_unit(
+def test_runtime_on_activates_project_and_resume_restores_unit(
     tmp_path: Path,
 ) -> None:
     project = make_project(tmp_path)
@@ -58,8 +58,8 @@ def test_plugin_on_activates_project_and_resume_restores_unit(
         "next_session_state": "off",
     }
 
-    first = initialize_unit(project, "Plugin Mode First", project.parent / "units")
-    second = initialize_unit(project, "Plugin Mode Second", project.parent / "units")
+    first = initialize_unit(project, "Runtime Mode First", project.parent / "units")
+    second = initialize_unit(project, "Runtime Mode Second", project.parent / "units")
     before = {
         str(path.relative_to(project.parent)): path.read_bytes()
         for unit in (first, second)
@@ -75,15 +75,15 @@ def test_plugin_on_activates_project_and_resume_restores_unit(
     assert "resume" not in result
     assert set(result["unit_candidates"]) == {str(first), str(second)}
     assert {candidate["title"] for candidate in result["unit_candidate_details"]} == {
-        "Plugin Mode First",
-        "Plugin Mode Second",
+        "Runtime Mode First",
+        "Runtime Mode Second",
     }
     assert all(
         Path(candidate["path"]).name.isascii()
         for candidate in result["unit_candidate_details"]
     )
 
-    with pytest.raises(PluginError, match="use resume --unit PATH"):
+    with pytest.raises(RuntimeContractError, match="use resume --unit PATH"):
         dispatch("on", {"project": str(project), "unit": str(first)})
 
     resumed = dispatch(
@@ -110,7 +110,7 @@ def test_plugin_on_activates_project_and_resume_restores_unit(
     assert after == before
 
 
-def test_plugin_route_and_compatibility_are_enveloped() -> None:
+def test_runtime_route_and_compatibility_are_enveloped() -> None:
     route = dispatch("route", {"change": "persistent", "risk": "low"})
     assert route["result"] == {
         "route": "unit",
@@ -127,11 +127,11 @@ def test_plugin_route_and_compatibility_are_enveloped() -> None:
     }
 
 
-def test_plugin_unit_migrate_is_idempotent_for_portable_receipt(
+def test_runtime_unit_migrate_is_idempotent_for_portable_receipt(
     tmp_path: Path,
 ) -> None:
     project = make_project(tmp_path)
-    unit = initialize_unit(project, "Portable Plugin Unit", project.parent / "units")
+    unit = initialize_unit(project, "Portable Runtime Unit", project.parent / "units")
 
     result = dispatch(
         "unit-migrate",
@@ -143,7 +143,7 @@ def test_plugin_unit_migrate_is_idempotent_for_portable_receipt(
     assert result["result"]["source_manifest_base"] == "unit"
 
 
-def test_plugin_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> None:
+def test_runtime_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Zero Envelope Lifetime", project.parent / "units")
 
@@ -169,9 +169,9 @@ def test_plugin_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> No
         )
 
 
-def test_plugin_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -> None:
+def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -> None:
     project = make_project(tmp_path)
-    with pytest.raises(PluginError, match="installation lock is missing"):
+    with pytest.raises(RuntimeContractError, match="installation lock is missing"):
         dispatch(
             "handshake",
             {
@@ -181,7 +181,7 @@ def test_plugin_handshake_fails_closed_without_a_project_lock(tmp_path: Path) ->
                 "project": str(project),
             },
         )
-    with pytest.raises(PluginError, match="incompatible with Core protocol"):
+    with pytest.raises(RuntimeContractError, match="incompatible with Core protocol"):
         dispatch(
             "handshake",
             {
@@ -199,11 +199,11 @@ def json_unit_id(unit: Path) -> str:
     return json.loads((unit / "unit.json").read_text(encoding="utf-8"))["id"]
 
 
-def test_plugin_decision_and_transition_actions_enforce_gate(
+def test_runtime_decision_and_transition_actions_enforce_gate(
     tmp_path: Path,
 ) -> None:
     project = make_project(tmp_path)
-    unit = initialize_unit(project, "Plugin Decision", project.parent / "units")
+    unit = initialize_unit(project, "Runtime Decision", project.parent / "units")
     dispatch(
         "envelope-propose",
         {
@@ -257,13 +257,13 @@ def test_plugin_decision_and_transition_actions_enforce_gate(
     assert transition["result"]["to"] == "construction"
 
 
-def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> None:
+def test_runtime_evidence_action_records_structured_result(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     authorization = authorize_action(
         unit,
         action="test",
-        target="tests/test_plugin_contract.py",
+        target="tests/test_runtime_contract.py",
     )
     assert authorization["allowed"] is True
 
@@ -272,7 +272,7 @@ def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> Non
         {
             "unit": str(unit),
             "passed": True,
-            "scope": "plugin evidence contract",
+            "scope": "runtime evidence contract",
             "recorded_by": "test-validator",
             "commands": [
                 {
@@ -298,7 +298,7 @@ def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> Non
     }
 
 
-def test_plugin_init_creates_project_and_project_relative_unit(tmp_path: Path) -> None:
+def test_runtime_init_creates_project_and_project_relative_unit(tmp_path: Path) -> None:
     import shutil
 
     from test_core_workflow import ROOT
@@ -326,7 +326,7 @@ def test_plugin_init_creates_project_and_project_relative_unit(tmp_path: Path) -
         "unit-init",
         {
             "project": str(project),
-            "title": "Project Relative Plugin Unit",
+            "title": "Project Relative Runtime Unit",
             "owner": "test-owner",
         },
     )

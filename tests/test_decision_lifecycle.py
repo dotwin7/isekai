@@ -137,7 +137,7 @@ def passing_evidence(unit: Path) -> None:
     record_evidence(
         unit,
         passed=True,
-        scope="Core and plugin lifecycle tests",
+        scope="Core and runtime lifecycle tests",
         recorded_by="test-validator",
         commands=[
             {

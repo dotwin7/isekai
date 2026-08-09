@@ -10,7 +10,7 @@ from isekai.cli import main
 from isekai.support.locking import LockUnavailable
 
 
-def test_direct_intake_alias_matches_plugin_namespace(capsys) -> None:
+def test_direct_intake_alias_matches_runtime_namespace(capsys) -> None:
     direct_exit = main(
         [
             "intake",
@@ -22,9 +22,9 @@ def test_direct_intake_alias_matches_plugin_namespace(capsys) -> None:
     )
     direct_output = json.loads(capsys.readouterr().out)
 
-    plugin_exit = main(
+    runtime_exit = main(
         [
-            "plugin",
+            "runtime",
             "intake",
             "--source",
             "direct-request",
@@ -32,13 +32,13 @@ def test_direct_intake_alias_matches_plugin_namespace(capsys) -> None:
             "Entity가 뭐야?",
         ]
     )
-    plugin_output = json.loads(capsys.readouterr().out)
+    runtime_output = json.loads(capsys.readouterr().out)
 
     assert direct_exit == 0
-    assert plugin_exit == 0
+    assert runtime_exit == 0
     assert direct_output["action"] == "intake"
-    assert plugin_output["action"] == "intake"
-    assert direct_output["result"]["route"] == plugin_output["result"]["route"]
+    assert runtime_output["action"] == "intake"
+    assert direct_output["result"]["route"] == runtime_output["result"]["route"]
 
 
 def test_direct_status_alias_uses_project_context(tmp_path: Path, capsys) -> None:
@@ -165,7 +165,7 @@ def test_json_array_options_reject_null_without_traceback(capsys) -> None:
 
     assert exit_code == 2
     assert captured.out == ""
-    assert error == {"error": "plugin request field stages must be a list"}
+    assert error == {"error": "runtime request field stages must be a list"}
 
 
 def test_lock_contention_is_reported_as_json_without_traceback(

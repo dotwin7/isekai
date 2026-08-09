@@ -16,7 +16,7 @@ from typing import Any, Sequence
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIMES = ("codex", "claude", "kiro")
 SKILLS = {
-    runtime: ROOT / f"plugin/isekai/runtimes/{runtime}/skills/isekai/SKILL.md"
+    runtime: ROOT / f"runtime/adapters/{runtime}/skills/isekai/SKILL.md"
     for runtime in RUNTIMES
 }
 EXECUTABLES = {"codex": "codex", "claude": "claude", "kiro": "kiro-cli"}
@@ -67,15 +67,6 @@ def _surface_issues(runtime: str) -> list[str]:
     for token in expected:
         if token not in content:
             issues.append(f"{runtime} Skill is missing host contract token: {token}")
-    manifest = ROOT / f"plugin/isekai/runtimes/{runtime}/.{runtime}-plugin/plugin.json"
-    if runtime in {"codex", "claude"}:
-        try:
-            value = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            issues.append(f"invalid {runtime} plugin manifest: {exc}")
-        else:
-            if not isinstance(value, dict) or value.get("name") != "isekai-agent-plugin":
-                issues.append(f"{runtime} plugin manifest has an invalid name")
     return issues
 
 
@@ -98,29 +89,6 @@ def _version(executable: str) -> tuple[str | None, str]:
     return (match.group(0) if completed.returncode == 0 and match else None, first)
 
 
-def _claude_cli_issues(executable: str) -> list[str]:
-    plugin = ROOT / "plugin/isekai/runtimes/claude"
-    validated = _run((executable, "plugin", "validate", str(plugin), "--strict"))
-    issues = []
-    if validated.returncode != 0:
-        issues.append("Claude strict plugin validation failed")
-    discovered = _run(
-        (executable, "--plugin-dir", str(plugin), "plugin", "list", "--json")
-    )
-    try:
-        plugins = json.loads(discovered.stdout)
-    except json.JSONDecodeError:
-        plugins = None
-    if discovered.returncode != 0 or not isinstance(plugins, list) or not any(
-        isinstance(entry, dict)
-        and entry.get("id") == "isekai-agent-plugin@inline"
-        and entry.get("enabled") is True
-        for entry in plugins or []
-    ):
-        issues.append("Claude session plugin discovery failed")
-    return issues
-
-
 def _kiro_cli_issues(executable: str, version: str | None) -> list[str]:
     issues = []
     if version is None:
@@ -137,7 +105,12 @@ def _kiro_cli_issues(executable: str, version: str | None) -> list[str]:
     return issues
 
 
-def _runtime_result(runtime: str, *, check_cli: bool, require_cli: bool) -> dict[str, Any]:
+def _runtime_result(
+    runtime: str,
+    *,
+    check_cli: bool,
+    require_cli: bool,
+) -> dict[str, Any]:
     issues = _surface_issues(runtime)
     executable = shutil.which(EXECUTABLES[runtime]) if check_cli else None
     version = None
@@ -149,9 +122,7 @@ def _runtime_result(runtime: str, *, check_cli: bool, require_cli: bool) -> dict
         version, version_output = _version(executable)
         if version is None:
             issues.append(f"cannot identify {runtime} host version")
-        if runtime == "claude":
-            issues.extend(_claude_cli_issues(executable))
-        elif runtime == "kiro":
+        if runtime == "kiro":
             issues.extend(_kiro_cli_issues(executable, version))
     return {
         "runtime": runtime,

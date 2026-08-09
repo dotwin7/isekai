@@ -19,7 +19,7 @@ uv run python scripts/live-smoke.py --runtime claude --host claude
 uv run python scripts/live-smoke.py --runtime kiro --host kiro
 ```
 
-모델 인증 없이 호스트의 Plugin/Skill 구조와 CLI capability만 검증하려면 별도 checker를 사용한다. Claude 검증은 strict manifest validation과 inline Plugin discovery를, Kiro 검증은 Skill frontmatter와 slash/headless capability를 확인한다.
+모델 인증 없이 호스트의 Skill 구조와 CLI capability만 검증하려면 별도 checker를 사용한다. 기본 검사는 세 프로젝트 Skill을 확인하며, Kiro 검증은 Skill frontmatter와 slash/headless capability를 확인한다.
 
 ```bash
 uv run python scripts/runtime-host-check.py --runtime all
@@ -40,7 +40,7 @@ uv run python scripts/live-smoke.py \
 
 Live smoke의 성공 기준은 단순히 Skill 파일이 존재하는 것이 아니다.
 
-1. 새 Project에 Plugin package와 repo/project Skill이 설치되고 `doctor.ready=true`여야 한다.
+1. 새 Project에 선택한 repo/project/workspace Skill과 Core가 설치되고 `doctor.ready=true`여야 한다. 기본 설치에는 marketplace package나 선언이 없어야 한다.
 2. 새 host 세션의 초기 Skill 목록에 ISEKAI가 주입되어야 한다. 모델이 프로젝트를 검색해 문서를 수동 발견한 경우는 실패다.
 3. 명시적 `on`이 Project-local launcher로 `handshake`와 Core `on`을 호출해야 한다.
 4. 같은 대화의 다음 일반 요청은 명령 재호출 없이 `intake`되어야 한다.
@@ -52,18 +52,16 @@ Live smoke의 성공 기준은 단순히 Skill 파일이 존재하는 것이 아
 | Runtime | 로컬 버전 | 결과 | 근거 |
 |---|---:|---|---|
 | Codex | `0.147.0` | live verified | repo Skill 주입, `handshake/on`, 두 턴 자동 `intake`, 완성 Unit `status/resume/verify`와 `valid=true` |
-| Claude Code | `2.1.224` | validation only | source와 설치 package의 `claude plugin validate` 통과; 로컬 CLI 미인증으로 모델 세션은 미실행 |
+| Claude Code | `2.1.224` | validation only | project Skill source contract 통과; 로컬 CLI 미인증으로 모델 세션은 미실행 |
 | Kiro | 없음 | unavailable | 로컬 앱과 CLI가 없어 실제 host smoke 미실행 |
 
-초기 Codex 실험에서는 `.agents/plugins/marketplace.json`과 Plugin package만 배치했을 때 Skill이 세션에 주입되지 않았다. 모델이 명령 문자열을 보고 `.isekai`를 검색해 Skill 문서를 수동으로 읽었으므로 실패로 판정했다. 공식 local Skill 검색 위치인 `.agents/skills/isekai`를 설치하고 package와 별도의 digest로 lock에 결박한 뒤 같은 검증이 통과했다.
-
-Claude Code도 project marketplace 선언만으로 무조건 설치되는 것으로 취급하지 않는다. Repository trust 뒤 marketplace와 Plugin 설치 동의가 적용되므로, 프로젝트 기본 Adapter는 `.claude/skills/isekai`에서 직접 발견하고 완전한 Plugin package는 별도 배포 surface로 보존한다.
+Codex는 `.agents/skills/isekai`, Claude Code는 `.claude/skills/isekai`에서 프로젝트 Adapter를 직접 발견한다. ISEKAI 설치기는 marketplace package나 선언을 만들지 않는다.
 
 Kiro CLI의 slash command는 interactive session 전용이다. Headless smoke는 첫 줄의 `ISEKAI_HEADLESS:` marker로 Workspace Skill을 명시적으로 활성화하고 `read,shell`만 사전 허용한다. 이 실행 방식은 lifecycle의 사람 승인을 대신할 수 없으며 `human_gate`에서 중단해야 한다.
 
 ## 2026-08-09 host contract observation
 
-Claude Code `2.1.224`에서 source Plugin의 strict validation과 `--plugin-dir` 세션 발견을 다시 확인했다. Plugin은 `isekai-agent-plugin@inline`으로 enable되어 있었고 `isekai` Skill 하나를 노출했다. CLI 인증이 없어서 실제 모델 대화는 실행하지 않았으므로 상태는 계속 `validation-only`다.
+Claude Code `2.1.224`에서 project Skill source contract를 확인했다. CLI 인증이 없어서 실제 모델 대화는 실행하지 않았으므로 상태는 계속 `validation-only`다.
 
 Kiro는 로컬 CLI가 없어 source surface만 검증했다. 이후 GitHub Actions가 공식 current-stable installer로 Kiro CLI `2.16.2`를 설치하고 `.kiro/skills/isekai/SKILL.md`, CLI `2.1.0+` 요구사항, `--no-interactive`와 `--trust-tools` capability를 확인했다. 인증된 모델 세션은 실행하지 않았으므로 `validation-only`이며 live baseline은 아니다. 원시 실행 로그는 [Kiro workspace Skill contract job](https://github.com/dotwin7/isekai/actions/runs/31293230838/job/93193979111)에 연결한다.
 

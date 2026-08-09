@@ -21,7 +21,6 @@ from .release import (
     LOCK_NAME,
     LOCK_SCHEMA_VERSION,
     MANAGED_ROOT,
-    PLUGIN_ID,
     PROTOCOL_VERSION,
     RUNTIMES,
     DistributionError,
@@ -39,17 +38,12 @@ from .marketplace import (
     CLAUDE_PROJECT_SETTINGS,
     CODEX_REPO_MARKETPLACE,
     _adapter_uses_managed_plugin,
-    _apply_project_host_documents,
     _capture_host_slots,
     _copy_managed_root,
     _managed_control_issues,
-    _prepare_claude_marketplace,
-    _prepare_codex_marketplace,
-    _project_host_documents,
-    _project_id,
+    _remove_legacy_project_plugin_declarations,
     _replace_tree,
     _restore_host_slots,
-    _slug,
     _write_launchers,
 )
 
@@ -364,12 +358,16 @@ def _install_from_checkout_locked(
                 "refusing to replace an unmanaged "
                 f"{WORKSPACE_ADAPTER_PATHS[runtime].as_posix()} directory"
             )
-    host_runtimes = {"codex", "claude"} & set(selected)
+    legacy_plugin_runtimes = {
+        runtime
+        for runtime in {"codex", "claude"} & set(selected)
+        if _adapter_uses_managed_plugin(current_adapters, runtime)
+    }
     for runtime, relative in {
         "codex": CODEX_REPO_MARKETPLACE,
         "claude": CLAUDE_PROJECT_SETTINGS,
     }.items():
-        if runtime in host_runtimes:
+        if runtime in legacy_plugin_runtimes:
             _project_path_without_symlinks(
                 project_root,
                 relative,
@@ -383,23 +381,23 @@ def _install_from_checkout_locked(
             )
 
     adapter_manifest = {item["id"]: item for item in manifest["adapters"]}
-    marketplace_name = (
+    legacy_marketplace_name = (
         str(current_lock.get("marketplace"))
         if current_lock and current_lock.get("marketplace")
-        else "isekai-" + _slug(_project_id(project_root))
+        else "isekai-project"
     )
-    host_documents, host_state = _project_host_documents(
+    host_state = _capture_host_slots(
         project_root,
-        marketplace_name,
-        host_runtimes,
-        current_adapters,
+        legacy_marketplace_name,
+        legacy_plugin_runtimes,
     )
     installed_runtimes = sorted(set(current_adapters) | set(selected))
+
     def adapter_layout_current(runtime: str) -> bool:
-        workspace_ready = _workspace_adapter_owned(current_adapters, runtime)
-        if runtime == "kiro":
-            return workspace_ready
-        return _adapter_uses_managed_plugin(current_adapters, runtime) and workspace_ready
+        entry = current_adapters.get(runtime)
+        return isinstance(entry, dict) and entry.get("path") == (
+            WORKSPACE_ADAPTER_PATHS[runtime].as_posix()
+        )
 
     selected_layout_current = all(adapter_layout_current(runtime) for runtime in selected)
     if (
@@ -446,6 +444,11 @@ def _install_from_checkout_locked(
             _copy_managed_root(managed, staged)
         else:
             staged.mkdir(parents=True)
+        for runtime in legacy_plugin_runtimes:
+            _remove_path(staged / "marketplaces" / runtime)
+        marketplaces = staged / "marketplaces"
+        if marketplaces.is_dir() and not any(marketplaces.iterdir()):
+            marketplaces.rmdir()
 
         core_source = _component_root(
             release_root, manifest["core"]["path"], label="core.path"
@@ -507,61 +510,18 @@ def _install_from_checkout_locked(
                 source_entry["path"],
                 label=f"adapter:{runtime}.path",
             )
-            installed_version = str(source_entry["version"])
-            if runtime == "kiro":
-                skill_source = _adapter_skill_source(adapter_source, runtime)
-                installed_digest = _verified_tree_digest(
-                    skill_source,
-                    source_entry["digest"],
-                    label="kiro Adapter",
-                )
-                adapter_entries[runtime] = {
-                    "version": installed_version,
-                    "path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
-                    "source_digest": source_entry["digest"],
-                    "digest": installed_digest,
-                }
-            elif runtime == "codex":
-                plugin_root, installed_version = _prepare_codex_marketplace(
-                    staged,
-                    adapter_source,
-                    marketplace_name,
-                    commit,
-                    source_entry["digest"],
-                )
-                source_skill = _adapter_skill_source(adapter_source, runtime)
-                adapter_entries[runtime] = {
-                    "version": str(source_entry["version"]),
-                    "installed_version": installed_version,
-                    "path": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{PLUGIN_ID}",
-                    "source_digest": source_entry["digest"],
-                    "digest": tree_digest(plugin_root, include_transients=True),
-                    "workspace_path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
-                    "workspace_digest": tree_digest(
-                        source_skill,
-                        include_transients=True,
-                    ),
-                }
-            else:
-                plugin_root = _prepare_claude_marketplace(
-                    staged,
-                    adapter_source,
-                    marketplace_name,
-                    installed_version,
-                    source_entry["digest"],
-                )
-                source_skill = _adapter_skill_source(adapter_source, runtime)
-                adapter_entries[runtime] = {
-                    "version": installed_version,
-                    "path": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{PLUGIN_ID}",
-                    "source_digest": source_entry["digest"],
-                    "digest": tree_digest(plugin_root, include_transients=True),
-                    "workspace_path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
-                    "workspace_digest": tree_digest(
-                        source_skill,
-                        include_transients=True,
-                    ),
-                }
+            skill_source = _adapter_skill_source(adapter_source, runtime)
+            installed_digest = _verified_tree_digest(
+                skill_source,
+                source_entry["digest"],
+                label=f"{runtime} Runtime Skill",
+            )
+            adapter_entries[runtime] = {
+                "version": str(source_entry["version"]),
+                "path": WORKSPACE_ADAPTER_PATHS[runtime].as_posix(),
+                "source_digest": source_entry["digest"],
+                "digest": installed_digest,
+            }
 
         rollback_entry: dict[str, str] | None = None
         if current_lock:
@@ -595,7 +555,6 @@ def _install_from_checkout_locked(
             "release": manifest["version"],
             "protocol_version": manifest["protocol_version"],
             "source": {"git": source, "ref": ref, "commit": commit},
-            "marketplace": marketplace_name,
             "core": {
                 "version": manifest["core"]["version"],
                 "path": f"{MANAGED_ROOT}/runtime/isekai",
@@ -605,6 +564,11 @@ def _install_from_checkout_locked(
             "foundation": foundation_entry,
             "adapters": dict(sorted(adapter_entries.items())),
         }
+        if any(
+            _adapter_uses_managed_plugin(adapter_entries, runtime)
+            for runtime in {"codex", "claude"}
+        ):
+            lock["marketplace"] = legacy_marketplace_name
         if rollback_entry is not None:
             lock["rollback"] = rollback_entry
 
@@ -628,8 +592,14 @@ def _install_from_checkout_locked(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 _replace_tree(source_skill, target)
 
-        _apply_project_host_documents(project_root, host_documents)
-        host_applied = bool(host_documents)
+        if legacy_plugin_runtimes:
+            _remove_legacy_project_plugin_declarations(
+                project_root,
+                legacy_marketplace_name,
+                legacy_plugin_runtimes,
+                current_adapters,
+            )
+            host_applied = True
 
         if adopt_foundation:
             project_before = _adopt_foundation(
@@ -643,7 +613,11 @@ def _install_from_checkout_locked(
             )
     except Exception:
         if host_applied:
-            _restore_host_slots(project_root, host_state, marketplace_name)
+            _restore_host_slots(
+                project_root,
+                host_state,
+                legacy_marketplace_name,
+            )
         if backup.exists():
             if managed.exists():
                 shutil.rmtree(managed)

@@ -13,7 +13,7 @@ STABLE_FACADES = {
     "intake.py",
     "jsonio.py",
     "locking.py",
-    "plugin_contract.py",
+    "runtime_contract.py",
     "project.py",
     "routing.py",
     "session.py",

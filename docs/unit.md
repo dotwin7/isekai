@@ -135,7 +135,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
   "unit_id": "UNIT-...",
   "stage": "validation",
   "passed": true,
-  "scope": "Core and plugin Golden Path",
+  "scope": "Core and runtime Golden Path",
   "recorded_by": "validator",
   "recorded_at": "2026-08-04T00:00:00+00:00",
   "envelope_id": "ENV-UNIT-...",

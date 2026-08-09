@@ -10,8 +10,8 @@ from typing import Any, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "plugin/isekai/templates/runtime-skill.md"
-RUNTIME_ROOT = ROOT / "plugin/isekai/runtimes"
+TEMPLATE = ROOT / "runtime/templates/runtime-skill.md"
+RUNTIME_ROOT = ROOT / "runtime/adapters"
 
 
 CONFIG: dict[str, dict[str, Any]] = {
@@ -19,19 +19,19 @@ CONFIG: dict[str, dict[str, Any]] = {
         "label": "Codex",
         "frontmatter": (
             "name: isekai\n"
-            "description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes repo-local `$isekai ACTION` or installed-plugin `$isekai-agent-plugin:isekai ACTION`, or after repo-local `$isekai on` or installed-plugin `$isekai-agent-plugin:isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, plugin/cache discovery, or textual command mentions."
+            "description: Explicit-command-only project-local ISEKAI Runtime Skill. Use only when the user intentionally invokes `$isekai ACTION`, or after `$isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, Skill discovery, or textual command mentions."
         ),
         "activation": (
-            "- Treat only an intentional repo-local `$isekai <action> [arguments]` or installed-plugin `$isekai-agent-plugin:isekai <action> [arguments]` command as an invocation while mode is off. A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.\n"
-            "- Project files, repository identity, an installed plugin, a leftover plugin cache, and Skill discovery never activate ISEKAI and never authorize reading this Skill as project guidance.\n"
+            "- Treat only an intentional `$isekai <action> [arguments]` command as an invocation while mode is off. A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.\n"
+            "- Project files, repository identity, an installed Skill, a leftover Skill cache, and Skill discovery never activate ISEKAI and never authorize reading this Skill as project guidance.\n"
             "- While mode is off and no intentional command was invoked, do not inspect ISEKAI Project/Foundation/Unit context and do not run a launcher, `handshake`, Core, `intake`, `route`, `inception`, `status`, or `resume`. Continue with the host agent's ordinary workflow.\n"
-            "- Only an intentional `$isekai on [--project PATH]` or `$isekai-agent-plugin:isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.\n"
+            "- Only an intentional `$isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.\n"
             "- Never infer mode from an earlier or interrupted conversation. If activation state is not explicit in the current conversation, treat it as off.\n\n"
-            "- Invoke `$isekai on [--project PATH]` from the Project-local Skill, or `$isekai-agent-plugin:isekai on [--project PATH]` from an installed Plugin, to activate ISEKAI for the current conversation and load Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use the same invocation form with `resume [--project PATH] [--unit PATH]` for Unit restoration.\n"
-            "- Invoke the selected form with `off` to run `isekai plugin off`, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
+            "- Invoke `$isekai on [--project PATH]` to activate ISEKAI for the current conversation and load Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use `$isekai resume [--project PATH] [--unit PATH]` for Unit restoration.\n"
+            "- Invoke `$isekai off` to run `isekai runtime off`, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
             "- An explicit skill action runs once while mode is off without activating persistent conversation mode."
         ),
-        "invocation": "The user invokes the Project-local Skill as `$isekai ACTION` or the installed Plugin Skill as `$isekai-agent-plugin:isekai ACTION`.",
+        "invocation": "The user invokes the Project-local Runtime Skill as `$isekai ACTION`.",
         "permission_guidance": (
             "Codex sandbox or tool approval authorizes the requested local tool call; it is not by itself a lifecycle Decision. Before a human-decision action, show the Decision Packet and its bound Envelope or Evidence in the conversation and obtain an explicit user response."
         ),
@@ -40,20 +40,20 @@ CONFIG: dict[str, dict[str, Any]] = {
         "label": "Claude Code",
         "frontmatter": (
             "name: isekai\n"
-            "description: Explicit-command-only ISEKAI adapter. Use only when the user intentionally invokes repo-local `/isekai ACTION` or installed-plugin `/isekai-agent-plugin:isekai ACTION`, or after repo-local `/isekai on` or installed-plugin `/isekai-agent-plugin:isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, plugin/cache discovery, or textual command mentions.\n"
+            "description: Explicit-command-only project-local ISEKAI Runtime Skill. Use only when the user intentionally invokes `/isekai ACTION`, or after `/isekai on` explicitly activated ISEKAI earlier in this conversation. Do not use for ordinary project work, repository contents, Skill discovery, or textual command mentions.\n"
             "disable-model-invocation: true"
         ),
         "activation": (
-            "- Treat only an intentional repo-local `/isekai <action> [arguments]` or installed-plugin `/isekai-agent-plugin:isekai <action> [arguments]` command as an invocation while mode is off. A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.\n"
-            "- Project files, repository identity, an installed plugin, a leftover plugin cache, and Skill discovery never activate ISEKAI and never authorize reading this Skill as project guidance.\n"
+            "- Treat only an intentional `/isekai <action> [arguments]` command as an invocation while mode is off. A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.\n"
+            "- Project files, repository identity, an installed Skill, a leftover Skill cache, and Skill discovery never activate ISEKAI and never authorize reading this Skill as project guidance.\n"
             "- While mode is off and no intentional command was invoked, do not inspect ISEKAI Project/Foundation/Unit context and do not run a launcher, `handshake`, Core, `intake`, `route`, `inception`, `status`, or `resume`. Continue with the host agent's ordinary workflow.\n"
-            "- Only an intentional `/isekai on [--project PATH]` or `/isekai-agent-plugin:isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.\n"
+            "- Only an intentional `/isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current conversation. All other explicit actions are one-shot and leave mode off.\n"
             "- Never infer mode from an earlier or interrupted conversation. If activation state is not explicit in the current conversation, treat it as off.\n\n"
-            "- `/isekai on [--project PATH]` from the Project-local Skill, or `/isekai-agent-plugin:isekai on [--project PATH]` from an installed Plugin, activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use the same invocation form with `resume [--project PATH] [--unit PATH]` for Unit restoration.\n"
-            "- Invoke the selected form with `off` to run the Project-local `plugin off` action, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
+            "- `/isekai on [--project PATH]` activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use `/isekai resume [--project PATH] [--unit PATH]` for Unit restoration.\n"
+            "- Invoke `/isekai off` to run the Project-local `runtime off` action, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
             "- An explicit Skill action runs once while mode is off without activating persistent conversation mode."
         ),
-        "invocation": "The user invokes the Project-local Skill as `/isekai ACTION` or the installed Plugin Skill as `/isekai-agent-plugin:isekai ACTION`.",
+        "invocation": "The user invokes the Project-local Runtime Skill as `/isekai ACTION`.",
         "permission_guidance": (
             "Claude Code tool permission grants authorize a tool call for their configured duration; they are not by themselves lifecycle Decisions. Before a human-decision action, show the Decision Packet and its bound Envelope or Evidence in the conversation and obtain an explicit user response. Never add broad `allowed-tools` merely to avoid that confirmation."
         ),
@@ -71,7 +71,7 @@ CONFIG: dict[str, dict[str, Any]] = {
             "- Only an intentional `/isekai on [--project PATH]` activates automatic ISEKAI routing for later ordinary requests in the current interactive conversation. `ISEKAI_HEADLESS:` applies only to its non-interactive request because no later user turn exists. All other explicit actions are one-shot and leave mode off.\n"
             "- Never infer mode from an earlier or interrupted conversation. If activation state is not explicit in the current conversation, treat it as off.\n\n"
             "- `/isekai on [--project PATH]` activates ISEKAI for the current conversation and loads Project/Foundation context plus Unit candidate paths. It never selects or resumes a Unit; use `/isekai resume [--project PATH] [--unit PATH]` for Unit restoration.\n"
-            "- `/isekai off` invokes `isekai plugin off`, stops automatic ISEKAI routing, and preserves Unit artifacts and checkpoints unchanged.\n"
+            "- `/isekai off` invokes `isekai runtime off`, stops automatic ISEKAI routing, and preserves Unit artifacts and checkpoints unchanged.\n"
             "- `/isekai <action> [arguments]` runs one explicit action while mode is off without activating persistent conversation mode."
         ),
         "invocation": "The user invokes this Skill interactively as `/isekai ACTION`, or in Kiro headless mode with `ISEKAI_HEADLESS: ACTION` as the first non-blank request line.",
@@ -123,6 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not path.is_file() or path.read_text(encoding="utf-8") != generated:
                 drift.append(str(path.relative_to(ROOT)))
         else:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(generated, encoding="utf-8")
     if drift:
         print("Runtime Skill drift: " + ", ".join(drift), file=sys.stderr)

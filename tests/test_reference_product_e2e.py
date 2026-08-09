@@ -328,7 +328,7 @@ def _record_decision(
     references: list[str],
 ) -> dict[str, object]:
     arguments = [
-        "plugin",
+        "runtime",
         "decision",
         "--unit",
         str(unit),
@@ -384,7 +384,7 @@ def _record_product_evidence(
 ) -> dict[str, object]:
     output = completed.stdout + completed.stderr
     arguments = [
-        "plugin",
+        "runtime",
         "evidence",
         "--unit",
         str(unit),
@@ -474,7 +474,7 @@ mapping 레코드 iterable을 `prioritize_proposals`에 전달한다. 함수는 
         (unit / relative).write_text(content, encoding="utf-8")
 
 
-def test_reference_product_feature_runs_through_installed_codex_plugin(
+def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "reference-product"
@@ -493,31 +493,17 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     assert installed["installed"] is True
     assert installed["new_conversation_required"] is True
 
-    codex_plugin = (
-        project
-        / ".isekai/marketplaces/codex/plugins/isekai-agent-plugin"
+    skill = (project / ".agents/skills/isekai/SKILL.md").read_text(
+        encoding="utf-8"
     )
-    manifest = json.loads(
-        (codex_plugin / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
-    )
-    marketplace = json.loads(
-        (project / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
-    )
-    skill = (codex_plugin / "skills/isekai/SKILL.md").read_text(encoding="utf-8")
-    workspace_skill = (
-        project / ".agents/skills/isekai/SKILL.md"
-    ).read_text(encoding="utf-8")
-    assert manifest["version"] == "0.1.0+codex.eeeeeeeeeeee"
-    assert marketplace["plugins"][0]["policy"]["installation"] == (
-        "INSTALLED_BY_DEFAULT"
-    )
-    assert workspace_skill == skill
-    assert "repo-local `$isekai ACTION`" in workspace_skill
+    assert not (project / ".agents/plugins/marketplace.json").exists()
+    assert not (project / ".isekai/marketplaces").exists()
+    assert "Project-local Runtime Skill as `$isekai ACTION`" in skill
     assert "The host agent drives the lifecycle" in skill
 
     handshake = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "handshake",
         "--runtime",
         "codex",
@@ -532,7 +518,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "init",
         "--path",
         str(project),
@@ -558,12 +544,12 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
         encoding="utf-8",
     )
 
-    activated = _run_isekai(project, "plugin", "on", "--project", str(project))
+    activated = _run_isekai(project, "runtime", "on", "--project", str(project))
     assert activated["result"]["adapter_mode"]["state"] == "on"  # type: ignore[index]
 
     intake = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "intake",
         "--source",
         "direct-request",
@@ -591,7 +577,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     created = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "unit-init",
         "--project",
         str(project),
@@ -651,7 +637,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     ]
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "envelope-propose",
         "--unit",
         str(unit),
@@ -680,7 +666,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "checkpoint",
         "--unit",
         str(unit),
@@ -689,10 +675,10 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
         "--next-action",
         "Inception을 승인하고 Construction으로 전환한다.",
     )
-    _run_isekai(project, "plugin", "transition", "--unit", str(unit), "--to", "inception")
+    _run_isekai(project, "runtime", "transition", "--unit", str(unit), "--to", "inception")
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -708,7 +694,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -718,7 +704,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     test_authorization = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "authorize",
         "--unit",
         str(unit),
@@ -735,7 +721,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     red_authorization = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "authorize",
         "--unit",
         str(unit),
@@ -759,7 +745,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     source_authorization = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "authorize",
         "--unit",
         str(unit),
@@ -778,7 +764,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
 
     green_authorization = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "authorize",
         "--unit",
         str(unit),
@@ -819,7 +805,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -828,7 +814,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -844,7 +830,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -853,7 +839,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -869,7 +855,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "checkpoint",
         "--unit",
         str(unit),
@@ -880,7 +866,7 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
     )
     _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "transition",
         "--unit",
         str(unit),
@@ -888,10 +874,10 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
         "learned",
     )
 
-    verified = _run_isekai(project, "plugin", "verify", "--unit", str(unit))
+    verified = _run_isekai(project, "runtime", "verify", "--unit", str(unit))
     status = _run_isekai(
         project,
-        "plugin",
+        "runtime",
         "status",
         "--project",
         str(project),

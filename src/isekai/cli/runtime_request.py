@@ -5,9 +5,9 @@ import json
 from typing import Any
 
 
-def plugin_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
-    """Translate parsed plugin arguments into the host-neutral request contract."""
-    action = str(args.plugin_command)
+def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
+    """Translate parsed runtime arguments into the host-neutral request contract."""
+    action = str(args.runtime_command)
     if action == "init":
         payload = {
             "path": args.path,
@@ -150,11 +150,11 @@ def plugin_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     elif action == "verify":
         payload = {"unit": args.unit}
     else:  # pragma: no cover - argparse restricts this value
-        raise ValueError(f"unsupported plugin command: {action}")
+        raise ValueError(f"unsupported runtime command: {action}")
     return action, payload
 
 
-def plugin_exit_code(action: str, result: dict[str, Any]) -> int:
+def runtime_exit_code(action: str, result: dict[str, Any]) -> int:
     values = result["result"]
     gates = {
         "authorize": "allowed",

@@ -582,7 +582,7 @@ def test_verify_rejects_english_human_document_in_korean_unit(
 def test_repository_root_project_resolves_local_foundation() -> None:
     context = resolve_context(ROOT / "project.json")
 
-    assert context["project_id"] == "isekai-agent-plugin"
+    assert context["project_id"] == "isekai"
     assert context["source_manifest"] == str((ROOT / "project.json").resolve())
     assert context["profiles"] == ["security-profile", "software-delivery-profile"]
 

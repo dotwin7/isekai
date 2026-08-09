@@ -1,11 +1,11 @@
 {
-  "id": "isekai-agent-plugin",
-  "kind": "agent-plugin",
+  "id": "isekai-project-runtime",
+  "kind": "project-local-runtime",
   "version": "0.1.0",
-  "description": "Explicit-command-only ISEKAI AI-DLC workflow integration for existing agent runtimes",
+  "description": "Version-pinned project-local ISEKAI AI-DLC runtime for existing agent hosts",
   "core": {
-    "package": "isekai-agent-plugin",
-    "interface": "isekai plugin",
+    "package": "isekai-ai-dlc-runtime",
+    "interface": "isekai runtime",
     "user_interface": "isekai <action>",
     "protocol_version": "1.0.0"
   },
@@ -24,21 +24,21 @@
       "CI or host execution provenance"
     ]
   },
-  "runtimes": [
+  "adapters": [
     {
       "id": "kiro",
       "surface": "workspace-agent-skill",
-      "path": "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md"
+      "path": "runtime/adapters/kiro/skills/isekai/SKILL.md"
     },
     {
       "id": "claude",
-      "surface": "claude-plugin",
-      "path": "plugin/isekai/runtimes/claude"
+      "surface": "project-skill",
+      "path": "runtime/adapters/claude/skills/isekai/SKILL.md"
     },
     {
       "id": "codex",
-      "surface": "codex-plugin",
-      "path": "plugin/isekai/runtimes/codex"
+      "surface": "repo-skill",
+      "path": "runtime/adapters/codex/skills/isekai/SKILL.md"
     }
   ],
   "actions": [

@@ -10,10 +10,10 @@ from ..workflow import (
 )
 
 
-# Typing one of these as the first argument runs the plugin action of the same
+# Typing one of these as the first argument runs the runtime action of the same
 # name, so no top-level command may reuse one: the alias would shadow it and
 # leave the top-level parser unreachable.
-DIRECT_PLUGIN_ACTIONS = {
+DIRECT_RUNTIME_ACTIONS = {
     "init",
     "handshake",
     "on",
@@ -122,161 +122,163 @@ def _parser() -> argparse.ArgumentParser:
     structure = commands.add_parser("structure", help="list prototype files")
     structure.add_argument("--root", default=".")
 
-    plugin = commands.add_parser("plugin", help="run the ISEKAI agent plugin contract")
-    plugin_commands = plugin.add_subparsers(dest="plugin_command", required=True)
+    runtime = commands.add_parser(
+        "runtime", help="run the ISEKAI project-local runtime contract"
+    )
+    runtime_commands = runtime.add_subparsers(dest="runtime_command", required=True)
 
-    plugin_project_init = plugin_commands.add_parser(
+    runtime_project_init = runtime_commands.add_parser(
         "init", help="initialize an ISEKAI project manifest and Unit root"
     )
-    plugin_project_init.add_argument("--path", default=".")
-    plugin_project_init.add_argument("--id", dest="project_id")
-    plugin_project_init.add_argument("--foundation-path")
-    plugin_project_init.add_argument("--profile", action="append", default=[])
-    plugin_project_init.add_argument(
+    runtime_project_init.add_argument("--path", default=".")
+    runtime_project_init.add_argument("--id", dest="project_id")
+    runtime_project_init.add_argument("--foundation-path")
+    runtime_project_init.add_argument("--profile", action="append", default=[])
+    runtime_project_init.add_argument(
         "--document-language", choices=("ko", "en"), default="ko"
     )
-    plugin_project_init.add_argument("--maximum-agent-level", default="L0")
+    runtime_project_init.add_argument("--maximum-agent-level", default="L0")
 
-    plugin_handshake = plugin_commands.add_parser(
+    runtime_handshake = runtime_commands.add_parser(
         "handshake", help="verify Adapter, Core, protocol, and project lock compatibility"
     )
-    plugin_handshake.add_argument("--runtime", choices=("kiro", "claude", "codex"), required=True)
-    plugin_handshake.add_argument("--adapter-version", required=True)
-    plugin_handshake.add_argument("--protocol-version", required=True)
-    plugin_handshake.add_argument("--project", default=".")
+    runtime_handshake.add_argument("--runtime", choices=("kiro", "claude", "codex"), required=True)
+    runtime_handshake.add_argument("--adapter-version", required=True)
+    runtime_handshake.add_argument("--protocol-version", required=True)
+    runtime_handshake.add_argument("--project", default=".")
 
-    plugin_on = plugin_commands.add_parser(
+    runtime_on = runtime_commands.add_parser(
         "on", help="activate ISEKAI mode for the current conversation"
     )
-    plugin_on.add_argument("--project", default=".")
+    runtime_on.add_argument("--project", default=".")
 
-    plugin_commands.add_parser(
+    runtime_commands.add_parser(
         "off", help="deactivate conversation-local ISEKAI mode without writing artifacts"
     )
 
-    plugin_intake = plugin_commands.add_parser(
+    runtime_intake = runtime_commands.add_parser(
         "intake", help="normalize a Goal or direct request and route it"
     )
-    plugin_intake.add_argument("--source", choices=("host-goal", "direct-request"), default="direct-request")
-    plugin_intake.add_argument("--goal", required=True)
-    plugin_intake.add_argument("--expected-outcome", dest="expected_outcome", default="")
-    plugin_intake.add_argument("--scope", action="append", default=[])
-    plugin_intake.add_argument("--constraint", action="append", default=[])
-    plugin_intake.add_argument("--acceptance-criterion", dest="acceptance_criteria", action="append", default=[])
-    plugin_intake.add_argument("--change", choices=("none", "local", "persistent"))
-    plugin_intake.add_argument("--risk", choices=("low", "high"), default="low")
-    plugin_intake.add_argument("--ambiguous", action="store_true")
-    plugin_intake.add_argument("--multi-party", dest="multi_party", action="store_true")
-    plugin_intake.add_argument("--remote", action="store_true")
-    plugin_intake.add_argument("--sensitive", action="store_true")
+    runtime_intake.add_argument("--source", choices=("host-goal", "direct-request"), default="direct-request")
+    runtime_intake.add_argument("--goal", required=True)
+    runtime_intake.add_argument("--expected-outcome", dest="expected_outcome", default="")
+    runtime_intake.add_argument("--scope", action="append", default=[])
+    runtime_intake.add_argument("--constraint", action="append", default=[])
+    runtime_intake.add_argument("--acceptance-criterion", dest="acceptance_criteria", action="append", default=[])
+    runtime_intake.add_argument("--change", choices=("none", "local", "persistent"))
+    runtime_intake.add_argument("--risk", choices=("low", "high"), default="low")
+    runtime_intake.add_argument("--ambiguous", action="store_true")
+    runtime_intake.add_argument("--multi-party", dest="multi_party", action="store_true")
+    runtime_intake.add_argument("--remote", action="store_true")
+    runtime_intake.add_argument("--sensitive", action="store_true")
 
-    plugin_status = plugin_commands.add_parser("status", help="show project and Unit context")
-    plugin_status.add_argument("--project", default=".")
-    plugin_status.add_argument("--unit")
+    runtime_status = runtime_commands.add_parser("status", help="show project and Unit context")
+    runtime_status.add_argument("--project", default=".")
+    runtime_status.add_argument("--unit")
 
-    plugin_route = plugin_commands.add_parser("route", help="route work through ISEKAI")
-    plugin_route.add_argument("--change", choices=("none", "local", "persistent"), required=True)
-    plugin_route.add_argument("--risk", choices=("low", "high"), default="low")
-    plugin_route.add_argument("--ambiguous", action="store_true")
-    plugin_route.add_argument("--multi-party", dest="multi_party", action="store_true")
-    plugin_route.add_argument("--remote", action="store_true")
-    plugin_route.add_argument("--sensitive", action="store_true")
+    runtime_route = runtime_commands.add_parser("route", help="route work through ISEKAI")
+    runtime_route.add_argument("--change", choices=("none", "local", "persistent"), required=True)
+    runtime_route.add_argument("--risk", choices=("low", "high"), default="low")
+    runtime_route.add_argument("--ambiguous", action="store_true")
+    runtime_route.add_argument("--multi-party", dest="multi_party", action="store_true")
+    runtime_route.add_argument("--remote", action="store_true")
+    runtime_route.add_argument("--sensitive", action="store_true")
 
-    plugin_inception = plugin_commands.add_parser("inception", help="prepare inception questions")
-    plugin_inception.add_argument("--project", default=".")
+    runtime_inception = runtime_commands.add_parser("inception", help="prepare inception questions")
+    runtime_inception.add_argument("--project", default=".")
 
-    plugin_compatibility = plugin_commands.add_parser(
+    runtime_compatibility = runtime_commands.add_parser(
         "compatibility", help="show runtime CLI compatibility matrix"
     )
 
-    plugin_release_check = plugin_commands.add_parser(
+    runtime_release_check = runtime_commands.add_parser(
         "release-check", help="report Foundation release-readiness blockers"
     )
-    plugin_release_check.add_argument("--foundation", default="foundation")
+    runtime_release_check.add_argument("--foundation", default="foundation")
 
-    plugin_foundation_decision = plugin_commands.add_parser(
+    runtime_foundation_decision = runtime_commands.add_parser(
         "foundation-decision", help="record a Foundation release Decision"
     )
-    plugin_foundation_decision.add_argument("--foundation", default="foundation")
-    plugin_foundation_decision.add_argument(
+    runtime_foundation_decision.add_argument("--foundation", default="foundation")
+    runtime_foundation_decision.add_argument(
         "--outcome", choices=("approved", "rejected"), required=True
     )
-    plugin_foundation_decision.add_argument("--summary", required=True)
-    plugin_foundation_decision.add_argument("--decided-by", dest="decided_by", required=True)
+    runtime_foundation_decision.add_argument("--summary", required=True)
+    runtime_foundation_decision.add_argument("--decided-by", dest="decided_by", required=True)
 
-    plugin_foundation_evidence = plugin_commands.add_parser(
+    runtime_foundation_evidence = runtime_commands.add_parser(
         "foundation-evidence", help="record Foundation release Evidence"
     )
-    plugin_foundation_evidence.add_argument("--foundation", default="foundation")
-    plugin_foundation_evidence.add_argument("--passed", action="store_true")
-    plugin_foundation_evidence.add_argument("--checks-json", required=True)
-    plugin_foundation_evidence.add_argument("--scope", required=True)
-    plugin_foundation_evidence.add_argument("--recorded-by", dest="recorded_by", required=True)
+    runtime_foundation_evidence.add_argument("--foundation", default="foundation")
+    runtime_foundation_evidence.add_argument("--passed", action="store_true")
+    runtime_foundation_evidence.add_argument("--checks-json", required=True)
+    runtime_foundation_evidence.add_argument("--scope", required=True)
+    runtime_foundation_evidence.add_argument("--recorded-by", dest="recorded_by", required=True)
 
-    plugin_foundation_promote = plugin_commands.add_parser(
+    runtime_foundation_promote = runtime_commands.add_parser(
         "foundation-promote", help="promote Foundation after approval gates pass"
     )
-    plugin_foundation_promote.add_argument("--foundation", default="foundation")
+    runtime_foundation_promote.add_argument("--foundation", default="foundation")
 
-    plugin_project_knowledge_status = plugin_commands.add_parser(
+    runtime_project_knowledge_status = runtime_commands.add_parser(
         "project-knowledge-status",
         help="show the latest approved Project Knowledge release",
     )
-    plugin_project_knowledge_status.add_argument("--project", default=".")
+    runtime_project_knowledge_status.add_argument("--project", default=".")
 
-    plugin_project_knowledge_propose = plugin_commands.add_parser(
+    runtime_project_knowledge_propose = runtime_commands.add_parser(
         "project-knowledge-propose",
         help="propose reusable knowledge from an operating or learned Unit",
     )
-    plugin_project_knowledge_propose.add_argument("--unit", required=True)
-    plugin_project_knowledge_propose.add_argument("--entries-json", required=True)
-    plugin_project_knowledge_propose.add_argument(
+    runtime_project_knowledge_propose.add_argument("--unit", required=True)
+    runtime_project_knowledge_propose.add_argument("--entries-json", required=True)
+    runtime_project_knowledge_propose.add_argument(
         "--proposed-by", dest="proposed_by", required=True
     )
 
-    plugin_project_knowledge_promote = plugin_commands.add_parser(
+    runtime_project_knowledge_promote = runtime_commands.add_parser(
         "project-knowledge-promote",
         help="promote a candidate bound by an approved knowledge Decision",
     )
-    plugin_project_knowledge_promote.add_argument("--unit", required=True)
-    plugin_project_knowledge_promote.add_argument("--candidate", required=True)
+    runtime_project_knowledge_promote.add_argument("--unit", required=True)
+    runtime_project_knowledge_promote.add_argument("--candidate", required=True)
 
-    plugin_resume = plugin_commands.add_parser("resume", help="restore Unit checkpoint context")
-    plugin_resume.add_argument("--project", default=".")
-    plugin_resume.add_argument("--unit")
+    runtime_resume = runtime_commands.add_parser("resume", help="restore Unit checkpoint context")
+    runtime_resume.add_argument("--project", default=".")
+    runtime_resume.add_argument("--unit")
 
-    plugin_unit_migrate = plugin_commands.add_parser(
+    runtime_unit_migrate = runtime_commands.add_parser(
         "unit-migrate",
         help="rebind a moved Unit to the same Project contract using portable paths",
     )
-    plugin_unit_migrate.add_argument("--project", default=".")
-    plugin_unit_migrate.add_argument("--unit", required=True)
+    runtime_unit_migrate.add_argument("--project", default=".")
+    runtime_unit_migrate.add_argument("--unit", required=True)
 
-    plugin_init = plugin_commands.add_parser("unit-init", help="create a Unit through the plugin contract")
-    plugin_init.add_argument("--project", required=True)
-    plugin_init.add_argument("--title", required=True)
-    plugin_init.add_argument("--output")
-    plugin_init.add_argument("--owner", default="unassigned")
-    plugin_init.add_argument("--intent-json", default="")
+    runtime_init = runtime_commands.add_parser("unit-init", help="create a Unit through the runtime contract")
+    runtime_init.add_argument("--project", required=True)
+    runtime_init.add_argument("--title", required=True)
+    runtime_init.add_argument("--output")
+    runtime_init.add_argument("--owner", default="unassigned")
+    runtime_init.add_argument("--intent-json", default="")
 
-    plugin_checkpoint = plugin_commands.add_parser("checkpoint", help="write an explicit Unit checkpoint")
-    plugin_checkpoint.add_argument("--unit", required=True)
-    plugin_checkpoint.add_argument("--completed", action="append", default=[])
-    plugin_checkpoint.add_argument("--pending", action="append", default=[])
-    plugin_checkpoint.add_argument("--blocked-by", dest="blocked_by", action="append", default=[])
-    plugin_checkpoint.add_argument("--next-action", required=True)
+    runtime_checkpoint = runtime_commands.add_parser("checkpoint", help="write an explicit Unit checkpoint")
+    runtime_checkpoint.add_argument("--unit", required=True)
+    runtime_checkpoint.add_argument("--completed", action="append", default=[])
+    runtime_checkpoint.add_argument("--pending", action="append", default=[])
+    runtime_checkpoint.add_argument("--blocked-by", dest="blocked_by", action="append", default=[])
+    runtime_checkpoint.add_argument("--next-action", required=True)
 
-    plugin_envelope_propose = plugin_commands.add_parser(
+    runtime_envelope_propose = runtime_commands.add_parser(
         "envelope-propose", help="propose an adaptive Execution Envelope for a Unit"
     )
-    plugin_envelope_propose.add_argument("--unit", required=True)
-    plugin_envelope_propose.add_argument("--scope", action="append", required=True)
-    plugin_envelope_propose.add_argument("--stages-json", required=True)
-    plugin_envelope_propose.add_argument("--allowed-action", action="append", required=True)
-    plugin_envelope_propose.add_argument("--forbidden-action", action="append", default=[])
-    plugin_envelope_propose.add_argument("--max-iterations", type=int, required=True)
-    plugin_envelope_propose.add_argument("--proposed-by", required=True)
-    plugin_envelope_propose.add_argument(
+    runtime_envelope_propose.add_argument("--unit", required=True)
+    runtime_envelope_propose.add_argument("--scope", action="append", required=True)
+    runtime_envelope_propose.add_argument("--stages-json", required=True)
+    runtime_envelope_propose.add_argument("--allowed-action", action="append", required=True)
+    runtime_envelope_propose.add_argument("--forbidden-action", action="append", default=[])
+    runtime_envelope_propose.add_argument("--max-iterations", type=int, required=True)
+    runtime_envelope_propose.add_argument("--proposed-by", required=True)
+    runtime_envelope_propose.add_argument(
         "--expires-in-hours",
         dest="expires_in_hours",
         type=int,
@@ -288,49 +290,49 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
 
-    plugin_envelope_approve = plugin_commands.add_parser(
+    runtime_envelope_approve = runtime_commands.add_parser(
         "envelope-approve",
         help="activate a proposed Execution Envelope from its approved inception Decision",
     )
-    plugin_envelope_approve.add_argument("--unit", required=True)
+    runtime_envelope_approve.add_argument("--unit", required=True)
 
-    plugin_authorize = plugin_commands.add_parser(
+    runtime_authorize = runtime_commands.add_parser(
         "authorize", help="check an action against the approved Execution Envelope"
     )
-    plugin_authorize.add_argument("--unit", required=True)
-    plugin_authorize.add_argument("--action", dest="requested_action", required=True)
-    plugin_authorize.add_argument("--target", required=True)
-    plugin_authorize.add_argument("--stage")
+    runtime_authorize.add_argument("--unit", required=True)
+    runtime_authorize.add_argument("--action", dest="requested_action", required=True)
+    runtime_authorize.add_argument("--target", required=True)
+    runtime_authorize.add_argument("--stage")
 
-    plugin_evidence = plugin_commands.add_parser("evidence", help="record structured verification Evidence")
-    plugin_evidence.add_argument("--unit", required=True)
-    plugin_evidence.add_argument("--passed", action="store_true")
-    plugin_evidence.add_argument("--commands-json", required=True)
-    plugin_evidence.add_argument("--scope", required=True)
-    plugin_evidence.add_argument("--recorded-by", dest="recorded_by", required=True)
-    plugin_evidence.add_argument("--notes", default="")
+    runtime_evidence = runtime_commands.add_parser("evidence", help="record structured verification Evidence")
+    runtime_evidence.add_argument("--unit", required=True)
+    runtime_evidence.add_argument("--passed", action="store_true")
+    runtime_evidence.add_argument("--commands-json", required=True)
+    runtime_evidence.add_argument("--scope", required=True)
+    runtime_evidence.add_argument("--recorded-by", dest="recorded_by", required=True)
+    runtime_evidence.add_argument("--notes", default="")
 
-    plugin_decision = plugin_commands.add_parser("decision", help="record a human Unit Decision")
-    plugin_decision.add_argument("--unit", required=True)
-    plugin_decision.add_argument(
+    runtime_decision = runtime_commands.add_parser("decision", help="record a human Unit Decision")
+    runtime_decision.add_argument("--unit", required=True)
+    runtime_decision.add_argument(
         "--gate",
         choices=("inception", "architecture", "release", "operation", "knowledge"),
         required=True,
     )
-    plugin_decision.add_argument("--outcome", choices=("approved", "rejected"), required=True)
-    plugin_decision.add_argument("--summary", required=True)
-    plugin_decision.add_argument("--rationale", action="append", required=True)
-    plugin_decision.add_argument("--alternatives-json", default="[]")
-    plugin_decision.add_argument("--tradeoff", action="append", default=[])
-    plugin_decision.add_argument("--risk", action="append", default=[])
-    plugin_decision.add_argument("--reference", action="append", default=[])
-    plugin_decision.add_argument("--decided-by", dest="decided_by", required=True)
+    runtime_decision.add_argument("--outcome", choices=("approved", "rejected"), required=True)
+    runtime_decision.add_argument("--summary", required=True)
+    runtime_decision.add_argument("--rationale", action="append", required=True)
+    runtime_decision.add_argument("--alternatives-json", default="[]")
+    runtime_decision.add_argument("--tradeoff", action="append", default=[])
+    runtime_decision.add_argument("--risk", action="append", default=[])
+    runtime_decision.add_argument("--reference", action="append", default=[])
+    runtime_decision.add_argument("--decided-by", dest="decided_by", required=True)
 
-    plugin_transition = plugin_commands.add_parser(
+    runtime_transition = runtime_commands.add_parser(
         "transition", help="transition a Unit through an allowed lifecycle edge"
     )
-    plugin_transition.add_argument("--unit", required=True)
-    plugin_transition.add_argument(
+    runtime_transition.add_argument("--unit", required=True)
+    runtime_transition.add_argument(
         "--to",
         choices=(
             "proposed",
@@ -346,7 +348,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
 
-    plugin_verify = plugin_commands.add_parser("verify", help="verify a Unit through the plugin contract")
-    plugin_verify.add_argument("--unit", required=True)
+    runtime_verify = runtime_commands.add_parser("verify", help="verify a Unit through the runtime contract")
+    runtime_verify.add_argument("--unit", required=True)
 
     return parser

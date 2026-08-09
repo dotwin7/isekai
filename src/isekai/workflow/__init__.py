@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Stable workflow API backed by focused domain modules.
 
-The plugin, CLI, and downstream callers keep importing ``isekai.workflow``.
+The Runtime Skill, CLI, and downstream callers keep importing ``isekai.workflow``.
 Implementation lives in smaller modules so each lifecycle concern can evolve
 without recreating a monolithic workflow module.
 """

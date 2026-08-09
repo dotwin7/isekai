@@ -22,7 +22,7 @@ LOCK_SCHEMA_VERSION = "1.0.0"
 MANIFEST_PATH = Path("distribution/release.json")
 LOCK_NAME = "isekai.lock.json"
 MANAGED_ROOT = ".isekai"
-PLUGIN_ID = "isekai-agent-plugin"
+LEGACY_PLUGIN_ID = "isekai-agent-plugin"
 RUNTIMES = {"kiro", "claude", "codex"}
 
 
@@ -229,20 +229,20 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
         root=release_root,
         label="Foundation release manifest",
     )
-    plugin = _read_control_json(
-        release_root / "plugin/isekai/manifest.json",
+    runtime_manifest = _read_control_json(
+        release_root / "runtime/manifest.json",
         root=release_root,
-        label="plugin manifest",
+        label="runtime manifest",
     )
-    release_version = plugin.get("version")
+    release_version = runtime_manifest.get("version")
     if not isinstance(release_version, str) or not release_version:
-        raise DistributionError("plugin manifest must declare the distribution version")
-    plugin_core = plugin.get("core")
+        raise DistributionError("runtime manifest must declare the distribution version")
+    runtime_core = runtime_manifest.get("core")
     if (
-        not isinstance(plugin_core, dict)
-        or plugin_core.get("protocol_version") != PROTOCOL_VERSION
+        not isinstance(runtime_core, dict)
+        or runtime_core.get("protocol_version") != PROTOCOL_VERSION
     ):
-        raise DistributionError("plugin manifest protocol_version does not match Core")
+        raise DistributionError("runtime manifest protocol_version does not match Core")
     init_content = _read_control_text(
         release_root / "src/isekai/__init__.py",
         root=release_root,
@@ -250,30 +250,20 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
     )
     if f'__version__ = "{version}"' not in init_content:
         raise DistributionError("Core package version does not match pyproject.toml")
-    for runtime in ("codex", "claude"):
-        runtime_manifest = _read_control_json(
-            release_root
-            / f"plugin/isekai/runtimes/{runtime}/.{runtime}-plugin/plugin.json",
-            root=release_root,
-            label=f"{runtime} runtime manifest",
-        )
-        if runtime_manifest.get("version") != release_version:
-            raise DistributionError(f"{runtime} Adapter version does not match plugin release")
-
     adapter_paths = {
-        "kiro": "plugin/isekai/runtimes/kiro/skills/isekai",
-        "claude": "plugin/isekai/runtimes/claude",
-        "codex": "plugin/isekai/runtimes/codex",
+        "kiro": "runtime/adapters/kiro/skills/isekai",
+        "claude": "runtime/adapters/claude/skills/isekai",
+        "codex": "runtime/adapters/codex/skills/isekai",
     }
     adapters = []
-    for runtime in sorted(adapter_paths):
-        path = adapter_paths[runtime]
+    for adapter_id in sorted(adapter_paths):
+        path = adapter_paths[adapter_id]
         component = _component_root(
-            release_root, path, label=f"adapter:{runtime}.path"
+            release_root, path, label=f"adapter:{adapter_id}.path"
         )
         adapters.append(
             {
-                "id": runtime,
+                "id": adapter_id,
                 "version": release_version,
                 "path": path,
                 "digest": tree_digest(component),
@@ -289,7 +279,7 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
             "foundation_schema_versions": ["1.0.0"],
         },
         "core": {
-            "package": "isekai-agent-plugin",
+            "package": "isekai-ai-dlc-runtime",
             "version": version,
             "path": "src/isekai",
             "digest": tree_digest(
@@ -304,15 +294,15 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
                 _component_root(release_root, "scripts", label="bootstrap.path")
             ),
         },
-        "plugin": {
-            "id": "isekai-agent-plugin-contract",
+        "runtime": {
+            "id": "isekai-project-runtime-contract",
             "version": release_version,
-            "path": "plugin/isekai",
+            "path": "runtime",
             "digest": tree_digest(
                 _component_root(
                     release_root,
-                    "plugin/isekai",
-                    label="plugin.path",
+                    "runtime",
+                    label="runtime.path",
                 )
             ),
         },
@@ -354,7 +344,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
         "protocol_version",
         "core",
         "bootstrap",
-        "plugin",
+        "runtime",
         "foundation",
         "adapters",
         "compatibility",
@@ -401,7 +391,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
     components = [
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
-        ("plugin", manifest["plugin"]),
+        ("runtime", manifest["runtime"]),
         ("foundation", manifest["foundation"]),
         *((f"adapter:{entry['id']}", entry) for entry in manifest["adapters"]),
     ]
@@ -446,7 +436,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
         component_pairs = [
             ("core", manifest.get("core"), canonical["core"]),
             ("bootstrap", manifest.get("bootstrap"), canonical["bootstrap"]),
-            ("plugin", manifest.get("plugin"), canonical["plugin"]),
+            ("runtime", manifest.get("runtime"), canonical["runtime"]),
             ("foundation", manifest.get("foundation"), canonical["foundation"]),
         ]
         actual_adapters = {
@@ -480,7 +470,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
     entries = [
         manifest["core"],
         manifest["bootstrap"],
-        manifest["plugin"],
+        manifest["runtime"],
         manifest["foundation"],
         *manifest["adapters"],
     ]
@@ -504,7 +494,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
     for label, entry in (
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
-        ("plugin", manifest["plugin"]),
+        ("runtime", manifest["runtime"]),
         ("foundation", manifest["foundation"]),
     ):
         if not isinstance(entry, dict):

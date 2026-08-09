@@ -332,7 +332,7 @@ def build_session(
 def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None) -> dict[str, Any]:
     session = build_session(project, unit_dir)
     if session["unit"] is None:
-        raise SessionError("no Unit is available; run plugin unit-init first")
+        raise SessionError("no Unit is available; run runtime unit-init first")
 
     selected = Path(session["unit"]["path"])
     try:

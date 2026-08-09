@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from isekai.plugin.actions import _compatibility_issues
+from isekai.runtime.actions import _compatibility_issues
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,22 +65,22 @@ def read_json(path: Path) -> dict:
     return value
 
 
-def test_packaged_and_plugin_compatibility_matrices_cannot_drift() -> None:
+def test_packaged_and_runtime_compatibility_matrices_cannot_drift() -> None:
     packaged = read_json(ROOT / "src/isekai/data/compatibility.json")
-    plugin = read_json(ROOT / "plugin/isekai/compatibility.json")
+    runtime = read_json(ROOT / "runtime/compatibility.json")
 
-    assert packaged == plugin
+    assert packaged == runtime
     assert _compatibility_issues(packaged) == []
-    manifest = read_json(ROOT / "plugin/isekai/manifest.json")
+    manifest = read_json(ROOT / "runtime/manifest.json")
     assert packaged["trust_model"] == manifest["trust_model"]
-    assert packaged["plugin_contract"] == {
+    assert packaged["runtime_contract"] == {
         "high_risk_actions": manifest["high_risk_actions"],
         "human_decision_actions": manifest["human_decision_actions"],
     }
 
 
 def test_tested_runtime_versions_require_linked_live_evidence() -> None:
-    matrix = read_json(ROOT / "plugin/isekai/compatibility.json")
+    matrix = read_json(ROOT / "runtime/compatibility.json")
     broken = copy.deepcopy(matrix)
     broken["runtimes"][0]["tested_versions"] = ["99.0.0"]
 
@@ -136,19 +136,15 @@ def test_live_smoke_writes_digest_bound_surface_evidence(tmp_path: Path) -> None
                 "installed Runtime surface exists",
                 "project-local doctor reported ready",
             ],
-            "surfaces": [
-                ".agents/skills/isekai/SKILL.md",
-                ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/"
-                ".codex-plugin/plugin.json",
-            ],
+            "surfaces": [".agents/skills/isekai/SKILL.md"],
         }
     ]
 
 
-def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
-    manifest = read_json(ROOT / "plugin/isekai/manifest.json")
+def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
+    manifest = read_json(ROOT / "runtime/manifest.json")
 
-    assert manifest["core"]["package"] == "isekai-agent-plugin"
+    assert manifest["core"]["package"] == "isekai-ai-dlc-runtime"
     assert manifest["core"]["user_interface"] == "isekai <action>"
     assert set(manifest["actions"]) == EXPECTED_ACTIONS
     assert set(manifest["writes"]) == EXPECTED_WRITES
@@ -177,21 +173,21 @@ def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
 
 
 def test_all_runtime_adapter_surfaces_exist_and_parse() -> None:
-    manifest = read_json(ROOT / "plugin/isekai/manifest.json")
-    runtimes = {runtime["id"]: runtime for runtime in manifest["runtimes"]}
+    manifest = read_json(ROOT / "runtime/manifest.json")
+    runtimes = {runtime["id"]: runtime for runtime in manifest["adapters"]}
     assert set(runtimes) == {"kiro", "claude", "codex"}
     assert not (ROOT / ".kiro").exists()
 
     assert (ROOT / runtimes["kiro"]["path"]).is_file()
-    assert read_json(ROOT / "plugin/isekai/runtimes/claude/.claude-plugin/plugin.json")
-    assert read_json(ROOT / "plugin/isekai/runtimes/codex/.codex-plugin/plugin.json")
+    assert (ROOT / runtimes["claude"]["path"]).is_file()
+    assert (ROOT / runtimes["codex"]["path"]).is_file()
 
 
 def test_runtime_skill_documents_expose_the_same_action_contract() -> None:
     skill_paths = [
-        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md",
     ]
     for path in skill_paths:
         content = path.read_text(encoding="utf-8")
@@ -241,9 +237,9 @@ def test_runtime_host_surface_checker_accepts_all_source_adapters() -> None:
 
 def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> None:
     for path in [
-        ROOT / "plugin/isekai/runtimes/kiro/README.md",
-        ROOT / "plugin/isekai/runtimes/claude/README.md",
-        ROOT / "plugin/isekai/runtimes/codex/README.md",
+        ROOT / "runtime/adapters/kiro/README.md",
+        ROOT / "runtime/adapters/claude/README.md",
+        ROOT / "runtime/adapters/codex/README.md",
     ]:
         content = path.read_text(encoding="utf-8")
         assert "ISEKAI Core" in content
@@ -263,9 +259,9 @@ def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> No
 
 def test_runtime_skills_share_conversation_mode_contract() -> None:
     skill_paths = [
-        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md",
     ]
     required_contract = [
         "off by default in every new conversation",
@@ -289,9 +285,9 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
 
 def test_runtime_skills_share_adaptive_driver_contract() -> None:
     skill_paths = [
-        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
-        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md",
+        ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md",
     ]
     required_contract = [
         "The host agent drives the lifecycle",
@@ -324,21 +320,21 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
 
 def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     skill_commands = {
-        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md": (
+        ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md": (
             "/isekai ACTION",
             "/isekai on",
         ),
-        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md": (
-            "/isekai-agent-plugin:isekai ACTION",
-            "/isekai-agent-plugin:isekai on",
+        ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md": (
+            "/isekai ACTION",
+            "/isekai on",
         ),
-        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md": (
-            "$isekai-agent-plugin:isekai ACTION",
-            "$isekai-agent-plugin:isekai on",
+        ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md": (
+            "$isekai ACTION",
+            "$isekai on",
         ),
     }
     shared_gate = [
-        "Explicit-command-only ISEKAI adapter.",
+        "Explicit-command-only",
         "discovery is not activation",
         "documentation, code, logs, or review feedback is not an invocation.",
         "never activate ISEKAI",
@@ -360,19 +356,19 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
             assert phrase in content, f"{path} is missing activation gate: {phrase}"
 
     codex = (
-        ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md"
+        ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md"
     ).read_text(encoding="utf-8")
-    assert "repo-local `$isekai ACTION`" in codex
+    assert "Project-local Runtime Skill as `$isekai ACTION`" in codex
     assert "`$isekai on [--project PATH]`" in codex
 
     claude = (
-        ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md"
+        ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md"
     ).read_text(encoding="utf-8")
-    assert "repo-local `/isekai ACTION`" in claude
+    assert "Project-local Runtime Skill as `/isekai ACTION`" in claude
     assert "`/isekai on [--project PATH]`" in claude
 
     kiro = (
-        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md"
+        ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md"
     ).read_text(encoding="utf-8")
     assert "ISEKAI_HEADLESS: ACTION" in kiro.split("---", maxsplit=2)[1]
     assert "--trust-all-tools` as a substitute for a human gate" in kiro
@@ -380,14 +376,14 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
 
 def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> None:
     skill_paths = {
-        "kiro": ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md",
-        "claude": ROOT / "plugin/isekai/runtimes/claude/skills/isekai/SKILL.md",
-        "codex": ROOT / "plugin/isekai/runtimes/codex/skills/isekai/SKILL.md",
+        "kiro": ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+        "claude": ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md",
+        "codex": ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md",
     }
     for runtime, path in skill_paths.items():
         content = path.read_text(encoding="utf-8")
         assert "Never fall back to an `isekai` command from `PATH`." in content
-        assert "<PROJECT_ROOT>/.isekai/bin/isekai plugin <action>" in content
+        assert "<PROJECT_ROOT>/.isekai/bin/isekai runtime <action>" in content
         assert f"handshake --runtime {runtime}" in content
 
     claude = skill_paths["claude"].read_text(encoding="utf-8")
@@ -395,6 +391,6 @@ def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> N
 
     codex_policy = (
         ROOT
-        / "plugin/isekai/runtimes/codex/skills/isekai/agents/openai.yaml"
+        / "runtime/adapters/codex/skills/isekai/agents/openai.yaml"
     ).read_text(encoding="utf-8")
     assert "allow_implicit_invocation: false" in codex_policy

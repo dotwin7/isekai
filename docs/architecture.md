@@ -5,7 +5,7 @@
 
 ## 프로젝트 부착형 구성
 
-ISEKAI는 중앙 실행 서비스가 아니라 대상 프로젝트 디렉터리에 배치되는 Agent Plugin이다. 설치기는 선택한 Runtime Adapter, 프로젝트 로컬 Python Core, 고정 Foundation과 lock을 함께 복사한다. 사용자는 대상 프로젝트에서 기존 Codex·Claude·Kiro를 시작하고 Plugin을 활성화한다.
+ISEKAI는 중앙 실행 서비스가 아니라 대상 프로젝트 디렉터리에 배치되는 project-local Runtime이다. 설치기는 선택한 Runtime Skill, 프로젝트 로컬 Python Core, 고정 Foundation과 lock을 함께 복사한다. 사용자는 대상 프로젝트에서 기존 Codex·Claude·Kiro를 시작하고 Skill을 명시적으로 활성화한다.
 
 ```text
 Host Agent (planner and executor)
@@ -18,7 +18,7 @@ Agent 추론을 Core에 복제하지 않는다. Skill은 Host Agent가 `intake`�
 
 ## Core 내부 모듈 경계
 
-Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`, `isekai.foundation`, `isekai.plugin_contract`만 안정적인 façade로 사용한다. façade는 기존 import와 응답 계약을 유지하고, 구현 책임은 다음 경계로 분리한다.
+Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`, `isekai.foundation`, `isekai.runtime_contract`만 안정적인 façade로 사용한다. 구현 책임은 다음 경계로 분리한다.
 
 | 영역 | 구현 경계 |
 |---|---|
@@ -26,8 +26,8 @@ Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`,
 | Project Knowledge | `workflow/project_knowledge.py` service, `project_knowledge_schema.py` 검증·선택·호환 정책, `project_knowledge_storage.py` 안전한 파일 경계, `project_knowledge_observability.py` candidate·Decision 상태 결합 |
 | 배포와 설치 | `distribution/release.py`, `distribution/marketplace.py`, `distribution/install.py`, `distribution/git.py` |
 | Foundation | `foundation/types.py`, `foundation/validation.py`, `foundation/evaluation.py`, `foundation/promotion.py` |
-| Agent Plugin | `plugin/actions.py`가 host-neutral action을 실행하고 `plugin_contract.py`가 protocol envelope를 생성 |
-| CLI | `cli/parser.py`가 명령 표면을, `cli/plugin_request.py`가 plugin payload와 exit code를 담당 |
+| Project Runtime | `runtime/actions.py`가 host-neutral action을 실행하고 `runtime_contract.py`가 protocol envelope를 생성 |
+| CLI | `cli/parser.py`가 명령 표면을, `cli/runtime_request.py`가 runtime payload와 exit code를 담당 |
 
 루트에는 기존 import 경로를 보존하는 얇은 호환 façade만 둔다. 새 기능은 façade에 도메인 로직을 추가하지 않고 해당 구현 경계에 둔다. 구조 테스트는 전체 패키지를 재귀 검사해 구현 모듈 750줄, façade 150줄 상한과 module-level import cycle 부재를 CI에서 검증한다.
 

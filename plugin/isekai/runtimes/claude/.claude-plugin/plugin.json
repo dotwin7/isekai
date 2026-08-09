@@ -1,8 +1,0 @@
-{
-  "name": "isekai-agent-plugin",
-  "description": "Explicit-command-only ISEKAI AI-DLC integration for Claude Code",
-  "version": "0.1.0",
-  "author": {
-    "name": "ISEKAI"
-  }
-}

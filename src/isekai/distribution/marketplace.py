@@ -10,7 +10,7 @@ from typing import Any
 from ..support.jsonio import write_bytes_atomic
 from .release import (
     MANAGED_ROOT,
-    PLUGIN_ID,
+    LEGACY_PLUGIN_ID,
     DistributionError,
     _is_transient,
     _read_control_bytes,
@@ -112,7 +112,7 @@ def _prepare_codex_marketplace(
     source_digest: object,
 ) -> tuple[Path, str]:
     root = managed / "marketplaces/codex"
-    plugin_root = root / "plugins" / PLUGIN_ID
+    plugin_root = root / "plugins" / LEGACY_PLUGIN_ID
     _replace_tree(adapter_source, plugin_root)
     _verified_tree_digest(
         plugin_root,
@@ -136,7 +136,7 @@ def _prepare_claude_marketplace(
     source_digest: object,
 ) -> Path:
     root = managed / "marketplaces/claude"
-    plugin_root = root / "plugins" / PLUGIN_ID
+    plugin_root = root / "plugins" / LEGACY_PLUGIN_ID
     _replace_tree(adapter_source, plugin_root)
     _verified_tree_digest(
         plugin_root,
@@ -181,12 +181,12 @@ def _launcher_issues(managed: Path) -> list[str]:
 
 def _codex_plugin_entry(*, managed: bool) -> dict[str, Any]:
     path = (
-        f"./plugins/{PLUGIN_ID}"
+        f"./plugins/{LEGACY_PLUGIN_ID}"
         if not managed
-        else f"./{MANAGED_ROOT}/marketplaces/codex/plugins/{PLUGIN_ID}"
+        else f"./{MANAGED_ROOT}/marketplaces/codex/plugins/{LEGACY_PLUGIN_ID}"
     )
     return {
-        "name": PLUGIN_ID,
+        "name": LEGACY_PLUGIN_ID,
         "source": {"source": "local", "path": path},
         "policy": {
             "installation": "INSTALLED_BY_DEFAULT" if managed else "AVAILABLE",
@@ -218,8 +218,8 @@ def _claude_marketplace_manifest(
         "description": "Project-local ISEKAI AI-DLC plugins",
         "plugins": [
             {
-                "name": PLUGIN_ID,
-                "source": f"./plugins/{PLUGIN_ID}",
+                "name": LEGACY_PLUGIN_ID,
+                "source": f"./plugins/{LEGACY_PLUGIN_ID}",
                 "description": "ISEKAI AI-DLC workflow integration for Claude Code",
                 "version": version,
             }
@@ -231,18 +231,118 @@ def _adapter_uses_managed_plugin(adapters: object, runtime: str) -> bool:
     if not isinstance(adapters, dict):
         return False
     entry = adapters.get(runtime)
-    expected = f"{MANAGED_ROOT}/marketplaces/{runtime}/plugins/{PLUGIN_ID}"
+    expected = f"{MANAGED_ROOT}/marketplaces/{runtime}/plugins/{LEGACY_PLUGIN_ID}"
     return isinstance(entry, dict) and entry.get("path") == expected
+
+
+def _remove_legacy_project_plugin_declarations(
+    project_root: Path,
+    marketplace_name: str,
+    runtimes: set[str],
+    current_adapters: object,
+) -> dict[str, Any]:
+    """Remove only declarations owned by the former Plugin-first installer.
+
+    Runtime Skill releases no longer register project marketplaces.  This
+    migration keeps unrelated host configuration byte-for-byte and returns the
+    previous owned slots so install rollback can restore them.
+    """
+    selected = {
+        runtime
+        for runtime in runtimes
+        if runtime in {"codex", "claude"}
+        and _adapter_uses_managed_plugin(current_adapters, runtime)
+    }
+    state = _capture_host_slots(project_root, marketplace_name, selected)
+    paths = [
+        project_root / relative
+        for runtime, relative in {
+            "codex": CODEX_REPO_MARKETPLACE,
+            "claude": CLAUDE_PROJECT_SETTINGS,
+        }.items()
+        if runtime in selected
+    ]
+    snapshots = _host_file_snapshots(project_root, paths)
+    try:
+        if "codex" in selected:
+            path = project_root / CODEX_REPO_MARKETPLACE
+            document = _read_control_json(
+                path,
+                root=project_root,
+                label="Codex repo marketplace",
+            )
+            plugins = document.get("plugins")
+            if not isinstance(plugins, list):
+                raise DistributionError(
+                    "Codex repo marketplace plugins must be a list"
+                )
+            index, entry = _find_plugin(plugins)
+            if entry != _codex_plugin_entry(managed=True):
+                raise DistributionError(
+                    "legacy Codex ISEKAI marketplace entry is not installer-owned"
+                )
+            assert index is not None
+            plugins.pop(index)
+            generated_empty = {
+                "name": marketplace_name,
+                "interface": {"displayName": f"ISEKAI ({marketplace_name})"},
+                "plugins": [],
+            }
+            if document == generated_empty:
+                path.unlink()
+            else:
+                _write_json_atomic(path, document)
+
+        if "claude" in selected:
+            path = project_root / CLAUDE_PROJECT_SETTINGS
+            document = _read_control_json(
+                path,
+                root=project_root,
+                label="Claude project settings",
+            )
+            marketplaces = document.get("extraKnownMarketplaces")
+            enabled = document.get("enabledPlugins")
+            expected_marketplace = {
+                "source": {
+                    "source": "directory",
+                    "path": f"./{MANAGED_ROOT}/marketplaces/claude",
+                }
+            }
+            plugin_key = f"{LEGACY_PLUGIN_ID}@{marketplace_name}"
+            if not isinstance(marketplaces, dict) or (
+                marketplaces.get(marketplace_name) != expected_marketplace
+            ):
+                raise DistributionError(
+                    "legacy Claude ISEKAI marketplace is not installer-owned"
+                )
+            if not isinstance(enabled, dict) or enabled.get(plugin_key) is not True:
+                raise DistributionError(
+                    "legacy Claude ISEKAI Plugin enablement is not installer-owned"
+                )
+            marketplaces.pop(marketplace_name)
+            enabled.pop(plugin_key)
+            if not marketplaces:
+                document.pop("extraKnownMarketplaces")
+            if not enabled:
+                document.pop("enabledPlugins")
+            if document:
+                _write_json_atomic(path, document)
+            else:
+                path.unlink()
+    except Exception as exc:
+        _restore_host_file_snapshots(snapshots, cause=exc)
+        raise
+    return state
 
 
 def _find_plugin(plugins: list[Any]) -> tuple[int | None, Any]:
     matches = [
         (index, entry)
         for index, entry in enumerate(plugins)
-        if isinstance(entry, dict) and entry.get("name") == PLUGIN_ID
+        if isinstance(entry, dict) and entry.get("name") == LEGACY_PLUGIN_ID
     ]
     if len(matches) > 1:
-        raise DistributionError(f"duplicate {PLUGIN_ID} entries in repo marketplace")
+        raise DistributionError(f"duplicate {LEGACY_PLUGIN_ID} entries in repo marketplace")
     return matches[0] if matches else (None, None)
 
 
@@ -294,7 +394,7 @@ def _capture_host_slots(
             "marketplaces_existed": "extraKnownMarketplaces" in settings,
             "enabled_existed": "enabledPlugins" in settings,
             "marketplace": marketplaces.get(marketplace_name),
-            "enabled": enabled.get(f"{PLUGIN_ID}@{marketplace_name}"),
+            "enabled": enabled.get(f"{LEGACY_PLUGIN_ID}@{marketplace_name}"),
             "marketplace_name": marketplace_name,
         }
     return state
@@ -328,7 +428,7 @@ def _project_host_documents(
         owned = _adapter_uses_managed_plugin(current_adapters, "codex")
         if existing is not None and existing != expected and not owned:
             raise DistributionError(
-                f"refusing to replace unmanaged {PLUGIN_ID} repo marketplace entry"
+                f"refusing to replace unmanaged {LEGACY_PLUGIN_ID} repo marketplace entry"
             )
         if index is None:
             plugins.append(expected)
@@ -356,7 +456,7 @@ def _project_host_documents(
                 "path": f"./{MANAGED_ROOT}/marketplaces/claude",
             }
         }
-        plugin_key = f"{PLUGIN_ID}@{marketplace_name}"
+        plugin_key = f"{LEGACY_PLUGIN_ID}@{marketplace_name}"
         existing = marketplaces.get(marketplace_name)
         owned = _adapter_uses_managed_plugin(current_adapters, "claude")
         if existing is not None and existing != expected_marketplace and not owned:
@@ -470,7 +570,7 @@ def _restore_host_slots_unchecked(
         plugins[:] = [
             entry
             for entry in plugins
-            if not (isinstance(entry, dict) and entry.get("name") == PLUGIN_ID)
+            if not (isinstance(entry, dict) and entry.get("name") == LEGACY_PLUGIN_ID)
         ]
         previous = codex.get("entry")
         if previous is not None:
@@ -497,7 +597,7 @@ def _restore_host_slots_unchecked(
             else {}
         )
         name = str(claude.get("marketplace_name") or marketplace_name)
-        plugin_key = f"{PLUGIN_ID}@{name}"
+        plugin_key = f"{LEGACY_PLUGIN_ID}@{name}"
         marketplaces = document.setdefault("extraKnownMarketplaces", {})
         enabled = document.setdefault("enabledPlugins", {})
         if not isinstance(marketplaces, dict) or not isinstance(enabled, dict):
@@ -532,8 +632,8 @@ def _managed_control_issues(
     selected = {
         runtime
         for runtime, legacy_path in {
-            "codex": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{PLUGIN_ID}",
-            "claude": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{PLUGIN_ID}",
+            "codex": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{LEGACY_PLUGIN_ID}",
+            "claude": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{LEGACY_PLUGIN_ID}",
         }.items()
         if isinstance(adapters.get(runtime), dict)
         and adapters[runtime].get("path") == legacy_path
@@ -612,7 +712,7 @@ def _managed_control_issues(
                     "path": f"./{MANAGED_ROOT}/marketplaces/claude",
                 }
             }
-            plugin_key = f"{PLUGIN_ID}@{marketplace_name}"
+            plugin_key = f"{LEGACY_PLUGIN_ID}@{marketplace_name}"
             if not isinstance(marketplaces, dict) or (
                 marketplaces.get(marketplace_name) != expected_marketplace
             ):

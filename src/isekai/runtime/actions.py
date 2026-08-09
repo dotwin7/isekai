@@ -42,8 +42,8 @@ from ..workflow import (
 )
 
 
-class PluginError(ValueError):
-    """Raised for invalid or unsafe plugin requests."""
+class RuntimeContractError(ValueError):
+    """Raised for invalid or unsafe Runtime Skill requests."""
 
 
 COMPATIBILITY_PATH = Path(__file__).resolve().parents[1] / "data/compatibility.json"
@@ -61,19 +61,19 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
         issues.append("compatibility matrix has an unsupported schema_version")
     if value.get("protocol_version") != "1.0.0":
         issues.append("compatibility matrix has an unsupported protocol_version")
-    plugin_contract = value.get("plugin_contract")
-    if not isinstance(plugin_contract, dict):
-        issues.append("compatibility plugin_contract must be an object")
+    runtime_contract = value.get("runtime_contract")
+    if not isinstance(runtime_contract, dict):
+        issues.append("compatibility runtime_contract must be an object")
     else:
-        if plugin_contract.get("high_risk_actions") != []:
-            issues.append("compatibility plugin_contract cannot allow high-risk actions")
-        if plugin_contract.get("human_decision_actions") != [
+        if runtime_contract.get("high_risk_actions") != []:
+            issues.append("compatibility runtime_contract cannot allow high-risk actions")
+        if runtime_contract.get("human_decision_actions") != [
             "decision",
             "foundation-decision",
             "foundation-promote",
         ]:
             issues.append(
-                "compatibility plugin_contract has invalid human_decision_actions"
+                "compatibility runtime_contract has invalid human_decision_actions"
             )
     trust_model = value.get("trust_model")
     expected_trust_model = {
@@ -272,32 +272,32 @@ def load_compatibility() -> dict[str, Any]:
         ).decode("utf-8")
         value = json.loads(content)
     except FileNotFoundError as exc:
-        raise PluginError(f"missing compatibility matrix: {COMPATIBILITY_PATH}") from exc
+        raise RuntimeContractError(f"missing compatibility matrix: {COMPATIBILITY_PATH}") from exc
     except UnsafeControlFile as exc:
-        raise PluginError(str(exc)) from exc
+        raise RuntimeContractError(str(exc)) from exc
     except OSError as exc:
-        raise PluginError(f"cannot safely read compatibility matrix: {exc}") from exc
+        raise RuntimeContractError(f"cannot safely read compatibility matrix: {exc}") from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PluginError(f"invalid compatibility matrix: {exc}") from exc
+        raise RuntimeContractError(f"invalid compatibility matrix: {exc}") from exc
     if not isinstance(value, dict):
-        raise PluginError("compatibility matrix must be an object")
+        raise RuntimeContractError("compatibility matrix must be an object")
     issues = _compatibility_issues(value)
     if issues:
-        raise PluginError("invalid compatibility matrix: " + "; ".join(issues))
+        raise RuntimeContractError("invalid compatibility matrix: " + "; ".join(issues))
     return value
 
 
 def _required(payload: Mapping[str, Any], key: str) -> Any:
     value = payload.get(key)
     if value is None or value == "":
-        raise PluginError(f"missing plugin request field: {key}")
+        raise RuntimeContractError(f"missing runtime request field: {key}")
     return value
 
 
 def _list_field(payload: Mapping[str, Any], key: str) -> list[Any]:
     value = payload.get(key, [])
     if not isinstance(value, list):
-        raise PluginError(f"plugin request field {key} must be a list")
+        raise RuntimeContractError(f"runtime request field {key} must be a list")
     return list(value)
 
 
@@ -310,7 +310,7 @@ def _handshake(values: Mapping[str, Any]) -> dict[str, Any]:
             values.get("project", "."),
         )
     except ValueError as exc:
-        raise PluginError(str(exc)) from exc
+        raise RuntimeContractError(str(exc)) from exc
 
 
 def _init(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -331,7 +331,7 @@ def _init(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _on(values: Mapping[str, Any]) -> dict[str, Any]:
     if values.get("unit") is not None and values.get("unit") != "":
-        raise PluginError("on does not select a Unit; use resume --unit PATH")
+        raise RuntimeContractError("on does not select a Unit; use resume --unit PATH")
     return activate_session(values.get("project", "."))
 
 
@@ -392,7 +392,7 @@ def _project_knowledge_status(values: Mapping[str, Any]) -> dict[str, Any]:
 def _project_knowledge_propose(values: Mapping[str, Any]) -> dict[str, Any]:
     entries = _list_field(values, "entries")
     if any(not isinstance(entry, dict) for entry in entries):
-        raise PluginError("plugin request field entries must contain objects")
+        raise RuntimeContractError("runtime request field entries must contain objects")
     return propose_project_knowledge(
         _required(values, "unit"),
         entries=entries,
@@ -538,5 +538,5 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
 def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
     handler = ACTION_HANDLERS.get(action)
     if handler is None:
-        raise PluginError(f"unsupported plugin action: {action}")
+        raise RuntimeContractError(f"unsupported runtime action: {action}")
     return handler(dict(payload or {}))

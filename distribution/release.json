@@ -12,22 +12,22 @@
     ]
   },
   "core": {
-    "package": "isekai-agent-plugin",
+    "package": "isekai-ai-dlc-runtime",
     "version": "0.1.0",
     "path": "src/isekai",
-    "digest": "sha256:ff523f8527513152f1bb5fd4eef116d5ab508aa20d6382f8893574f1f385c1a4"
+    "digest": "sha256:b1288279aa072eab098aa72e0b28c0ff68ef6f7642588691d8e6d22cbb71f645"
   },
   "bootstrap": {
     "id": "bootstrap",
     "version": "0.1.0",
     "path": "scripts",
-    "digest": "sha256:a60f7bdbf1fe5a19b306b5b215f7914f37472f8334c593a73e35e8911c775337"
+    "digest": "sha256:b813e171105052f0cc03c9190b52fbfbeca441edcb76532d4c7a0e98e9824a76"
   },
-  "plugin": {
-    "id": "isekai-agent-plugin-contract",
+  "runtime": {
+    "id": "isekai-project-runtime-contract",
     "version": "0.1.0",
-    "path": "plugin/isekai",
-    "digest": "sha256:113f194584fd22fffa9821d5cc883260035c96aece2ff4da0c9d04ff912c6126"
+    "path": "runtime",
+    "digest": "sha256:947cd9df6e58aa9f55996318fd5576383269d3d402b8f76def0b08c14b2205b4"
   },
   "foundation": {
     "id": "isekai-foundation",
@@ -39,20 +39,20 @@
     {
       "id": "claude",
       "version": "0.1.0",
-      "path": "plugin/isekai/runtimes/claude",
-      "digest": "sha256:8c120172956443e9a03062e2531f358d70d00bd8e744a8df718f772341bbedcc"
+      "path": "runtime/adapters/claude/skills/isekai",
+      "digest": "sha256:ab1871e1a93bded5dd0092671fa3f67f05e2aaac0bc61be935a07933492dc047"
     },
     {
       "id": "codex",
       "version": "0.1.0",
-      "path": "plugin/isekai/runtimes/codex",
-      "digest": "sha256:c0f79b56b671520f51ab17c29905e2e2ce435e6ff903ffccfe90bda9990e6fef"
+      "path": "runtime/adapters/codex/skills/isekai",
+      "digest": "sha256:34cc6d57995547ae7280103d78f8eb978203b42afcaaf93c7f8015cc51f354df"
     },
     {
       "id": "kiro",
       "version": "0.1.0",
-      "path": "plugin/isekai/runtimes/kiro/skills/isekai",
-      "digest": "sha256:3a33f2d548cd9931c800857c196229fb8ab9bb69e9ce8ef046c81d8ca7a24871"
+      "path": "runtime/adapters/kiro/skills/isekai",
+      "digest": "sha256:36eae2a09dc1af89e3eed428c8e8f42112b39f76306ecbb769be0ee833acd9f3"
     }
   ]
 }

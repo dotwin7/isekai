@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai.cli import DIRECT_PLUGIN_ACTIONS, _parser, main
+from isekai.cli import DIRECT_RUNTIME_ACTIONS, _parser, main
 from isekai.distribution import DistributionError, install_from_git, plan_git_update
 from isekai.foundation import load_foundation
 from isekai.jsonio import write_json_atomic
@@ -24,23 +24,23 @@ def _top_level_commands() -> set[str]:
     return set(actions[0].choices)
 
 
-def test_no_top_level_command_is_shadowed_by_a_plugin_alias() -> None:
-    # A top-level command sharing a name with a plugin action is unreachable:
+def test_no_top_level_command_is_shadowed_by_a_runtime_alias() -> None:
+    # A top-level command sharing a name with a runtime action is unreachable:
     # main() rewrites the argument list before argparse ever sees it.
-    assert _top_level_commands() & DIRECT_PLUGIN_ACTIONS == set()
+    assert _top_level_commands() & DIRECT_RUNTIME_ACTIONS == set()
 
 
-def test_every_direct_alias_reaches_its_plugin_action() -> None:
-    plugin_actions = set(
+def test_every_direct_alias_reaches_its_runtime_action() -> None:
+    runtime_actions = set(
         _parser()._subparsers._group_actions[0]  # type: ignore[union-attr]
-        .choices["plugin"]
+        .choices["runtime"]
         ._subparsers._group_actions[0]
         .choices
     )
-    assert DIRECT_PLUGIN_ACTIONS <= plugin_actions
+    assert DIRECT_RUNTIME_ACTIONS <= runtime_actions
 
 
-def test_direct_route_alias_runs_the_plugin_contract(capsys) -> None:
+def test_direct_route_alias_runs_the_runtime_contract(capsys) -> None:
     assert main(["route", "--change", "none"]) == 0
     output = json.loads(capsys.readouterr().out)
 
@@ -551,8 +551,8 @@ def test_control_readers_normalize_platform_os_errors(
 ) -> None:
     from isekai.distribution import release as release_module
     from isekai.foundation import FoundationError
-    from isekai.plugin import actions as plugin_module
-    from isekai.plugin.actions import PluginError
+    from isekai.runtime import actions as runtime_module
+    from isekai.runtime.actions import RuntimeContractError
     from isekai.workflow import project as project_module
     from isekai.workflow.unit import common as unit_common
 
@@ -575,6 +575,6 @@ def test_control_readers_normalize_platform_os_errors(
     with pytest.raises(IntegrityError, match="cannot safely read"):
         unit_common._unit_json(tmp_path, "unit.json")
 
-    monkeypatch.setattr(plugin_module, "read_control_file", deny)
-    with pytest.raises(PluginError, match="cannot safely read"):
-        plugin_module.load_compatibility()
+    monkeypatch.setattr(runtime_module, "read_control_file", deny)
+    with pytest.raises(RuntimeContractError, match="cannot safely read"):
+        runtime_module.load_compatibility()

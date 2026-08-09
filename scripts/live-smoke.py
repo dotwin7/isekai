@@ -28,16 +28,8 @@ from isekai.support.jsonio import write_json_atomic  # noqa: E402
 STARTER = ROOT / "examples/reference-product/starter"
 RUNTIMES = ("codex", "claude", "kiro")
 SURFACES = {
-    "codex": (
-        ".agents/skills/isekai/SKILL.md",
-        ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/"
-        ".codex-plugin/plugin.json",
-    ),
-    "claude": (
-        ".claude/skills/isekai/SKILL.md",
-        ".isekai/marketplaces/claude/plugins/isekai-agent-plugin/"
-        ".claude-plugin/plugin.json",
-    ),
+    "codex": (".agents/skills/isekai/SKILL.md",),
+    "claude": (".claude/skills/isekai/SKILL.md",),
     "kiro": (".kiro/skills/isekai/SKILL.md",),
 }
 
@@ -264,8 +256,8 @@ def _codex_live(project: Path, timeout: int) -> dict[str, Any]:
         (
             completed.returncode == 0,
             injected,
-            any("plugin handshake --runtime codex" in command for command in commands),
-            any("plugin on --project" in command for command in commands),
+            any("runtime handshake --runtime codex" in command for command in commands),
+            any("runtime on --project" in command for command in commands),
             handshake.get("compatible") is True,
             isinstance(adapter_mode, dict) and adapter_mode.get("state") == "on",
         )
@@ -294,56 +286,15 @@ def _claude_live(project: Path, timeout: int) -> dict[str, Any]:
     executable = shutil.which("claude")
     if executable is None:
         raise SmokeFailure("claude executable is unavailable")
-    plugin_root = (
-        project
-        / ".isekai/marketplaces/claude/plugins/isekai-agent-plugin"
-    )
-    validated = _run(
-        (executable, "plugin", "validate", str(plugin_root), "--strict"),
-        cwd=project,
-        timeout=timeout,
-    )
-    if validated.returncode != 0:
-        raise SmokeFailure(
-            "Claude plugin strict validation failed\n"
-            f"stdout: {validated.stdout[-3000:]}\n"
-            f"stderr: {validated.stderr[-2000:]}"
-        )
-    discovered = _run(
-        (
-            executable,
-            "--plugin-dir",
-            str(plugin_root),
-            "plugin",
-            "list",
-            "--json",
-        ),
-        cwd=project,
-        timeout=timeout,
-    )
-    try:
-        plugins = json.loads(discovered.stdout)
-    except json.JSONDecodeError as exc:
-        raise SmokeFailure("Claude plugin discovery did not return JSON") from exc
-    if discovered.returncode != 0 or not isinstance(plugins, list) or not any(
-        isinstance(plugin, dict)
-        and plugin.get("id") == "isekai-agent-plugin@inline"
-        and plugin.get("enabled") is True
-        for plugin in plugins
-    ):
-        raise SmokeFailure("Claude did not discover the installed ISEKAI plugin")
-
     prompt = (
-        f"/isekai-agent-plugin:isekai on --project {project}\n\n"
-        "Use only the explicitly invoked plugin Skill. Run only the project-local "
+        f"/isekai on --project {project}\n\n"
+        "Use only the explicitly invoked project Skill. Run only the project-local "
         "handshake and on, make no file changes, and report the exact commands, "
         "project id, and adapter_mode.state."
     )
     completed = _run(
         (
             executable,
-            "--plugin-dir",
-            str(plugin_root),
             "-p",
             "--no-session-persistence",
             "--output-format",
@@ -358,7 +309,7 @@ def _claude_live(project: Path, timeout: int) -> dict[str, Any]:
         timeout=timeout,
     )
     trace = completed.stdout
-    required = ("plugin handshake --runtime claude", "plugin on --project")
+    required = ("runtime handshake --runtime claude", "runtime on --project")
     if completed.returncode != 0 or any(token not in trace for token in required):
         raise SmokeFailure(
             "Claude live smoke did not prove injected Skill activation\n"
@@ -397,7 +348,7 @@ def _kiro_live(project: Path, timeout: int) -> dict[str, Any]:
         timeout=timeout,
     )
     trace = completed.stdout
-    required = ("plugin handshake --runtime kiro", "plugin on --project")
+    required = ("runtime handshake --runtime kiro", "runtime on --project")
     if completed.returncode != 0 or any(token not in trace for token in required):
         raise SmokeFailure(
             "Kiro live smoke did not prove workspace Skill activation\n"
@@ -487,7 +438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         initialized = _json_command(
             (
                 str(launcher),
-                "plugin",
+                "runtime",
                 "init",
                 "--path",
                 str(project),

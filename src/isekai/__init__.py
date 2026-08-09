@@ -1,3 +1,3 @@
-"""ISEKAI Agent Plugin with the local AI-DLC Core runtime."""
+"""ISEKAI project-local AI-DLC runtime."""
 
 __version__ = "0.1.0"

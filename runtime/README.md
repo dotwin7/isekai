@@ -1,6 +1,6 @@
-# ISEKAI Agent Plugin
+# ISEKAI Project Runtime
 
-ISEKAI Agent Plugin is a standalone runtime integration for the ISEKAI AI-DLC Core. It is not Ouroboros and has no Ouroboros dependency.
+This directory is the host-neutral contract and generated Skill source for the project-local ISEKAI AI-DLC Runtime.
 
 ## Runtime adapters
 
@@ -9,8 +9,8 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 | Runtime | Project-local surface | Local test |
 |---|---|---|
 | Kiro | `.kiro/skills/isekai/SKILL.md` | invoke `/isekai` in Kiro |
-| Claude Code | `.claude/skills/isekai/` + `.isekai/marketplaces/claude/` | invoke `/isekai` |
-| Codex | `.agents/skills/isekai/` + `.isekai/marketplaces/codex/` | invoke `$isekai` |
+| Claude Code | `.claude/skills/isekai/` | invoke `/isekai` |
+| Codex | `.agents/skills/isekai/` | invoke `$isekai` |
 
 Install the project-local launcher and adapters from an immutable Git tag first:
 
@@ -34,11 +34,11 @@ The user-facing CLI uses direct actions through that launcher:
 
 Run the Agent CLI from a Project root containing `project.json`; Core also searches ancestors and unambiguous descendant workspace candidates. `init` creates a validated manifest and `units/` without overwriting existing configuration. Unit output defaults to the selected Project root.
 
-The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. Installation writes Plugin packages, repo/project Skills, and declarations only inside the Project and never registers a Project path in user-global host settings.
+The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. Installation writes only repo/project/workspace Skills and the Project-local Core; it does not create marketplace registrations or modify user-global host settings.
 
 The selected host agent is the adaptive workflow driver. The Runtime Skill tells it to interpret Core's machine-readable `workflow` directive, inspect the project, and propose a Level-1 plan. ISEKAI does not add a second agent brain, required hook, or resident harness.
 
-`<PROJECT_ROOT>/.isekai/bin/isekai plugin <action>` is the internal Runtime Adapter contract. Adapters must resolve it from the selected Project and never use a global executable fallback.
+`<PROJECT_ROOT>/.isekai/bin/isekai runtime <action>` is the internal Runtime Adapter contract. Adapters must resolve it from the selected Project and never use a global executable fallback.
 
 Git releases are pinned by `isekai.lock.json`. Check and apply an update separately so contract changes are reviewable:
 
@@ -48,19 +48,19 @@ Git releases are pinned by `isekai.lock.json`. Check and apply an update separat
 ./.isekai/bin/isekai rollback
 ```
 
-Ordinary updates preserve the pinned Foundation. `--include-foundation` and, when switching an existing Project path, `--adopt-foundation` are explicit contract-change operations. Adapter/Core compatibility is verified through `isekai plugin handshake`; Codex and Claude use the new Adapter from a new conversation.
+Ordinary updates preserve the pinned Foundation. `--include-foundation` and, when switching an existing Project path, `--adopt-foundation` are explicit contract-change operations. Adapter/Core compatibility is verified through `isekai runtime handshake`; Codex and Claude use the new Adapter from a new conversation.
 
 
 ```bash
-./.isekai/bin/isekai plugin release-check --foundation foundation
+./.isekai/bin/isekai runtime release-check --foundation foundation
 ```
 
 After a human records an approved Foundation Decision and passing release Evidence, promotion is explicit:
 
 ```bash
-./.isekai/bin/isekai plugin foundation-decision --foundation foundation --outcome approved --summary "..." --decided-by human-owner
-./.isekai/bin/isekai plugin foundation-evidence --foundation foundation --passed --checks-json '[{"id":"all-tests","passed":true,"details":"pytest and Foundation validation passed"}]' --scope "..." --recorded-by validator
-./.isekai/bin/isekai plugin foundation-promote --foundation foundation
+./.isekai/bin/isekai runtime foundation-decision --foundation foundation --outcome approved --summary "..." --decided-by human-owner
+./.isekai/bin/isekai runtime foundation-evidence --foundation foundation --passed --checks-json '[{"id":"all-tests","passed":true,"details":"pytest and Foundation validation passed"}]' --scope "..." --recorded-by validator
+./.isekai/bin/isekai runtime foundation-promote --foundation foundation
 ```
 
 The promotion command rejects missing approval or failing Evidence and does not mutate the Foundation on failure.
@@ -78,22 +78,22 @@ Human confirmation occurs when the complete Decision subject exists: after the L
 The adapters invoke the installed local launcher, which calls the shared Core dispatch contract internally:
 
 ```bash
-./.isekai/bin/isekai plugin <action> ...
+./.isekai/bin/isekai runtime <action> ...
 ```
 
 Intake accepts either a host Goal or a direct request and returns a normalized intent, a `query`, `quick-change`, or `unit` route, and a `direct-response`, `bounded-change`, or `adaptive-unit` workflow directive:
 
 ```bash
-./.isekai/bin/isekai plugin intake --source host-goal --goal "Add event classifier" --expected-outcome "Store classification and lineage" --scope 'src/events/**' --acceptance-criterion 'tests pass'
+./.isekai/bin/isekai runtime intake --source host-goal --goal "Add event classifier" --expected-outcome "Store classification and lineage" --scope 'src/events/**' --acceptance-criterion 'tests pass'
 ```
 
 The current verified baseline is recorded in `compatibility.json` and can be inspected through:
 
 ```bash
-./.isekai/bin/isekai plugin compatibility
+./.isekai/bin/isekai runtime compatibility
 ```
 
-`tested_versions` records live-observed CLI versions with linked evidence; it is not a minimum-version claim. Historical claims without linked raw evidence remain under `legacy_versions` and do not count as verified. The same response exposes the installed Core's `plugin_contract` and `trust_model`, so the no-high-risk and external-trust boundaries are machine-readable from a Project install. An unlisted CLI version is **unverified**, not automatically unsupported. A CLI upgrade does not move the plugin path unless the host's documented discovery contract changes. Before marking a new version verified, run the host validator when available plus the Core `status`, `resume`, and `verify` Golden Path smoke, and record the observation.
+`tested_versions` records live-observed CLI versions with linked evidence; it is not a minimum-version claim. Historical claims without linked raw evidence remain under `legacy_versions` and do not count as verified. The same response exposes the installed Core's `runtime_contract` and `trust_model`, so the no-high-risk and external-trust boundaries are machine-readable from a Project install. An unlisted CLI version is **unverified**, not automatically unsupported. A CLI upgrade does not move the Skill path unless the host's documented discovery contract changes. Before marking a new version verified, run the host validator when available plus the Core `status`, `resume`, and `verify` Golden Path smoke, and record the observation.
 
 The three checked-in Runtime Skills are generated from `templates/runtime-skill.md`. Edit that template or `scripts/generate-runtime-skills.py`, regenerate, and verify drift with `python3 scripts/generate-runtime-skills.py --check`. `python3 scripts/runtime-host-check.py --runtime all` checks every source surface without requiring a host; add `--require-cli` for a selected Claude or Kiro CLI contract check.
 
@@ -104,8 +104,7 @@ The adapters own runtime interaction only. ISEKAI Core owns Foundation resolutio
 ## Non-goals
 
 - No independent agent brain or model router
-- No Ouroboros dependency
 - No autonomous high-risk action
-- No plugin-owned Unit database
+- No Runtime-owned Unit database
 - No central registry or control plane in the MVP
 - No prompt rewriting or tool-output compression

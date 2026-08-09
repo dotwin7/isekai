@@ -4,10 +4,10 @@ The first ISEKAI runtime adapter uses Kiro CLI's documented workspace Agent Skil
 
 ## Installation
 
-The versioned Kiro Skill source is checked in under the plugin runtime:
+The versioned Kiro Skill source is checked in under the project runtime:
 
 ```text
-plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md
+runtime/adapters/kiro/skills/isekai/SKILL.md
 ```
 
 `isekai install --runtime kiro` copies that source into the consuming Project's workspace discovery path:
@@ -18,10 +18,10 @@ plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md
 
 The installer verifies the Git release and refuses to replace an unmanaged existing Skill. Updates verify the installed digest against `isekai.lock.json` before replacement.
 
-Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. Skill slash commands require Kiro CLI `2.1.0` or newer. The Adapter requires the selected Project launcher, never falls back to a global executable, verifies its version/protocol handshake, and invokes the local ISEKAI Plugin contract:
+Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. Skill slash commands require Kiro CLI `2.1.0` or newer. The Adapter requires the selected Project launcher, never falls back to a global executable, verifies its version/protocol handshake, and invokes the local ISEKAI Runtime contract:
 
 ```bash
-<PROJECT_ROOT>/.isekai/bin/isekai plugin <action> ...
+<PROJECT_ROOT>/.isekai/bin/isekai runtime <action> ...
 ```
 
 No Kiro hook, MCP server, prompt rewriter, or autonomous high-risk tool execution is required for this MVP.
@@ -46,4 +46,4 @@ The runtime adapter does not own Unit state. Before a governed read, edit, or te
 
 ## Compatibility
 
-There is currently no linked live-verified Kiro CLI baseline. Kiro CLI `2.16.2`, installed through the official current-stable installer in GitHub Actions, passed the workspace Skill, version floor, headless, and selective tool-trust contract checks. It remains `validation-only` because no authenticated model session ran. The former `kiro-cli 2.14.2` repository claim is retained only as `legacy_versions` because no raw smoke record is linked. Inspect the shared matrix with `isekai plugin compatibility`; after a CLI upgrade, run `python scripts/runtime-host-check.py --runtime kiro --require-cli` and the opt-in `scripts/live-smoke.py --runtime kiro --host kiro`, then record the Evidence. Change the Skill path only if Kiro changes its documented discovery contract.
+There is currently no linked live-verified Kiro CLI baseline. Kiro CLI `2.16.2`, installed through the official current-stable installer in GitHub Actions, passed the workspace Skill, version floor, headless, and selective tool-trust contract checks. It remains `validation-only` because no authenticated model session ran. The former `kiro-cli 2.14.2` repository claim is retained only as `legacy_versions` because no raw smoke record is linked. Inspect the shared matrix with `isekai runtime compatibility`; after a CLI upgrade, run `python scripts/runtime-host-check.py --runtime kiro --require-cli` and the opt-in `scripts/live-smoke.py --runtime kiro --host kiro`, then record the Evidence. Change the Skill path only if Kiro changes its documented discovery contract.

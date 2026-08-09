@@ -82,9 +82,10 @@ def _install_lock_issues(lock: object) -> list[str]:
             lock.get("protocol_version"), label="protocol_version"
         )
     )
-    issues.extend(
-        _non_empty_string_issues(lock.get("marketplace"), label="marketplace")
-    )
+    if "marketplace" in lock:
+        issues.extend(
+            _non_empty_string_issues(lock.get("marketplace"), label="marketplace")
+        )
 
     source = lock.get("source")
     if not isinstance(source, dict):
