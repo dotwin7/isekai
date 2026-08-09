@@ -116,6 +116,8 @@ Knowledge entry는 고유 ID를 가져야 하며 정확히 하나의 `required-p
 
 각 Foundation Decision과 release Evidence는 canonical JSON record digest를 포함한다. Decision은 `previous_decision_digest`로 직전 레코드에 연결되고 기록 시각도 엄격히 증가해야 하므로, 배열 순서를 바꿔 과거 승인을 최신 승인처럼 복원할 수 없다. readiness는 최신 승인 결박뿐 아니라 과거 Decision 전체의 digest chain, 시각 순서와 중복 ID도 검사한다. 따라서 기록된 거부 결과, 승인 주체, Evidence 결과나 provenance가 파일 편집으로 달라지면 새 digest와 정식 기록 절차 없이는 promotion할 수 없다. 첫 Decision은 `previous_decision_digest: null`로 시작한다. `approval_digest` 도입 전의 legacy Decision은 당시 존재하던 필드 전체를 record digest로 고정하되, 존재하지 않았던 approval field를 소급 생성하지 않는다.
 
+새 Foundation Decision과 Evidence는 digest-bound `attestation`도 기록한다. 이는 `decided_by`와 `recorded_by`가 caller가 보고한 actor이며 Core가 사람 신원이나 외부 실행을 인증하지 않았음을 명시한다. 기존 release 레코드는 호환성을 위해 이 필드가 없어도 읽지만, 새 필드가 있으면 type·actor·신뢰 경계를 함께 검증한다.
+
 `release-check`는 승인 여부를 자동으로 결정하지 않고 현재 blocker를 보고한다. `foundation-promote`는 사람의 명시적 승인 이후에만 실행하는 쓰기 명령이다.
 
 현재 공통 기준선은 `isekai-foundation@0.1.0`이며 최신 Foundation Decision `DEC-FND-20260806051711261003`과 digest-bound passing Evidence를 근거로 release와 등록된 21개 asset이 `approved` 상태다. 후속 gap은 approved v0.1.0을 임의 수정하지 않고 patch/minor Foundation version으로 보완한다. API 사용 시 `plan_foundation_promotion(root)`은 release manifest와 등록 asset 21개를 합친 22개 target의 상대 path·version·from/to status를 결정적으로 반환한다. `promote_foundation(root, dry_run=True)`는 같은 plan과 blocker만 보고하며 JSON, mode, Decision, Evidence를 변경하지 않는다.

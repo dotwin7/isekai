@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
+
+from isekai.plugin.actions import _compatibility_issues
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,9 +61,83 @@ def read_json(path: Path) -> dict:
 
 
 def test_packaged_and_plugin_compatibility_matrices_cannot_drift() -> None:
-    assert read_json(ROOT / "src/isekai/data/compatibility.json") == read_json(
-        ROOT / "plugin/isekai/compatibility.json"
+    packaged = read_json(ROOT / "src/isekai/data/compatibility.json")
+    plugin = read_json(ROOT / "plugin/isekai/compatibility.json")
+
+    assert packaged == plugin
+    assert _compatibility_issues(packaged) == []
+    manifest = read_json(ROOT / "plugin/isekai/manifest.json")
+    assert packaged["trust_model"] == manifest["trust_model"]
+    assert packaged["plugin_contract"] == {
+        "high_risk_actions": manifest["high_risk_actions"],
+        "human_decision_actions": manifest["human_decision_actions"],
+    }
+
+
+def test_tested_runtime_versions_require_linked_live_evidence() -> None:
+    matrix = read_json(ROOT / "plugin/isekai/compatibility.json")
+    broken = copy.deepcopy(matrix)
+    broken["runtimes"][0]["tested_versions"] = ["99.0.0"]
+
+    assert any("tested_versions lack live evidence" in issue for issue in _compatibility_issues(broken))
+
+
+def test_live_smoke_writes_digest_bound_surface_evidence(tmp_path: Path) -> None:
+    evidence_path = tmp_path / "runtime-smoke.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/live-smoke.py"),
+            "--runtime",
+            "codex",
+            "--evidence-output",
+            str(evidence_path),
+            "--recorded-by",
+            "adapter-contract-test",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
     )
+
+    assert completed.returncode == 0, completed.stderr
+    evidence = read_json(evidence_path)
+    digest = evidence.pop("evidence_digest")
+    encoded = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert digest == "sha256:" + hashlib.sha256(encoded).hexdigest()
+    assert evidence["recorded_by"] == "adapter-contract-test"
+    assert evidence["attestation"] == {
+        "type": "runtime-smoke-attestation",
+        "reported_actor": "adapter-contract-test",
+        "identity_verification": "not-performed-by-script",
+        "execution_verification": "script-observed-subprocess",
+    }
+    release_digest = hashlib.sha256(
+        (ROOT / "distribution/release.json").read_bytes()
+    ).hexdigest()
+    assert evidence["release_manifest_digest"] == "sha256:" + release_digest
+    assert evidence["observations"] == [
+        {
+            "runtime": "codex",
+            "status": "surface-only",
+            "version": None,
+            "checks": [
+                "installed Runtime surface exists",
+                "project-local doctor reported ready",
+            ],
+            "surfaces": [
+                ".agents/skills/isekai/SKILL.md",
+                ".isekai/marketplaces/codex/plugins/isekai-agent-plugin/"
+                ".codex-plugin/plugin.json",
+            ],
+        }
+    ]
 
 
 def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
@@ -78,6 +158,17 @@ def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:
         "foundation-promote",
     }
     assert human <= set(manifest["writes"])
+    assert manifest["trust_model"] == {
+        "core_enforcement": "record-consistency-and-tamper-detection",
+        "action_execution": "runtime-host-outside-core",
+        "human_identity": "caller-attested-not-core-verified",
+        "evidence_execution": "runtime-attested-not-core-executed",
+        "external_controls_required": [
+            "runtime sandbox and permission policy",
+            "authenticated human confirmation channel",
+            "CI or host execution provenance",
+        ],
+    }
 
 
 def test_all_runtime_adapter_surfaces_exist_and_parse() -> None:
@@ -104,6 +195,43 @@ def test_runtime_skill_documents_expose_the_same_action_contract() -> None:
                 line.strip() == action or line.strip().startswith(action + " ")
                 for line in content.splitlines()
             ), f"{path} does not document {action}"
+
+
+def test_runtime_skills_match_the_canonical_template() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/generate-runtime-skills.py"), "--check"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_runtime_host_surface_checker_accepts_all_source_adapters() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/runtime-host-check.py"),
+            "--runtime",
+            "all",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["valid"] is True
+    assert {entry["runtime"] for entry in result["runtimes"]} == {
+        "codex",
+        "claude",
+        "kiro",
+    }
+    assert all(entry["level"] == "surface-only" for entry in result["runtimes"])
 
 
 def test_adapter_readmes_preserve_core_boundary_and_no_high_risk_actions() -> None:
@@ -174,6 +302,12 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
         "Decision descriptions in Korean",
         "Never replace a Project's language merely to simplify generation",
         "human-facing `title` from `unit_candidate_details`",
+        "classify the full user request and conversation context",
+        "Core performs conservative text inference as defense in depth",
+        "[--ambiguous] [--multi-party] [--remote] [--sensitive]",
+        "## Human confirmation boundary",
+        "Read `status` or `resume` field `human_gate`",
+        "An unattended, headless, `dontAsk`, bypass-permission, or pre-trusted tool session cannot originate a new human Decision.",
     ]
     for path in skill_paths:
         content = path.read_text(encoding="utf-8")
@@ -199,11 +333,11 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     shared_gate = [
         "Explicit-command-only ISEKAI adapter.",
         "discovery is not activation",
-        "A command shown or discussed in prose, documentation, code, logs, or review feedback is not an invocation.",
+        "documentation, code, logs, or review feedback is not an invocation.",
         "never activate ISEKAI",
         "While mode is off and no intentional command was invoked",
         "do not run a launcher, `handshake`, Core, `intake`, `route`, `inception`, `status`, or `resume`",
-        "activates automatic ISEKAI routing for later ordinary requests in the current conversation",
+        "activates automatic ISEKAI routing for later ordinary requests",
         "All other explicit actions are one-shot and leave mode off.",
         "If activation state is not explicit in the current conversation, treat it as off.",
     ]
@@ -229,6 +363,12 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     ).read_text(encoding="utf-8")
     assert "repo-local `/isekai ACTION`" in claude
     assert "`/isekai on [--project PATH]`" in claude
+
+    kiro = (
+        ROOT / "plugin/isekai/runtimes/kiro/skills/isekai/SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "ISEKAI_HEADLESS: ACTION" in kiro.split("---", maxsplit=2)[1]
+    assert "--trust-all-tools` as a substitute for a human gate" in kiro
 
 
 def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> None:

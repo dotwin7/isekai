@@ -76,6 +76,36 @@ def approve_and_evidence(foundation: Path) -> None:
     )
 
 
+def test_new_foundation_records_disclose_core_trust_boundaries(tmp_path: Path) -> None:
+    foundation = make_foundation(tmp_path)
+    decision = record_foundation_decision(
+        foundation,
+        outcome="approved",
+        summary="Foundation release approved after review.",
+        decided_by="foundation-owner",
+    )["decision"]
+    evidence = record_foundation_evidence(
+        foundation,
+        passed=True,
+        checks=passing_checks(),
+        scope="Foundation release",
+        recorded_by="release-validator",
+    )["evidence"]
+
+    assert decision["attestation"] == {
+        "type": "human-decision-attestation",
+        "reported_actor": "foundation-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested",
+    }
+    assert evidence["attestation"] == {
+        "type": "local-evaluation-attestation",
+        "reported_actor": "release-validator",
+        "execution_verification": "not-performed-by-core",
+        "identity_verification": "not-performed-by-core",
+    }
+
+
 def replace_with_alias(path: Path, external: Path, alias: str) -> None:
     external.write_bytes(path.read_bytes())
     path.unlink()

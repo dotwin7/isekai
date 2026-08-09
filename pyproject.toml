@@ -9,6 +9,21 @@ description = "ISEKAI AI-DLC agent plugin with local Core runtime"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+keywords = ["ai", "agent", "software-delivery", "governance"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/dotwin7/isekai"
+Repository = "https://github.com/dotwin7/isekai.git"
+Documentation = "https://github.com/dotwin7/isekai/tree/master/docs"
+Issues = "https://github.com/dotwin7/isekai/issues"
 
 [project.scripts]
 isekai = "isekai.cli:main"

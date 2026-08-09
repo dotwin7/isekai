@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -19,6 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from isekai.distribution.install import (  # noqa: E402
     _install_from_verified_checkout as install_from_checkout,
 )
+from isekai.support.jsonio import write_json_atomic  # noqa: E402
 
 
 STARTER = ROOT / "examples/reference-product/starter"
@@ -81,6 +85,87 @@ def _json_command(
     if not isinstance(value, dict):
         raise SmokeFailure(f"command returned non-object JSON: {' '.join(command)}")
     return value
+
+
+def _command_version(
+    executable: str,
+    *,
+    cwd: Path,
+    timeout: int,
+) -> dict[str, str]:
+    completed = _run((executable, "--version"), cwd=cwd, timeout=timeout)
+    output = (completed.stdout or completed.stderr).strip()
+    if completed.returncode != 0 or not output:
+        raise SmokeFailure(f"cannot identify live host version: {executable}")
+    first_line = output.splitlines()[0].strip()
+    match = re.search(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", first_line)
+    if match is None:
+        raise SmokeFailure(f"cannot parse live host version: {first_line}")
+    return {"version": match.group(0), "version_output": first_line}
+
+
+def _evidence_digest(evidence: dict[str, Any]) -> str:
+    body = {key: value for key, value in evidence.items() if key != "evidence_digest"}
+    encoded = json.dumps(
+        body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _release_manifest_digest() -> str:
+    content = (ROOT / "distribution/release.json").read_bytes()
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _smoke_evidence(
+    *,
+    recorded_by: str,
+    runtimes: Sequence[str],
+    surfaces: dict[str, list[str]],
+    hosts: dict[str, Any],
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    observations = []
+    for runtime in runtimes:
+        live = hosts.get(runtime)
+        observation = {
+            "runtime": runtime,
+            "status": "live-verified" if live is not None else "surface-only",
+            "version": live.get("version") if isinstance(live, dict) else None,
+            "checks": (
+                list(live.get("checks", []))
+                if isinstance(live, dict)
+                else [
+                    "installed Runtime surface exists",
+                    "project-local doctor reported ready",
+                ]
+            ),
+            "surfaces": surfaces[runtime],
+        }
+        if isinstance(live, dict):
+            observation["version_output"] = live.get("version_output")
+        observations.append(observation)
+    evidence = {
+        "id": "RUNTIME-SMOKE-" + now.strftime("%Y%m%d%H%M%S%f"),
+        "type": "runtime-smoke-evidence",
+        "schema_version": "1.0.0",
+        "recorded_at": now.isoformat(),
+        "recorded_by": recorded_by,
+        "attestation": {
+            "type": "runtime-smoke-attestation",
+            "reported_actor": recorded_by,
+            "identity_verification": "not-performed-by-script",
+            "execution_verification": "script-observed-subprocess",
+        },
+        "release_manifest_digest": _release_manifest_digest(),
+        "passed": True,
+        "observations": observations,
+    }
+    evidence["evidence_digest"] = _evidence_digest(evidence)
+    return evidence
 
 
 def _expand_runtimes(values: Sequence[str]) -> tuple[str, ...]:
@@ -192,9 +277,11 @@ def _codex_live(project: Path, timeout: int) -> dict[str, Any]:
             f"stdout: {trace[-5000:]}\n"
             f"stderr: {completed.stderr[-2000:]}"
         )
+    version = _command_version(executable, cwd=project, timeout=timeout)
     return {
         "passed": True,
         "executable": executable,
+        **version,
         "checks": [
             "injected Skill acknowledged",
             "handshake compatible",
@@ -207,14 +294,56 @@ def _claude_live(project: Path, timeout: int) -> dict[str, Any]:
     executable = shutil.which("claude")
     if executable is None:
         raise SmokeFailure("claude executable is unavailable")
+    plugin_root = (
+        project
+        / ".isekai/marketplaces/claude/plugins/isekai-agent-plugin"
+    )
+    validated = _run(
+        (executable, "plugin", "validate", str(plugin_root), "--strict"),
+        cwd=project,
+        timeout=timeout,
+    )
+    if validated.returncode != 0:
+        raise SmokeFailure(
+            "Claude plugin strict validation failed\n"
+            f"stdout: {validated.stdout[-3000:]}\n"
+            f"stderr: {validated.stderr[-2000:]}"
+        )
+    discovered = _run(
+        (
+            executable,
+            "--plugin-dir",
+            str(plugin_root),
+            "plugin",
+            "list",
+            "--json",
+        ),
+        cwd=project,
+        timeout=timeout,
+    )
+    try:
+        plugins = json.loads(discovered.stdout)
+    except json.JSONDecodeError as exc:
+        raise SmokeFailure("Claude plugin discovery did not return JSON") from exc
+    if discovered.returncode != 0 or not isinstance(plugins, list) or not any(
+        isinstance(plugin, dict)
+        and plugin.get("id") == "isekai-agent-plugin@inline"
+        and plugin.get("enabled") is True
+        for plugin in plugins
+    ):
+        raise SmokeFailure("Claude did not discover the installed ISEKAI plugin")
+
     prompt = (
-        f"/isekai on --project {project}\n\n"
-        "Use the injected project Skill. Run only the project-local handshake and on, "
-        "make no file changes, and report project id and adapter_mode.state."
+        f"/isekai-agent-plugin:isekai on --project {project}\n\n"
+        "Use only the explicitly invoked plugin Skill. Run only the project-local "
+        "handshake and on, make no file changes, and report the exact commands, "
+        "project id, and adapter_mode.state."
     )
     completed = _run(
         (
             executable,
+            "--plugin-dir",
+            str(plugin_root),
             "-p",
             "--no-session-persistence",
             "--output-format",
@@ -237,7 +366,55 @@ def _claude_live(project: Path, timeout: int) -> dict[str, Any]:
             f"stdout: {trace[-5000:]}\n"
             f"stderr: {completed.stderr[-2000:]}"
         )
-    return {"passed": True, "executable": executable, "checks": list(required)}
+    version = _command_version(executable, cwd=project, timeout=timeout)
+    return {
+        "passed": True,
+        "executable": executable,
+        **version,
+        "checks": list(required),
+    }
+
+
+def _kiro_live(project: Path, timeout: int) -> dict[str, Any]:
+    executable = shutil.which("kiro-cli")
+    if executable is None:
+        raise SmokeFailure("kiro-cli executable is unavailable")
+    prompt = (
+        f"ISEKAI_HEADLESS: on --project {project}\n\n"
+        "Use only the workspace ISEKAI Skill activated by the exact headless marker. "
+        "Run only the project-local handshake and on, make no file changes, and "
+        "report the exact commands, project id, and adapter_mode.state."
+    )
+    completed = _run(
+        (
+            executable,
+            "chat",
+            "--no-interactive",
+            "--trust-tools=read,shell",
+            prompt,
+        ),
+        cwd=project,
+        timeout=timeout,
+    )
+    trace = completed.stdout
+    required = ("plugin handshake --runtime kiro", "plugin on --project")
+    if completed.returncode != 0 or any(token not in trace for token in required):
+        raise SmokeFailure(
+            "Kiro live smoke did not prove workspace Skill activation\n"
+            f"exit: {completed.returncode}\n"
+            f"stdout: {trace[-5000:]}\n"
+            f"stderr: {completed.stderr[-2000:]}"
+        )
+    version = _command_version(executable, cwd=project, timeout=timeout)
+    return {
+        "passed": True,
+        "executable": executable,
+        **version,
+        "checks": [
+            "workspace Skill headless marker activated",
+            *required,
+        ],
+    }
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -252,7 +429,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--host",
         action="append",
-        choices=("codex", "claude"),
+        choices=RUNTIMES,
         default=[],
         help="Optional live model host to invoke; repeatable.",
     )
@@ -261,6 +438,14 @@ def _parser() -> argparse.ArgumentParser:
         "--keep-project",
         action="store_true",
         help="Retain and print the generated temporary project path.",
+    )
+    parser.add_argument(
+        "--evidence-output",
+        help="Write a digest-bound runtime smoke Evidence JSON record.",
+    )
+    parser.add_argument(
+        "--recorded-by",
+        help="Actor recording --evidence-output; required with that option.",
     )
     return parser
 
@@ -274,6 +459,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "live hosts must also be installed with --runtime: "
             + ", ".join(sorted(missing_hosts))
         )
+    if args.evidence_output and (
+        not isinstance(args.recorded_by, str) or not args.recorded_by.strip()
+    ):
+        _parser().error("--recorded-by is required with --evidence-output")
+    if args.recorded_by and not args.evidence_output:
+        _parser().error("--recorded-by requires --evidence-output")
 
     temporary: tempfile.TemporaryDirectory[str] | None = None
     if args.keep_project:
@@ -323,6 +514,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             hosts["codex"] = _codex_live(project, args.timeout)
         if "claude" in args.host:
             hosts["claude"] = _claude_live(project, args.timeout)
+        if "kiro" in args.host:
+            hosts["kiro"] = _kiro_live(project, args.timeout)
+        evidence_path = None
+        if args.evidence_output:
+            evidence = _smoke_evidence(
+                recorded_by=args.recorded_by.strip(),
+                runtimes=runtimes,
+                surfaces=surfaces,
+                hosts=hosts,
+            )
+            evidence_path = write_json_atomic(args.evidence_output, evidence)
         print(
             json.dumps(
                 {
@@ -335,6 +537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "doctor": doctor,
                     "surfaces": surfaces,
                     "live_hosts": hosts,
+                    "evidence": str(evidence_path) if evidence_path else None,
                 },
                 indent=2,
                 ensure_ascii=False,

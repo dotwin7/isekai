@@ -115,7 +115,11 @@ proposed → inception → awaiting-inception-decision
 
 `construction` 진입에는 승인된 Inception Decision, `validation` 진입에는 승인된 Architecture Decision, `releasing` 진입에는 승인된 Release Decision과 passing verification Evidence, `learned` 진입에는 승인된 Operation Decision이 필요하다. `awaiting-release-decision`은 Validation을 완료한 뒤에만 진입할 수 있다. 같은 게이트의 최신 Decision이 `rejected`이면 승인으로 간주하지 않는다.
 
+`status`와 `resume`은 다음 전환의 승인 경계를 기계가 읽을 수 있는 `human_gate`로 반환한다. `next_transition`, `gate`, `decision`, `blocks_next_transition`, `confirmation_required`, `confirmation_channel`, `core_identity_verification`을 포함하며, 필요한 Decision이 없으면 Adapter는 packet을 사람에게 보여주고 중단해야 한다. 호스트의 도구 실행 권한이나 headless trust 설정은 이 확인을 충족하지 않는다.
+
 Decision은 해당 게이트를 실제로 검토할 수 있는 lifecycle 상태에서만 기록한다. Inception Decision은 `awaiting-inception-decision`과 Envelope 갱신·철회를 위한 Construction·Release·Operations 상태에서, Architecture Decision은 `construction`, Release Decision은 `awaiting-release-decision` 또는 Release 단계에서 Evidence를 갱신한 `releasing`, Operation Decision은 `operating`에서만 허용한다. 승인된 Release Decision은 현재 passing Verification Evidence의 ID와 digest를 `approval_subject`로 결박하므로 Evidence보다 먼저 선승인하거나 Evidence 교체 뒤 재사용할 수 없다. `decision_digest`는 감사 대상인 Decision 전체를 정규화해 계산하고 `previous_decision_digest`는 직전 Decision을 연결한다. Core는 전체 원장의 digest chain, 고유 ID와 엄격히 증가하는 `decided_at`을 검증하므로 레코드 변경이나 재정렬이 발견되면 해당 원장을 무효로 처리한다.
+
+Unit 생성 전 Level-1 plan 승인과 lifecycle Decision은 역할이 다르다. 전자는 Agent가 제안한 전체 작업을 시작해도 되는지 확인하고, 후자는 확정된 artifact의 ID와 digest를 다음 상태 전이에 결박한다. 최초 계획에 최종 Inception packet과 정확한 Envelope가 함께 제시되었다면 한 번의 명시적 사용자 응답을 두 기록의 근거로 사용할 수 있지만, 승인 뒤 내용이 달라졌다면 새 Decision이 필요하다.
 
 `releasing` 진입은 필수 Unit artifact, 체크된 acceptance criteria, blocker 없는 checkpoint까지 확인한다. `learned` 진입은 이 조건에 더해 현재 passing Evidence와 빈 `pending` 목록을 요구하므로 완료되지 않은 Unit이 종료 상태를 가질 수 없다.
 
@@ -152,7 +156,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
 
 Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 진입 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. 정식 release 검증은 `validation` lifecycle 상태와 stage에서 실행한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
-Core는 테스트 명령을 직접 실행하는 runner가 아니다. 이 레코드는 Runtime host가 관찰해 제출한 attestation이며 Core는 그 구조, 최신 `test` grant, 시간 순서와 digest 결박의 일관성을 검증한다. command 입력에 원본 `output`이 포함되면 Core가 `output_digest`를 계산하지만, digest만 제출된 경우에는 그 값의 사실성을 독립적으로 재확인하지 않는다. 보안 경계에서 실행 사실까지 보증해야 한다면 보호된 CI, 서명된 host receipt 또는 별도 원격 실행 시스템의 검증 결과를 함께 사용한다.
+Core는 테스트 명령을 직접 실행하는 runner가 아니다. 이 레코드는 Runtime host가 관찰해 제출한 attestation이며 Core는 그 구조, 최신 `test` grant, 시간 순서와 digest 결박의 일관성을 검증한다. 새 레코드의 `attestation`은 Core가 실행과 actor 신원을 검증하지 않았음을 표시하고, 원본 `output`이 전달된 명령과 digest만 전달된 명령을 `core-derived`, `caller-supplied`, `mixed`로 구분한다. command 입력에 원본 `output`이 포함되면 Core가 `output_digest`를 계산하지만, digest만 제출된 경우에는 그 값의 사실성을 독립적으로 재확인하지 않는다. 보안 경계에서 실행 사실까지 보증해야 한다면 보호된 CI, 서명된 host receipt 또는 별도 원격 실행 시스템의 검증 결과를 함께 사용한다.
 
 ## Execution Envelope
 

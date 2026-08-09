@@ -58,6 +58,10 @@ Host의 `/goal` 결과와 사용자의 직접 요청은 별도 lifecycle로 만�
 
 Query는 Unit을 만들지 않고 답변한다. Quick Change는 최소 변경과 검증만 남긴다. Unit은 정규화된 Intent를 `unit.json`과 `intent.md`에 보존하고 Inception부터 AI-DLC를 시작한다. Goal은 별도 Agent나 Goal Engine이 아니라 AI-DLC의 입력 방식이다.
 
+Runtime Adapter는 현재 요청만 그대로 전달하지 않고 대화 맥락을 함께 판단해 `change`, `risk`, `ambiguous`, `multi_party`, `remote`, `sensitive`를 명시한다. 특히 운영 시스템·자격증명·고객 데이터·여러 승인자가 관련된 읽기 전용 요청도 해당 플래그를 전달해야 한다. Core는 직접 호출과 Adapter 누락에 대비해 요청 문장의 명백한 민감·원격·고위험 신호를 보수적으로 추론하고, 추론 결과를 Normalized Intent의 `classification.inferred_signals`에 기록한다. 명시적인 `low` 또는 `false` 값은 Core가 감지한 위험 신호를 낮출 수 없다.
+
+자연어 추론은 전체 대화 맥락을 볼 수 없으므로 Adapter 판단을 대체하지 않는다. 알려지지 않은 표현은 Unit으로 보수적으로 승격하고, 단일 파일의 명백한 버그·작은 문구 수정·동작을 바꾸지 않는 정리처럼 범위가 문장에 분명한 경우만 Quick Change로 추론한다.
+
 ## AWS형 AI-DLC
 
 AWS AI-DLC의 핵심 모델을 유지한다.

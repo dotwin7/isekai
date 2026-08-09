@@ -304,6 +304,18 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
                 _component_root(release_root, "scripts", label="bootstrap.path")
             ),
         },
+        "plugin": {
+            "id": "isekai-agent-plugin-contract",
+            "version": release_version,
+            "path": "plugin/isekai",
+            "digest": tree_digest(
+                _component_root(
+                    release_root,
+                    "plugin/isekai",
+                    label="plugin.path",
+                )
+            ),
+        },
         "foundation": {
             "id": foundation.get("id"),
             "version": foundation.get("version"),
@@ -342,6 +354,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
         "protocol_version",
         "core",
         "bootstrap",
+        "plugin",
         "foundation",
         "adapters",
         "compatibility",
@@ -388,6 +401,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
     components = [
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
+        ("plugin", manifest["plugin"]),
         ("foundation", manifest["foundation"]),
         *((f"adapter:{entry['id']}", entry) for entry in manifest["adapters"]),
     ]
@@ -432,6 +446,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
         component_pairs = [
             ("core", manifest.get("core"), canonical["core"]),
             ("bootstrap", manifest.get("bootstrap"), canonical["bootstrap"]),
+            ("plugin", manifest.get("plugin"), canonical["plugin"]),
             ("foundation", manifest.get("foundation"), canonical["foundation"]),
         ]
         actual_adapters = {
@@ -465,6 +480,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
     entries = [
         manifest["core"],
         manifest["bootstrap"],
+        manifest["plugin"],
         manifest["foundation"],
         *manifest["adapters"],
     ]
@@ -488,6 +504,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
     for label, entry in (
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
+        ("plugin", manifest["plugin"]),
         ("foundation", manifest["foundation"]),
     ):
         if not isinstance(entry, dict):

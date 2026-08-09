@@ -185,6 +185,51 @@ def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[st
     return issues
 
 
+def _human_gate_status(
+    unit: dict[str, Any],
+    decisions: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Describe the human Decision that governs the next lifecycle edge.
+
+    Adapters should not need to reimplement the lifecycle table to know when to
+    stop and ask a person.  This is advisory state derived from the same gate
+    constants used by ``transition_unit``; the transition remains the enforcing
+    boundary.
+    """
+
+    status = unit.get("status")
+    next_statuses = ALLOWED_TRANSITIONS.get(str(status), ())
+    next_status = next_statuses[0] if len(next_statuses) == 1 else None
+    gate = (
+        REQUIRED_DECISIONS_FOR_TRANSITIONS.get(next_status)
+        if next_status is not None
+        else None
+    )
+    approved = False
+    if gate is not None and decisions is not None:
+        approved = _has_approved_decision(
+            decisions,
+            gate,
+            unit_id=str(unit.get("id")),
+            scope=str(unit.get("scope")),
+        )
+    return {
+        "next_transition": next_status,
+        "gate": gate,
+        "decision": (
+            "approved"
+            if approved
+            else "required"
+            if gate is not None
+            else "not-applicable"
+        ),
+        "blocks_next_transition": gate is not None and not approved,
+        "confirmation_required": gate is not None and not approved,
+        "confirmation_channel": "interactive-human-or-authenticated-external-approval",
+        "core_identity_verification": "not-performed-by-core",
+    }
+
+
 def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
@@ -457,6 +502,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         "foundation_digest": unit.get("foundation_digest"),
         "pending": checkpoint.get("pending", []) if checkpoint is not None else [],
         "blocked_by": checkpoint.get("blocked_by", []) if checkpoint is not None else [],
+        "human_gate": _human_gate_status(unit, decisions),
         "evidence": evidence,
     }
 

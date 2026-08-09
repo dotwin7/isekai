@@ -1,9 +1,29 @@
 {
   "schema_version": "1.0.0",
   "protocol_version": "1.0.0",
+  "plugin_contract": {
+    "high_risk_actions": [],
+    "human_decision_actions": [
+      "decision",
+      "foundation-decision",
+      "foundation-promote"
+    ]
+  },
+  "trust_model": {
+    "core_enforcement": "record-consistency-and-tamper-detection",
+    "action_execution": "runtime-host-outside-core",
+    "human_identity": "caller-attested-not-core-verified",
+    "evidence_execution": "runtime-attested-not-core-executed",
+    "external_controls_required": [
+      "runtime sandbox and permission policy",
+      "authenticated human confirmation channel",
+      "CI or host execution provenance"
+    ]
+  },
   "policy": {
     "classification": "verified-baseline",
     "tested_versions_are": "observed CLI versions with recorded adapter and Core smoke evidence; they are not minimum-version claims",
+    "legacy_versions_are": "historical repository claims without linked raw smoke evidence; they are not verified baselines",
     "unknown_version": "unverified",
     "upgrade_rule": "keep the adapter path unless the host changes its documented plugin discovery contract",
     "required_upgrade_checks": [
@@ -16,26 +36,112 @@
     {
       "id": "kiro",
       "cli": "kiro-cli",
-      "tested_versions": ["2.14.2"],
+      "tested_versions": [],
+      "legacy_versions": ["2.14.2"],
+      "evidence_refs": ["OBS-20260808-KIRO-UNAVAILABLE", "LEGACY-KIRO-2.14.2"],
       "surface": "workspace-agent-skill",
-      "host_checks": ["workspace skill frontmatter and path"],
+      "host_checks": [
+        "workspace Skill frontmatter and documented path",
+        "Kiro CLI 2.1+ Skill slash-command capability",
+        "Kiro CLI headless and tool-trust capability"
+      ],
       "core_checks": ["status", "resume", "verify"]
     },
     {
       "id": "claude",
       "cli": "claude",
-      "tested_versions": ["2.1.220"],
+      "tested_versions": [],
+      "legacy_versions": ["2.1.220"],
+      "evidence_refs": ["OBS-20260809-CLAUDE-2.1.224", "LEGACY-CLAUDE-2.1.220"],
       "surface": "claude-plugin+project-skill",
-      "host_checks": ["claude plugin validate", "project Skill frontmatter and path"],
+      "host_checks": [
+        "claude plugin validate --strict",
+        "enabled inline Plugin discovery",
+        "project Skill frontmatter and documented path"
+      ],
       "core_checks": ["status", "resume", "verify"]
     },
     {
       "id": "codex",
       "cli": "codex",
-      "tested_versions": ["0.146.0", "0.147.0"],
+      "tested_versions": ["0.147.0"],
+      "legacy_versions": ["0.146.0"],
+      "evidence_refs": ["OBS-20260808-CODEX-0.147.0", "LEGACY-CODEX-0.146.0"],
       "surface": "codex-plugin+repo-skill",
       "host_checks": ["plugin manifest structure", "repo Skill injection", "codex exec two-turn activation and intake"],
       "core_checks": ["status", "resume", "verify"]
+    }
+  ],
+  "observations": [
+    {
+      "id": "OBS-20260808-CODEX-0.147.0",
+      "runtime": "codex",
+      "version": "0.147.0",
+      "status": "live-verified",
+      "evidence_strength": "attested-summary",
+      "observed_on": "2026-08-08",
+      "source_ref": "docs/live-smoke.md#2026-08-08-observation",
+      "checks": [
+        "repo Skill injected without project fallback discovery",
+        "project-local handshake and on succeeded",
+        "two-turn automatic intake succeeded",
+        "completed Unit status/resume/verify Golden Path succeeded"
+      ]
+    },
+    {
+      "id": "OBS-20260809-CLAUDE-2.1.224",
+      "runtime": "claude",
+      "version": "2.1.224",
+      "status": "validation-only",
+      "evidence_strength": "attested-summary",
+      "observed_on": "2026-08-09",
+      "source_ref": "docs/live-smoke.md#2026-08-09-host-contract-observation",
+      "checks": [
+        "strict source plugin validation succeeded",
+        "plugin was discovered as enabled from an inline session directory",
+        "one isekai Skill was discovered in the Plugin",
+        "authenticated model session was unavailable"
+      ]
+    },
+    {
+      "id": "OBS-20260808-KIRO-UNAVAILABLE",
+      "runtime": "kiro",
+      "version": null,
+      "status": "unavailable",
+      "evidence_strength": "attested-summary",
+      "observed_on": "2026-08-08",
+      "source_ref": "docs/live-smoke.md#2026-08-08-observation",
+      "checks": ["local Kiro application and CLI were unavailable"]
+    },
+    {
+      "id": "LEGACY-CODEX-0.146.0",
+      "runtime": "codex",
+      "version": "0.146.0",
+      "status": "unlinked-legacy",
+      "evidence_strength": "repository-claim-without-linked-raw-evidence",
+      "observed_on": null,
+      "source_ref": "plugin/isekai/runtimes/codex/README.md",
+      "checks": ["historical verified-baseline claim retained for provenance"]
+    },
+    {
+      "id": "LEGACY-CLAUDE-2.1.220",
+      "runtime": "claude",
+      "version": "2.1.220",
+      "status": "unlinked-legacy",
+      "evidence_strength": "repository-claim-without-linked-raw-evidence",
+      "observed_on": null,
+      "source_ref": "plugin/isekai/runtimes/claude/README.md",
+      "checks": ["historical verified-baseline claim retained for provenance"]
+    },
+    {
+      "id": "LEGACY-KIRO-2.14.2",
+      "runtime": "kiro",
+      "version": "2.14.2",
+      "status": "unlinked-legacy",
+      "evidence_strength": "repository-claim-without-linked-raw-evidence",
+      "observed_on": null,
+      "source_ref": "plugin/isekai/runtimes/kiro/README.md",
+      "checks": ["historical verified-baseline claim retained for provenance"]
     }
   ]
 }

@@ -245,6 +245,34 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     assert all(DECISION_REQUIRED_FIELDS <= decision.keys() for decision in decisions["decisions"])
 
 
+def test_status_exposes_the_human_gate_for_the_next_transition(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+
+    pending = verify_unit(unit)["human_gate"]
+    assert pending == {
+        "next_transition": "construction",
+        "gate": "inception",
+        "decision": "required",
+        "blocks_next_transition": True,
+        "confirmation_required": True,
+        "confirmation_channel": "interactive-human-or-authenticated-external-approval",
+        "core_identity_verification": "not-performed-by-core",
+    }
+
+    approve(unit, "inception")
+    approved = verify_unit(unit)["human_gate"]
+    assert approved["gate"] == "inception"
+    assert approved["decision"] == "approved"
+    assert approved["blocks_next_transition"] is False
+
+    transition_unit(unit, "construction")
+    architecture = verify_unit(unit)["human_gate"]
+    assert architecture["gate"] == "architecture"
+    assert architecture["confirmation_required"] is True
+
+
 def test_operating_verify_rejects_a_tampered_release_evidence_binding(
     tmp_path: Path,
 ) -> None:
@@ -284,6 +312,7 @@ def test_approved_inception_decision_metadata_is_digest_bound(tmp_path: Path) ->
     decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
     decision = decisions["decisions"][-1]
     decision["decided_by"] = "different-actor"
+    decision["attestation"]["reported_actor"] = "different-actor"
     decision["summary"] = "Rewritten after approval."
     # Recomputing the self-digest must not bypass the independent Envelope binding.
     decision["decision_digest"] = _decision_record_digest(decision)
@@ -622,6 +651,7 @@ def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
     )
 
     assert result["evidence"]["commands"][0]["output_digest"] == command["output_digest"]
+    assert result["evidence"]["attestation"]["output_digest_verification"] == "core-derived"
 
 
 def test_operating_transition_rejects_evidence_staled_during_release(

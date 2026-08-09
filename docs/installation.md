@@ -5,7 +5,7 @@
 
 ## Git release 설치와 프로젝트 버전 고정
 
-공식 배포 단위는 immutable Git tag와 commit이다. 각 tag는 `distribution/release.json`에 bootstrap script, Core, Foundation, Kiro·Claude·Codex Adapter의 버전·경로·SHA-256 tree digest를 등록한다. `distribution-check`는 component의 파일 경로·bytes·실행 비트를 결박하고 component의 symlink·hardlink·특수 파일을 거부하며, package, plugin, Foundation과 Runtime manifest에서 다시 만든 canonical ID·version·path metadata도 대조한다. `distribution/release.json`, `pyproject.toml`과 canonical source manifest는 symlink path segment가 없는 single-link regular file이어야 한다. 설치기는 tag를 임시 checkout하고 이 검증을 통과한 뒤에만 Project를 변경한다.
+공식 배포 단위는 immutable Git tag와 commit이다. 각 tag는 `distribution/release.json`에 bootstrap script, Core, host-neutral Plugin contract, Foundation, Kiro·Claude·Codex Adapter의 버전·경로·SHA-256 tree digest를 등록한다. Plugin contract component는 공통 manifest·호환성 Evidence·Runtime Skill 생성 원본까지 결박하므로 Runtime별 설치 디렉터리 밖의 계약 변경도 검출한다. `distribution-check`는 component의 파일 경로·bytes·실행 비트를 결박하고 component의 symlink·hardlink·특수 파일을 거부하며, package, plugin, Foundation과 Runtime manifest에서 다시 만든 canonical ID·version·path metadata도 대조한다. `distribution/release.json`, `pyproject.toml`과 canonical source manifest는 symlink path segment가 없는 single-link regular file이어야 한다. 설치기는 tag를 임시 checkout하고 이 검증을 통과한 뒤에만 Project를 변경한다.
 
 Distribution, Core, Foundation과 각 Adapter version은 독립적으로 진화한다. 상호 호환성은 같은 숫자 버전이 아니라 `protocol_version`, 지원 Project/Foundation schema와 `isekai.lock.json`의 component pin으로 판정한다.
 

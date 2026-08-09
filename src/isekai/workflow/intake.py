@@ -11,6 +11,85 @@ CHANGE_VALUES = {"none", "local", "persistent"}
 RISK_VALUES = {"low", "high"}
 
 
+SENSITIVE_MARKERS = (
+    "credential",
+    "credentials",
+    "secret",
+    "secrets",
+    "password",
+    "passwords",
+    "api key",
+    "api keys",
+    "access token",
+    "access tokens",
+    "private key",
+    "private keys",
+    "customer data",
+    "personal data",
+    "personally identifiable information",
+    "pii",
+    "자격증명",
+    "비밀정보",
+    "민감정보",
+    "비밀번호",
+    "암호",
+    "api 키",
+    "액세스 토큰",
+    "개인 키",
+    "고객 데이터",
+    "개인정보",
+)
+REMOTE_MARKERS = (
+    "production environment",
+    "production server",
+    "production database",
+    "prod environment",
+    "remote environment",
+    "remote server",
+    "cloud account",
+    "kubernetes cluster",
+    "운영 환경",
+    "운영 서버",
+    "운영 데이터베이스",
+    "프로덕션 환경",
+    "프로덕션 서버",
+    "프로덕션 데이터베이스",
+    "원격 환경",
+    "원격 서버",
+    "클라우드 계정",
+    "쿠버네티스 클러스터",
+)
+HIGH_RISK_MARKERS = (
+    "drop database",
+    "delete production data",
+    "wipe production data",
+    "rotate credentials",
+    "revoke credentials",
+    "incident response",
+    "exploit production",
+    "penetration test",
+    "red team",
+    "운영 데이터 삭제",
+    "프로덕션 데이터 삭제",
+    "데이터베이스 삭제",
+    "자격증명 회전",
+    "자격증명 폐기",
+    "사고 대응",
+    "모의해킹",
+    "레드팀",
+)
+MULTI_PARTY_MARKERS = (
+    "multiple stakeholders",
+    "cross-team approval",
+    "security approval",
+    "여러 이해관계자",
+    "여러 팀 승인",
+    "부서간 승인",
+    "부서 간 승인",
+    "보안 승인",
+)
+
+
 def _workflow_directive(
     intent: Mapping[str, Any], decision: RouteDecision
 ) -> dict[str, Any]:
@@ -128,12 +207,92 @@ def _matches(text: str, markers: tuple[str, ...]) -> bool:
         marker = marker.strip()
         if not marker:
             continue
-        if marker.isascii() and re.search(r"\w", marker):
-            if re.search(rf"(?<!\w){re.escape(marker)}(?!\w)", text):
+        if marker.isascii() and re.search(r"[A-Za-z0-9_]", marker):
+            # ASCII word boundaries should still match Korean particles joined
+            # directly to a term, as in ``credentials를``. ``\w`` includes
+            # Unicode letters and incorrectly hides that safety signal.
+            if re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(marker)}(?![A-Za-z0-9_])",
+                text,
+            ):
                 return True
         elif marker in text:
             return True
     return False
+
+
+def _boolean(value: Any, field: str) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ValueError(f"intake field must be boolean: {field}")
+    return value
+
+
+def _infer_context_signals(text: str) -> dict[str, bool]:
+    """Infer conservative safety signals from the request text.
+
+    Runtime Adapters still classify the full conversation and must pass explicit
+    flags. These markers are a fail-safe for direct Core callers and for an
+    Adapter that accidentally omits an obvious signal; they are not intended to
+    replace host-agent judgment.
+    """
+
+    lowered = text.lower()
+    return {
+        "high_risk": _matches(lowered, HIGH_RISK_MARKERS),
+        "remote": _matches(lowered, REMOTE_MARKERS),
+        "sensitive": _matches(lowered, SENSITIVE_MARKERS),
+        "multi_party": _matches(lowered, MULTI_PARTY_MARKERS),
+    }
+
+
+def _is_bounded_quick_change(text: str) -> bool:
+    if _matches(
+        text,
+        (
+            "all files",
+            "every file",
+            "multiple files",
+            "entire repository",
+            "whole repository",
+            "whole repo",
+            "across the repository",
+            "모든 파일",
+            "여러 파일",
+            "저장소 전체",
+            "프로젝트 전체",
+        ),
+    ):
+        return False
+    if re.search(
+        r"\b(?:add|implement|build)\b.{0,40}\b(?:feature|support|option|capability)\b",
+        text,
+    ) or re.search(
+        r"(?:기능|지원|옵션).{0,20}(?:추가|구현|개발)|"
+        r"(?:추가|구현|개발).{0,20}(?:기능|지원|옵션)",
+        text,
+    ):
+        return False
+    quick_markers = (
+        "오타",
+        "typo",
+        "문구",
+        "format",
+        "whitespace",
+        "동작을 바꾸지 않는 정리",
+        "동작 변경 없는 정리",
+        "behavior-preserving cleanup",
+        "without changing behavior",
+        "no behavior change",
+    )
+    if _matches(text, quick_markers):
+        return True
+
+    single_file = _matches(text, ("단일 파일", "한 파일", "single file", "one file"))
+    obvious = _matches(text, ("명백", "obvious", "straightforward", "trivial"))
+    bug = _matches(text, ("버그", "bug", "null check", "널 체크"))
+    return single_file and obvious and bug
 
 
 def _infer_change(text: str, source: str) -> str:
@@ -207,7 +366,6 @@ def _infer_change(text: str, source: str) -> str:
         "can you add",
         "can you implement",
     )
-    quick_markers = ("오타", "typo", "문구", "format", "whitespace")
     english_actions = r"fix|add|change|implement|build|refactor|deploy|delete"
     explicit_change_request = _matches(lowered, requested_change_markers) or any(
         re.search(pattern, lowered)
@@ -219,10 +377,10 @@ def _infer_change(text: str, source: str) -> str:
         )
     )
     if explicit_change_request:
-        return "local" if _matches(lowered, quick_markers) else "persistent"
+        return "local" if _is_bounded_quick_change(lowered) else "persistent"
     if _matches(lowered, question_markers):
         return "none"
-    if _matches(lowered, quick_markers):
+    if _is_bounded_quick_change(lowered):
         return "local"
     if _matches(lowered, change_markers):
         return "persistent"
@@ -247,15 +405,50 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
     acceptance_criteria = _strings(
         values.get("acceptance_criteria"), "acceptance_criteria"
     )
-    change = str(values.get("change") or _infer_change(goal, source))
+    inferred_change = _infer_change(goal, source)
+    change = str(values.get("change") or inferred_change)
     if change not in CHANGE_VALUES:
         raise ValueError(f"intake change must be one of: {', '.join(sorted(CHANGE_VALUES))}")
+    # Structured callers often keep the short action in ``goal`` and place the
+    # consequential system or data in the remaining intent fields.  Scan the
+    # complete normalized context so a direct Core call cannot hide an obvious
+    # safety signal merely by moving it from prose into ``scope``.
+    signal_context = "\n".join(
+        (
+            goal,
+            expected_outcome,
+            *scope,
+            *constraints,
+            *acceptance_criteria,
+        )
+    )
+    signals = _infer_context_signals(signal_context)
     risk = str(values.get("risk", "low"))
     if risk not in RISK_VALUES:
         raise ValueError(f"intake risk must be one of: {', '.join(sorted(RISK_VALUES))}")
-    ambiguous = bool(values.get("ambiguous", False))
+    if signals["high_risk"]:
+        risk = "high"
+    ambiguous = _boolean(values.get("ambiguous"), "ambiguous")
     if change == "persistent" and not expected_outcome:
         ambiguous = True
+    multi_party = _boolean(values.get("multi_party"), "multi_party") or signals[
+        "multi_party"
+    ]
+    remote = _boolean(values.get("remote"), "remote") or signals["remote"]
+    sensitive = _boolean(values.get("sensitive"), "sensitive") or signals[
+        "sensitive"
+    ]
+    prior_classification = values.get("classification")
+    prior_change_source = (
+        prior_classification.get("change_source")
+        if isinstance(prior_classification, dict)
+        else None
+    )
+    change_source = (
+        prior_change_source
+        if prior_change_source in {"declared", "inferred"}
+        else ("declared" if values.get("change") else "inferred")
+    )
     return {
         "source": source,
         "goal": goal,
@@ -266,9 +459,15 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
         "change": change,
         "risk": risk,
         "ambiguous": ambiguous,
-        "multi_party": bool(values.get("multi_party", False)),
-        "remote": bool(values.get("remote", False)),
-        "sensitive": bool(values.get("sensitive", False)),
+        "multi_party": multi_party,
+        "remote": remote,
+        "sensitive": sensitive,
+        "classification": {
+            "change_source": change_source,
+            "inferred_signals": sorted(
+                name for name, detected in signals.items() if detected
+            ),
+        },
     }
 
 

@@ -158,6 +158,7 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
         "pending": status.get("pending", []),
         "blocked_by": status.get("blocked_by", []),
         "decision_count": status.get("decision_count", 0),
+        "human_gate": status.get("human_gate"),
     }
 
 

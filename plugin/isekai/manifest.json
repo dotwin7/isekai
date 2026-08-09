@@ -13,6 +13,17 @@
     "matrix": "compatibility.json",
     "policy": "verified-baseline"
   },
+  "trust_model": {
+    "core_enforcement": "record-consistency-and-tamper-detection",
+    "action_execution": "runtime-host-outside-core",
+    "human_identity": "caller-attested-not-core-verified",
+    "evidence_execution": "runtime-attested-not-core-executed",
+    "external_controls_required": [
+      "runtime sandbox and permission policy",
+      "authenticated human confirmation channel",
+      "CI or host execution provenance"
+    ]
+  },
   "runtimes": [
     {
       "id": "kiro",

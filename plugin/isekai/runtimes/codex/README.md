@@ -36,4 +36,4 @@ The Skill requires the selected Project launcher `.isekai/bin/isekai`, never fal
 
 ## Compatibility
 
-The verified CLI baselines are `codex 0.146.0` and `0.147.0`. They are observed test versions, not minimum requirements. Version `0.147.0` passed injected repo Skill activation, two-turn automatic intake, and the Core status/resume/verify Golden Path smoke. After a CLI upgrade, rerun `scripts/live-smoke.py --runtime codex --host codex` plus the completed-Unit Golden Path. Keep `.agents/skills/isekai` unless Codex changes its documented repo Skill discovery contract.
+The live-verified CLI baseline is `codex 0.147.0`; it is an observed test version, not a minimum requirement. It passed injected repo Skill activation, two-turn automatic intake, and the Core status/resume/verify Golden Path smoke. The former `0.146.0` repository claim is retained only as `legacy_versions` because no raw smoke record is linked. After a CLI upgrade, rerun `scripts/live-smoke.py --runtime codex --host codex` plus the completed-Unit Golden Path and record the Evidence. Keep `.agents/skills/isekai` unless Codex changes its documented repo Skill discovery contract.

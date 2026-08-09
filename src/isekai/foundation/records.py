@@ -29,6 +29,28 @@ def _foundation_evidence_digest(evidence: dict[str, Any]) -> str:
     return _foundation_record_digest(evidence, "evidence_digest")
 
 
+def _foundation_decision_attestation_issues(decision: dict[str, Any]) -> list[str]:
+    attestation = decision.get("attestation")
+    if attestation is None:
+        return []
+    if not isinstance(attestation, dict):
+        return ["Foundation Decision attestation must be an object"]
+    issues: list[str] = []
+    if attestation.get("type") != "human-decision-attestation":
+        issues.append("Foundation Decision attestation has an invalid type")
+    if attestation.get("reported_actor") != decision.get("decided_by"):
+        issues.append(
+            "Foundation Decision attestation reported_actor must match decided_by"
+        )
+    if attestation.get("identity_verification") != "not-performed-by-core":
+        issues.append(
+            "Foundation Decision attestation must disclose the Core identity boundary"
+        )
+    if attestation.get("confirmation_source") != "caller-attested":
+        issues.append("Foundation Decision attestation has an invalid confirmation_source")
+    return issues
+
+
 def _foundation_decision_issues(
     foundation: FoundationRelease,
     decision: Any,
@@ -93,6 +115,7 @@ def _foundation_decision_issues(
             "Foundation Decision previous_decision_digest must be null or a "
             "SHA-256 digest"
         )
+    issues.extend(_foundation_decision_attestation_issues(decision))
     return issues
 
 

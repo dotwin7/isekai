@@ -96,6 +96,133 @@ def test_direct_small_text_change_routes_to_quick_change() -> None:
     assert result["workflow"]["human_gate"] == "only-if-scope-or-risk-expands"
 
 
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "src/example.py 한 파일의 명백한 null check 버그를 고쳐줘",
+        "Fix an obvious bug in a single file",
+        "Do a behavior-preserving cleanup without changing behavior",
+    ],
+)
+def test_explicit_bounded_single_file_change_routes_to_quick_change(
+    goal: str,
+) -> None:
+    result = intake({"goal": goal})
+
+    assert result["intent"]["change"] == "local"
+    assert result["route"]["route"] == "quick-change"
+
+
+def test_vague_bug_fix_remains_a_unit() -> None:
+    result = intake({"goal": "Fix the authentication bug"})
+
+    assert result["intent"]["change"] == "persistent"
+    assert result["route"]["route"] == "unit"
+
+
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "Format all files in the repository",
+        "Add a format option to the export feature",
+        "프로젝트 전체 파일의 문구를 수정해줘",
+    ],
+)
+def test_broad_or_feature_formatting_requests_remain_units(goal: str) -> None:
+    result = intake({"goal": goal})
+
+    assert result["intent"]["change"] == "persistent"
+    assert result["route"]["route"] == "unit"
+
+
+@pytest.mark.parametrize(
+    ("goal", "field", "signal"),
+    [
+        (
+            "production credentials를 읽고 요약해줘",
+            "sensitive",
+            "sensitive",
+        ),
+        (
+            "운영 서버의 현재 상태를 조회해줘",
+            "remote",
+            "remote",
+        ),
+        (
+            "여러 팀 승인이 필요한 변경을 검토해줘",
+            "multi_party",
+            "multi_party",
+        ),
+    ],
+)
+def test_obvious_context_signals_are_inferred_and_escalated(
+    goal: str,
+    field: str,
+    signal: str,
+) -> None:
+    result = intake({"goal": goal})
+
+    assert result["intent"][field] is True
+    assert signal in result["intent"]["classification"]["inferred_signals"]
+    assert result["route"]["route"] == "unit"
+    assert result["workflow"]["plan"]["suggested_depth"] == "deep"
+
+
+def test_high_risk_text_cannot_be_downgraded_by_default_or_explicit_low_risk() -> None:
+    result = intake(
+        {
+            "goal": "운영 데이터 삭제 절차를 검토해줘",
+            "risk": "low",
+            "sensitive": False,
+            "remote": False,
+        }
+    )
+
+    assert result["intent"]["risk"] == "high"
+    assert "high_risk" in result["intent"]["classification"]["inferred_signals"]
+    assert result["route"]["route"] == "unit"
+
+
+def test_explicit_false_cannot_downgrade_inferred_sensitive_context() -> None:
+    result = intake(
+        {
+            "goal": "production credentials를 읽고 요약해줘",
+            "change": "none",
+            "sensitive": False,
+        }
+    )
+
+    assert result["intent"]["sensitive"] is True
+    assert result["route"]["route"] == "unit"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "signal"),
+    [
+        ("scope", ["production database"], "remote"),
+        ("constraints", ["credentials must remain read-only"], "sensitive"),
+        ("expected_outcome", "운영 데이터 삭제 절차를 확인한다", "high_risk"),
+        ("acceptance_criteria", ["여러 팀 승인을 기록한다"], "multi_party"),
+    ],
+)
+def test_structured_intent_fields_contribute_safety_signals(
+    field: str,
+    value: object,
+    signal: str,
+) -> None:
+    result = intake({"goal": "현재 상태를 요약해줘", field: value})
+
+    assert signal in result["intent"]["classification"]["inferred_signals"]
+    assert result["route"]["route"] == "unit"
+    assert result["workflow"]["plan"]["suggested_depth"] == "deep"
+
+
+@pytest.mark.parametrize("field", ["ambiguous", "multi_party", "remote", "sensitive"])
+def test_intake_rejects_non_boolean_context_flags(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        normalize_intent({"goal": "Inspect the project", field: "false"})
+
+
 def test_host_goal_routes_to_unit_and_preserves_outcome_and_scope() -> None:
     result = intake(
         {
@@ -216,6 +343,18 @@ def test_unit_init_persists_normalized_intent_metadata(tmp_path: Path) -> None:
     assert unit_json["intent_source"] == "host-goal"
     assert unit_json["goal"] == "Add event classifier"
     assert unit_json["work_scope"] == ["src/events/**"]
+    assert unit_json["intake"] == {
+        "change": "persistent",
+        "risk": "low",
+        "ambiguous": False,
+        "multi_party": False,
+        "remote": False,
+        "sensitive": False,
+        "classification": {
+            "change_source": "inferred",
+            "inferred_signals": [],
+        },
+    }
     assert "Add event classifier" in intent_markdown
     assert "Classify events" in intent_markdown
 

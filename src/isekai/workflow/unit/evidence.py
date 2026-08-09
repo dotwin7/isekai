@@ -51,6 +51,39 @@ EVIDENCE_ALLOWED_STATUSES = {
 EVIDENCE_ID_PATTERN = re.compile(r"EVD-[0-9]{20}")
 
 
+def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
+    """Validate optional trust metadata while accepting pre-attestation records."""
+    attestation = evidence.get("attestation")
+    if attestation is None:
+        return []
+    if not isinstance(attestation, dict):
+        return ["verification evidence attestation must be an object"]
+    issues: list[str] = []
+    if attestation.get("type") != "runtime-execution-attestation":
+        issues.append("verification evidence attestation has an invalid type")
+    if attestation.get("reported_actor") != evidence.get("recorded_by"):
+        issues.append(
+            "verification evidence attestation reported_actor must match recorded_by"
+        )
+    if attestation.get("execution_verification") != "not-performed-by-core":
+        issues.append(
+            "verification evidence attestation must disclose the Core execution boundary"
+        )
+    if attestation.get("identity_verification") != "not-performed-by-core":
+        issues.append(
+            "verification evidence attestation must disclose the Core identity boundary"
+        )
+    if attestation.get("output_digest_verification") not in {
+        "caller-supplied",
+        "core-derived",
+        "mixed",
+    }:
+        issues.append(
+            "verification evidence attestation has an invalid output_digest_verification"
+        )
+    return issues
+
+
 def _evidence_issues(
     evidence: Any,
     unit_id: str | None = None,
@@ -88,6 +121,7 @@ def _evidence_issues(
         issues.append("verification evidence requires a scope")
     if not isinstance(evidence.get("recorded_by"), str) or not evidence.get("recorded_by", "").strip():
         issues.append("verification evidence requires recorded_by provenance")
+    issues.extend(_evidence_attestation_issues(evidence))
     recorded_at = _parse_iso_timestamp(evidence.get("recorded_at"))
     if recorded_at is None:
         issues.append("verification evidence recorded_at must be an ISO-8601 timestamp")
@@ -404,11 +438,13 @@ def _record_evidence_locked(
         unit_dir, unit, check_expiry=True
     )
     normalized_commands: list[dict[str, Any]] = []
+    core_derived_outputs = 0
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
             raise ValueError(f"command {index} must be an object")
         item = dict(command)
         if "output" in item:
+            core_derived_outputs += 1
             output = item.pop("output")
             computed = build_command_evidence(
                 str(item.get("command", "")),
@@ -426,6 +462,13 @@ def _record_evidence_locked(
         normalized_commands.append(item)
 
     now = datetime.now(timezone.utc)
+    if core_derived_outputs == len(commands):
+        output_digest_verification = "core-derived"
+    elif core_derived_outputs:
+        output_digest_verification = "mixed"
+    else:
+        output_digest_verification = "caller-supplied"
+
     evidence = {
         "id": "EVD-" + now.strftime("%Y%m%d%H%M%S%f"),
         "type": "verification-evidence",
@@ -436,6 +479,13 @@ def _record_evidence_locked(
         "scope": scope.strip(),
         "recorded_by": recorded_by.strip(),
         "recorded_at": now.isoformat(),
+        "attestation": {
+            "type": "runtime-execution-attestation",
+            "reported_actor": recorded_by.strip(),
+            "execution_verification": "not-performed-by-core",
+            "identity_verification": "not-performed-by-core",
+            "output_digest_verification": output_digest_verification,
+        },
         "commands": normalized_commands,
         **authorization_binding,
     }

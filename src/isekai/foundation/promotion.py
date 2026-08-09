@@ -100,6 +100,25 @@ def _foundation_evidence_issues(
         issues.append("Foundation Evidence requires a scope")
     if not isinstance(evidence.get("recorded_by"), str) or not evidence.get("recorded_by", "").strip():
         issues.append("Foundation Evidence requires recorded_by provenance")
+    attestation = evidence.get("attestation")
+    if attestation is not None:
+        if not isinstance(attestation, dict):
+            issues.append("Foundation Evidence attestation must be an object")
+        else:
+            if attestation.get("type") != "local-evaluation-attestation":
+                issues.append("Foundation Evidence attestation has an invalid type")
+            if attestation.get("reported_actor") != evidence.get("recorded_by"):
+                issues.append(
+                    "Foundation Evidence attestation reported_actor must match recorded_by"
+                )
+            if attestation.get("execution_verification") != "not-performed-by-core":
+                issues.append(
+                    "Foundation Evidence attestation must disclose the Core execution boundary"
+                )
+            if attestation.get("identity_verification") != "not-performed-by-core":
+                issues.append(
+                    "Foundation Evidence attestation must disclose the Core identity boundary"
+                )
     if not isinstance(evidence.get("id"), str) or not evidence.get("id", "").strip():
         issues.append("Foundation Evidence requires a non-empty id")
     recorded_at: datetime | None = None
@@ -272,6 +291,12 @@ def _record_foundation_decision_locked(
         "summary": summary.strip(),
         "decided_by": decided_by.strip(),
         "decided_at": now.isoformat(),
+        "attestation": {
+            "type": "human-decision-attestation",
+            "reported_actor": decided_by.strip(),
+            "identity_verification": "not-performed-by-core",
+            "confirmation_source": "caller-attested",
+        },
         "previous_decision_digest": (
             entries[-1].get("decision_digest") if entries else None
         ),
@@ -375,6 +400,12 @@ def _record_foundation_evidence_locked(
         "scope": scope.strip(),
         "recorded_by": recorded_by.strip(),
         "recorded_at": now.isoformat(),
+        "attestation": {
+            "type": "local-evaluation-attestation",
+            "reported_actor": recorded_by.strip(),
+            "execution_verification": "not-performed-by-core",
+            "identity_verification": "not-performed-by-core",
+        },
         "checks": checks,
     }
     evidence["evidence_digest"] = _foundation_evidence_digest(evidence)

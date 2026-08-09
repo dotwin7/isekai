@@ -24,9 +24,12 @@ def test_plugin_golden_path_exposes_core_session_contract(tmp_path: Path) -> Non
     status = dispatch("status", {"project": str(project)})
     assert status["result"]["project"]["id"] == "test-project"
     assert status["result"]["unit"]["unit_id"] == json_unit_id(unit)
+    assert status["result"]["unit"]["human_gate"]["next_transition"] == "inception"
+    assert status["result"]["unit"]["human_gate"]["confirmation_required"] is False
 
     resumed = dispatch("resume", {"project": str(project)})
     assert resumed["result"]["resume"]["next_action"] == "의도와 인수 조건을 구체화합니다."
+    assert resumed["result"]["unit"]["human_gate"]["next_transition"] == "inception"
 
     verified = dispatch("verify", {"unit": str(unit)})
     assert verified["result"]["valid"] is False
@@ -242,6 +245,12 @@ def test_plugin_decision_and_transition_actions_enforce_gate(
     )
     assert decision["action"] == "decision"
     assert decision["result"]["decision"]["outcome"] == "approved"
+    assert decision["result"]["decision"]["attestation"] == {
+        "type": "human-decision-attestation",
+        "reported_actor": "human-reviewer",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested",
+    }
 
     transition = dispatch("transition", {"unit": str(unit), "to": "construction"})
     assert transition["result"]["to"] == "construction"
@@ -279,6 +288,13 @@ def test_plugin_evidence_action_records_structured_result(tmp_path: Path) -> Non
     assert evidence["action"] == "evidence"
     assert evidence["result"]["evidence"]["type"] == "verification-evidence"
     assert evidence["result"]["evidence"]["passed"] is True
+    assert evidence["result"]["evidence"]["attestation"] == {
+        "type": "runtime-execution-attestation",
+        "reported_actor": "test-validator",
+        "execution_verification": "not-performed-by-core",
+        "identity_verification": "not-performed-by-core",
+        "output_digest_verification": "caller-supplied",
+    }
 
 
 def test_plugin_init_creates_project_and_project_relative_unit(tmp_path: Path) -> None:

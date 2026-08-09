@@ -185,6 +185,24 @@ def test_distribution_digest_binds_the_executable_bit(tmp_path: Path) -> None:
     assert any("bootstrap digest mismatch" in issue for issue in result["issues"])
 
 
+def test_distribution_digest_binds_the_host_neutral_plugin_contract(
+    tmp_path: Path,
+) -> None:
+    release = _copy_release(tmp_path)
+    plugin_manifest = release / "plugin/isekai/manifest.json"
+    manifest = json.loads(plugin_manifest.read_text(encoding="utf-8"))
+    manifest["trust_model"]["human_identity"] = "silently-weakened"
+    plugin_manifest.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    result = verify_distribution(release)
+
+    assert result["valid"] is False
+    assert any(
+        "isekai-agent-plugin-contract digest mismatch" in issue
+        for issue in result["issues"]
+    )
+
+
 def test_distribution_verification_rejects_forged_component_metadata(
     tmp_path: Path,
 ) -> None:

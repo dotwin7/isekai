@@ -27,10 +27,21 @@ jobs:
         run: python -m pytest -q
       - name: Compile sources
         run: python -m compileall -q src tests
+      - name: Verify generated Runtime Skills
+        run: python scripts/generate-runtime-skills.py --check
+      - name: Validate Runtime host surfaces
+        run: python scripts/runtime-host-check.py --runtime all
       - name: Verify release component digests
         run: python -m isekai distribution-check --root .
       - name: Build wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
+      - name: Smoke-test installed wheel
+        shell: bash
+        run: |
+          python -m venv .wheel-smoke
+          .wheel-smoke/bin/python -m pip install --no-index --no-deps --find-links dist isekai-agent-plugin
+          .wheel-smoke/bin/python -m pip check
+          .wheel-smoke/bin/isekai plugin compatibility
       - name: Validate Foundation structure
         run: isekai validate --foundation foundation
       - name: Report Foundation release readiness
@@ -56,6 +67,40 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Run adapter contract tests
         run: python -m pytest -q tests/test_adapter_contract.py
+
+  claude-runtime-contract:
+    name: Claude Code plugin contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install verified Claude Code CLI
+        run: npm install --global @anthropic-ai/claude-code@2.1.224
+      - name: Validate and discover Claude plugin
+        run: python scripts/runtime-host-check.py --runtime claude --require-cli
+
+  kiro-runtime-contract:
+    name: Kiro workspace Skill contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install current stable Kiro CLI
+        run: curl -fsSL https://cli.kiro.dev/install | bash
+      - name: Validate Kiro CLI and workspace Skill
+        run: PATH="$HOME/.local/bin:$PATH" python scripts/runtime-host-check.py --runtime kiro --require-cli
 
   windows-runtime:
     name: Windows runtime and PowerShell bootstrap

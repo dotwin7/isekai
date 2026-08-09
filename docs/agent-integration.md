@@ -29,6 +29,23 @@ ISEKAI는 프로젝트에 설치되는 Plugin·Skill·Core 묶음이다. Plugin�
 
 계획 승인 뒤에는 승인 범위의 Unit artifact·Checkpoint와 Decision을 Core에 기록한다. `envelope-approve`와 `transition`은 이미 승인된 계획·Decision을 반영하는 기계적 action이라 매번 별도 확인을 요구하지 않는다. 실제 인간 판단을 기록하는 `decision`, `foundation-decision`, 그리고 Foundation을 승격하는 `foundation-promote`는 manifest의 `human_decision_actions`로 표시한다.
 
+Manifest의 `trust_model`은 Core가 레코드 일관성과 변경 탐지만 강제하며 실제 action 실행과 사람 신원 확인은 Runtime·CI·외부 승인 시스템의 경계라는 점을 기계적으로 공개한다. 새 Decision과 Evidence의 attestation도 같은 경계를 digest에 결박한다. Adapter는 `human_decision_actions` 전에 실제 호스트 사용자 확인을 받아야 하며 caller가 적은 actor 문자열을 인증 결과처럼 표현해서는 안 된다.
+
+사람 확인은 도구 호출 때마다 받는 것이 아니라 판단의 대상이 완성되는 lifecycle 경계에서 받는다.
+
+| 시점 | 사람이 확인하는 대상 | 다음 단계 |
+|---|---|---|
+| Level-1 plan 제안 뒤 | 전체 Intent·Scope·단계·위험·Execution Envelope | `unit-init`과 Inception 기록 |
+| `awaiting-inception-decision` | 최종 Inception packet과 정확한 Envelope ID·digest | Construction |
+| Construction 설계 완료 뒤 | Architecture Decision packet | Validation |
+| passing Evidence 생성 뒤 | Evidence ID·digest, 잔여 위험, rollback | Releasing |
+| 운영 결과 검토 뒤 | Operation Decision packet | Learned |
+| Foundation 변경 승격 전 | Foundation Decision과 passing release Evidence | Foundation promotion |
+
+Level-1 plan 응답에 최종 Inception packet과 정확한 Envelope까지 모두 포함되어 있고 사용자가 그 전체를 명시적으로 승인했다면 같은 응답을 Inception Decision의 근거로 기록할 수 있다. 범위·단계·위험·외부 효과 또는 Envelope가 이후 달라지면 기존 승인을 재사용하지 않고 다시 확인한다. `status`와 `resume`은 다음 transition, 필요한 gate, 승인 상태와 차단 여부를 `human_gate`로 반환하므로 Adapter는 이 값을 보고 Decision packet을 제시하거나 계속 진행한다.
+
+Runtime의 파일·shell 도구 권한은 특정 도구 실행을 허가할 뿐 lifecycle Decision이 아니다. `dontAsk`, bypass permission, trust-all, unattended/headless 실행은 사람의 Decision을 새로 만들 수 없다. Core도 사람의 신원을 인증하지 않으므로 실제 강제가 필요한 배포 환경은 인증된 호스트 확인 UI나 외부 승인 시스템이 Decision 기록 주체를 통제해야 한다.
+
 ## Adapter 세션 모드
 
 Runtime Adapter는 호스트에서 발견 가능한 상태를 유지하지만 ISEKAI workflow mode는 모든 새 대화에서 기본 `off`다. 이 모드는 Host plugin의 설치·enable 상태나 Unit lifecycle status와 별개다.

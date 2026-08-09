@@ -139,7 +139,7 @@ project/
 └── units/                           # 지속되는 AI-DLC 작업 단위
 ```
 
-설치기는 bootstrap, Core, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 기존 marketplace와 Claude 설정의 다른 항목은 보존하며, 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않습니다.
+설치기는 bootstrap, Core, host-neutral Plugin contract, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Plugin component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 기존 marketplace와 Claude 설정의 다른 항목은 보존하며, 관리 대상이 아닌 ISEKAI 항목은 덮어쓰지 않습니다.
 
 ## 사용법
 
@@ -181,7 +181,9 @@ Marketplace에서 Plugin을 별도로 설치한 세션에서는 `/isekai-agent-p
 
 `on` 상태에서는 이후 요청이 자동으로 `intake`를 거쳐 Query, Quick Change 또는 Unit으로 라우팅됩니다. `off`는 자동 라우팅만 중단하며 Unit, Decision, Evidence 또는 Checkpoint를 수정하거나 삭제하지 않습니다. 명시적인 action은 mode가 꺼져 있어도 one-shot으로 실행할 수 있습니다.
 
-`intake`는 Route와 함께 `direct-response`, `bounded-change`, `adaptive-unit` 중 하나의 Workflow Directive를 반환합니다. Unit이면 Agent가 프로젝트를 먼저 읽기 전용으로 탐색하고 단계별 적용 여부와 깊이가 포함된 Level-1 plan을 제안합니다. 사용자가 전체 계획을 승인한 뒤 Unit을 만들며, 승인 범위의 로컬 기록과 기계적 상태 전이마다 확인을 반복하지 않습니다. 중요한 Decision이나 범위·위험·외부 효과의 확대에는 다시 사람의 판단이 필요합니다.
+Runtime Adapter는 `intake`를 호출할 때 전체 대화 맥락에서 변경 크기와 `risk`·`ambiguous`·`multi_party`·`remote`·`sensitive` 신호를 판정해 전달합니다. Core도 직접 호출이나 누락에 대비해 요청 문장의 명백한 운영 환경·자격증명·고객 데이터·고위험 실행 신호를 보수적으로 추론합니다. Core가 감지한 신호는 명시적인 저위험 값으로 낮출 수 없으며 `intent.classification.inferred_signals`에 남습니다. 이 텍스트 추론은 Adapter 판단의 대체물이 아니라 방어 계층입니다.
+
+`intake`는 Route와 함께 `direct-response`, `bounded-change`, `adaptive-unit` 중 하나의 Workflow Directive를 반환합니다. Unit이면 Agent가 프로젝트를 먼저 읽기 전용으로 탐색하고 단계별 적용 여부와 깊이가 포함된 Level-1 plan을 제안합니다. 사용자가 전체 계획을 승인한 뒤 Unit을 만들며, 승인 범위의 로컬 기록과 기계적 상태 전이마다 확인을 반복하지 않습니다. `status`와 `resume`의 `human_gate`가 다음에 필요한 Inception·Architecture·Release·Operation Decision과 차단 여부를 알려 줍니다. 중요한 Decision이나 범위·위험·외부 효과의 확대에는 다시 사람의 판단이 필요합니다.
 
 Project 경로를 생략하면 Core는 현재 디렉터리, 가장 가까운 상위 디렉터리, 단일 하위 workspace 순서로 `project.json`을 찾습니다. 후보가 여러 개면 자동 선택하지 않고 사용자에게 경로 선택을 요구합니다.
 
@@ -243,11 +245,11 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 
 Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 Decision은 해당 lifecycle gate에서만 기록할 수 있고, Release Decision은 현재 passing Evidence의 ID와 digest를 결박합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Project의 `maximum_agent_level`보다 넓은 action을 담은 Envelope도 제안·승인·authorize·verify 단계에서 fail-closed합니다. Verification Evidence의 각 command는 같은 stage의 최신 `test` authorization과 연결되며, Evidence는 기록 시점의 Envelope와 authorization 원장 digest에도 결박됩니다. 이후 grant가 추가되면 다시 검증해야 하고, 미완료 acceptance·artifact·checkpoint가 남으면 `releasing` 또는 `learned` 전이를 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
 
-Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다. Evidence는 Runtime host가 제출한 실행 attestation이며, Core는 원본 `output`이 함께 전달된 경우에만 결과 digest를 직접 계산합니다. 실행 사실 자체를 신뢰 경계로 삼아야 하는 환경에서는 보호된 CI나 서명된 원격 실행 receipt를 함께 사용해야 합니다.
+Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다. Evidence는 Runtime host가 제출한 실행 attestation이며, Core는 원본 `output`이 함께 전달된 경우에만 결과 digest를 직접 계산합니다. 새 Evidence의 `attestation.output_digest_verification`은 `core-derived`, `caller-supplied`, `mixed` 중 하나로 이 차이를 보존합니다. 실행 사실 자체를 신뢰 경계로 삼아야 하는 환경에서는 보호된 CI나 서명된 원격 실행 receipt를 함께 사용해야 합니다.
 
-Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 사람의 개입은 호스트 런타임의 승인 UI(도구 실행 승인)에서 집행되며, ISEKAI가 제공하는 것은 그 판단을 감사 가능하게 기록하고 이후의 무단 변경을 탐지하는 계층입니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
+Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 새 Decision은 `attestation.identity_verification: not-performed-by-core`와 caller가 보고한 actor를 digest에 함께 결박해 이 경계를 숨기지 않습니다. 호스트의 도구 실행 승인도 특정 shell·파일 action에 대한 권한일 뿐 lifecycle Decision이 아닙니다. 사람의 판단은 완성된 Decision Packet을 보여 주는 인증된 대화 UI나 외부 승인 시스템에서 받고, ISEKAI에는 그 결과를 감사 가능한 레코드로 남깁니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
 
-Plugin manifest의 `human_decision_actions`가 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
+Plugin manifest와 `isekai plugin compatibility` 응답의 `human_decision_actions`·`trust_model`이 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
 
 ```text
 decision  foundation-decision  foundation-promote
@@ -261,13 +263,13 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 
 ## 호환성 기준
 
-아래 버전은 최소 요구 버전이 아니라 현재 검증된 관찰 기준입니다. 호스트 CLI를 올린 뒤에는 Adapter 구조 검증과 Core의 `status`, `resume`, `verify` smoke를 다시 수행해야 합니다.
+`tested_versions`는 최소 요구 버전이 아니라 현재 연결된 관찰 근거가 있는 live 기준입니다. 과거 문서에만 남고 원시 근거가 연결되지 않은 주장은 `legacy_versions`로 분리했습니다. 호스트 CLI를 올린 뒤에는 Adapter 구조 검증과 Core의 `status`, `resume`, `verify` smoke를 다시 수행해야 합니다.
 
-| 런타임 | 검증된 CLI 기준 | 통합 surface |
-|---|---:|---|
-| Codex | `0.146.0`, `0.147.0` | Plugin package + Repo Skill |
-| Claude Code | `2.1.220` | Plugin package + Project Skill |
-| Kiro | `2.14.2` | Workspace Agent Skill |
+| 런타임 | Live 검증 기준 | 별도 상태 | 통합 surface |
+|---|---:|---|---|
+| Codex | `0.147.0` | legacy `0.146.0` | Plugin package + Repo Skill |
+| Claude Code | 없음 | validation-only `2.1.224`, legacy `2.1.220` | Plugin package + Project Skill |
+| Kiro | 없음 | unavailable, legacy `2.14.2` | Workspace Agent Skill |
 
 ## 저장소 구조
 
@@ -288,11 +290,13 @@ isekai/
 ```bash
 uv sync --extra test
 uv run pytest
+uv run python scripts/generate-runtime-skills.py --check
+uv run python scripts/runtime-host-check.py --runtime all
 uv run python -m isekai distribution-check --root .
 uv run python scripts/live-smoke.py
 ```
 
-실제 호스트 호출은 비용·인증이 필요하므로 명시적으로 선택합니다: `uv run python scripts/live-smoke.py --runtime codex --host codex`. 검증 범위와 최근 관찰 결과는 [Runtime live smoke](docs/live-smoke.md)에 기록합니다.
+설치된 CLI 계약은 `--runtime claude --require-cli` 또는 `--runtime kiro --require-cli`로 검사합니다. 실제 모델 호스트 호출은 비용·인증이 필요하므로 명시적으로 선택합니다: `uv run python scripts/live-smoke.py --runtime codex --host codex`. 검증 범위와 최근 관찰 결과는 [Runtime live smoke](docs/live-smoke.md)에 기록합니다.
 
 배포 component가 변경되면 tag를 만들기 전에 manifest를 다시 생성하고 검증합니다.
 

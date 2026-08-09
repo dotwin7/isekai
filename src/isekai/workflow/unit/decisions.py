@@ -178,6 +178,27 @@ def _is_iso_timestamp(value: Any) -> bool:
     return _parse_iso_timestamp(value) is not None
 
 
+def _decision_attestation_issues(decision: dict[str, Any]) -> list[str]:
+    """Validate optional trust metadata without invalidating legacy records."""
+    attestation = decision.get("attestation")
+    if attestation is None:
+        return []
+    if not isinstance(attestation, dict):
+        return ["Decision attestation must be an object"]
+    issues: list[str] = []
+    if attestation.get("type") != "human-decision-attestation":
+        issues.append("Decision attestation has an invalid type")
+    if attestation.get("reported_actor") != decision.get("decided_by"):
+        issues.append("Decision attestation reported_actor must match decided_by")
+    if attestation.get("identity_verification") != "not-performed-by-core":
+        issues.append(
+            "Decision attestation identity_verification must disclose the Core boundary"
+        )
+    if attestation.get("confirmation_source") != "caller-attested":
+        issues.append("Decision attestation has an invalid confirmation_source")
+    return issues
+
+
 def _decision_record_issues(
     decision: Any,
     *,
@@ -222,6 +243,7 @@ def _decision_record_issues(
         issues.append(
             "Decision previous_decision_digest must be null or a SHA-256 digest"
         )
+    issues.extend(_decision_attestation_issues(decision))
     approval_subject_types = {
         "inception": "execution-envelope",
         "release": "verification-evidence",
@@ -590,6 +612,12 @@ def record_decision(
             "references": references,
             "decided_by": decided_by.strip(),
             "decided_at": now.isoformat(),
+            "attestation": {
+                "type": "human-decision-attestation",
+                "reported_actor": decided_by.strip(),
+                "identity_verification": "not-performed-by-core",
+                "confirmation_source": "caller-attested",
+            },
             "previous_decision_digest": (
                 entries[-1].get("decision_digest") if entries else None
             ),

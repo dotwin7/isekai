@@ -65,9 +65,11 @@ After a human records an approved Foundation Decision and passing release Eviden
 
 The promotion command rejects missing approval or failing Evidence and does not mutate the Foundation on failure.
 
-Verification Evidence preserves host-reported command exit codes and output digests. Each command must reference the unique `authorization_id` returned by its immediately preceding `test` authorization in the same stage. Core rejects pre-Construction, unapproved, non-test, reused, or stale grants. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record; when only a digest is supplied, Core validates the attestation structure but does not independently rerun the command. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
+Verification Evidence preserves host-reported command exit codes and output digests. Each command must reference the unique `authorization_id` returned by its immediately preceding `test` authorization in the same stage. Core rejects pre-Construction, unapproved, non-test, reused, or stale grants. When captured output is supplied, Core computes its SHA-256 digest before persisting the Evidence record; when only a digest is supplied, Core validates the attestation structure but does not independently rerun the command. New records disclose that distinction in `attestation.output_digest_verification`. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
 
 Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, disposition, reason, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Depth is `light`, `standard`, or `deep`. A stage with `disposition: skip` must state a reason and cannot allow actions. Runtime adapters call `authorize` with a Project target before an action. Core canonicalizes that target, uses the Unit's actual phase, records each successful grant in `execution-authorizations.json`, and denies work after the iteration budget is exhausted.
+
+Human confirmation occurs when the complete Decision subject exists: after the Level-1 plan and exact Envelope are presented, after Architecture is ready and before Validation, after passing Evidence and before Releasing, and after Operations review and before Learned. `status` and `resume` expose the next boundary as `human_gate`. A host tool permission, `dontAsk`, bypass mode, trust-all setting, or headless run is not a lifecycle Decision and cannot originate one. If an approved scope, stage, risk, external effect, Envelope, or Evidence changes, the Adapter must ask again.
 
 The adapters invoke the installed local launcher, which calls the shared Core dispatch contract internally:
 
@@ -87,11 +89,13 @@ The current verified baseline is recorded in `compatibility.json` and can be ins
 ./.isekai/bin/isekai plugin compatibility
 ```
 
-`tested_versions` records observed CLI versions with evidence; it is not a minimum-version claim. An unlisted CLI version is **unverified**, not automatically unsupported. A CLI upgrade does not move the plugin path unless the host's documented discovery contract changes. Before marking a new version verified, run the host validator when available plus the Core `status`, `resume`, and `verify` Golden Path smoke.
+`tested_versions` records live-observed CLI versions with linked evidence; it is not a minimum-version claim. Historical claims without linked raw evidence remain under `legacy_versions` and do not count as verified. The same response exposes the installed Core's `plugin_contract` and `trust_model`, so the no-high-risk and external-trust boundaries are machine-readable from a Project install. An unlisted CLI version is **unverified**, not automatically unsupported. A CLI upgrade does not move the plugin path unless the host's documented discovery contract changes. Before marking a new version verified, run the host validator when available plus the Core `status`, `resume`, and `verify` Golden Path smoke, and record the observation.
+
+The three checked-in Runtime Skills are generated from `templates/runtime-skill.md`. Edit that template or `scripts/generate-runtime-skills.py`, regenerate, and verify drift with `python3 scripts/generate-runtime-skills.py --check`. `python3 scripts/runtime-host-check.py --runtime all` checks every source surface without requiring a host; add `--require-cli` for a selected Claude or Kiro CLI contract check.
 
 ## Core boundary
 
-The adapters own runtime interaction only. ISEKAI Core owns Foundation resolution, routing, Unit lifecycle, Decision boundaries, Evidence, and verification. Unit artifacts remain the source of truth.
+The adapters own runtime interaction only. ISEKAI Core owns Foundation resolution, routing, Unit lifecycle, Decision boundaries, Evidence, and verification. Unit artifacts remain the source of truth. The manifest `trust_model` and digest-bound Decision/Evidence attestations explicitly state that Core does not execute host commands or authenticate the reported human identity.
 
 ## Non-goals
 
