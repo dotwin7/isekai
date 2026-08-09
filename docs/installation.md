@@ -17,7 +17,8 @@ bash /tmp/isekai-install.sh \
   --ref v0.1.0 \
   --path . \
   --runtime all \
-  --init
+  --init \
+  --maximum-agent-level L1
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -33,11 +34,12 @@ Invoke-WebRequest `
   -Ref v0.1.0 `
   -Path . `
   -Runtime all `
-  -Init
+  -Init `
+  -MaximumAgentLevel L1
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
 
-bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다.
+bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다. 초기화 시 agent level을 생략하면 read-only인 `L0`이 적용된다. 로컬 편집·테스트가 필요하면 POSIX의 `--maximum-agent-level L1` 또는 PowerShell의 `-MaximumAgentLevel L1`을 `--init`/`-Init`과 함께 명시한다.
 
 설치는 `.isekai/runtime/`, `.isekai/foundations/<version>/`, Codex·Claude Plugin package와 세 Runtime의 workspace Skill을 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. Codex는 `.agents/skills/isekai`, Claude Code는 `.claude/skills/isekai`, Kiro는 `.kiro/skills/isekai`에서 프로젝트 Adapter를 직접 발견한다. Codex·Claude의 완전한 Plugin package는 `.isekai/marketplaces/`에 별도 보존하며 package와 workspace Skill digest를 모두 lock에 결박한다.
 

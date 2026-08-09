@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 from isekai.cli import main
+from isekai.support.locking import LockUnavailable
 
 
 def test_direct_intake_alias_matches_plugin_namespace(capsys) -> None:
@@ -138,3 +140,36 @@ def test_json_array_options_reject_null_without_traceback(capsys) -> None:
     assert exit_code == 2
     assert captured.out == ""
     assert error == {"error": "plugin request field stages must be a list"}
+
+
+def test_lock_contention_is_reported_as_json_without_traceback(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import isekai.workflow.session as session_module
+
+    @contextmanager
+    def unavailable_lock(_path: Path):
+        raise LockUnavailable("Unit is being modified; retry after it completes")
+        yield  # pragma: no cover - required by contextmanager syntax
+
+    monkeypatch.setattr(session_module, "unit_lock", unavailable_lock)
+
+    exit_code = main(
+        [
+            "checkpoint",
+            "--unit",
+            str(tmp_path),
+            "--next-action",
+            "retry",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert captured.out == ""
+    assert json.loads(captured.err) == {
+        "error": "Unit is being modified; retry after it completes"
+    }
+    assert "Traceback" not in captured.err

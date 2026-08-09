@@ -36,6 +36,11 @@ def make_unit(tmp_path: Path) -> Path:
                 "depth": "standard",
                 "allowed_actions": ["read", "edit", "test"],
             },
+            {
+                "name": "validation",
+                "depth": "standard",
+                "allowed_actions": ["read", "test"],
+            },
             {"name": "operations", "depth": "light", "allowed_actions": ["read", "test"]},
         ],
         allowed_actions=["read", "edit", "test"],
@@ -181,9 +186,10 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     approve(unit, "inception")
     transition_unit(unit, "construction")
     with pytest.raises(ValueError, match="approved architecture Decision"):
-        transition_unit(unit, "awaiting-release-decision")
+        transition_unit(unit, "validation")
 
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     with pytest.raises(ValueError, match="approved release Decision"):
         transition_unit(unit, "releasing")
@@ -245,6 +251,7 @@ def test_operating_verify_rejects_a_tampered_release_evidence_binding(
     unit = make_unit(tmp_path)
     start_construction(unit)
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     passing_evidence(unit)
     approve(unit, "release")
@@ -299,13 +306,14 @@ def test_release_rejects_evidence_made_stale_by_a_later_authorization(
     approve(unit, "inception")
     transition_unit(unit, "construction")
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     passing_evidence(unit)
     approve(unit, "release")
 
     authorization = authorize_action(
         unit,
-        action="edit",
+        action="read",
         target="src/after-verification.py",
     )
 
@@ -632,6 +640,11 @@ def test_operating_transition_rejects_evidence_staled_during_release(
                 "allowed_actions": ["read", "edit", "test"],
             },
             {
+                "name": "validation",
+                "depth": "standard",
+                "allowed_actions": ["read", "test"],
+            },
+            {
                 "name": "release",
                 "depth": "standard",
                 "allowed_actions": ["read", "edit", "test"],
@@ -644,6 +657,7 @@ def test_operating_transition_rejects_evidence_staled_during_release(
     )
     start_construction(unit)
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     passing_evidence(unit)
     approve(unit, "release")

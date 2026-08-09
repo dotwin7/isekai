@@ -19,6 +19,7 @@ Options:
   --adopt-foundation        Replace an existing project Foundation during install
   --init                    Create project.json after installation when absent
   --profile PROFILE_ID      Project profile used with --init; repeatable
+  --maximum-agent-level L   L0 (read-only) or L1 (bounded local changes) with --init
   --python EXECUTABLE       Python 3.11+ executable (default: python3 or python)
   -h, --help                Show this help
 
@@ -51,6 +52,8 @@ adopt_foundation=0
 initialize=0
 runtimes=()
 profiles=()
+maximum_agent_level="L0"
+agent_level_set=0
 
 while (($#)); do
   case "$1" in
@@ -90,6 +93,15 @@ while (($#)); do
       profiles+=("$2")
       shift 2
       ;;
+    --maximum-agent-level)
+      require_value "$1" "$#"
+      case "$2" in
+        L0|L1) maximum_agent_level="$2" ;;
+        *) fail "unknown maximum agent level: $2" ;;
+      esac
+      agent_level_set=1
+      shift 2
+      ;;
     --python)
       require_value "$1" "$#"
       python_executable="$2"
@@ -127,6 +139,9 @@ fi
 [[ -d "$project_path" ]] || fail "project directory does not exist: $project_path"
 if ((${#profiles[@]} > 0 && initialize == 0)); then
   fail "--profile requires --init"
+fi
+if ((agent_level_set == 1 && initialize == 0)); then
+  fail "--maximum-agent-level requires --init"
 fi
 
 command -v git >/dev/null 2>&1 || fail "git is required"
@@ -208,6 +223,7 @@ if ((initialize == 1)); then
       "$project_path/.isekai/bin/isekai.py"
       init
       --path "$project_path"
+      --maximum-agent-level "$maximum_agent_level"
     )
     if ((${#profiles[@]} > 0)); then
       for profile in "${profiles[@]}"; do

@@ -12,6 +12,7 @@ from .common import (
     UNIT_REQUIRED_FILES,
     _unit_bytes,
     _unit_json,
+    _unit_maximum_agent_level,
     _unit_path_without_symlinks,
     _unit_preflight_issues,
     _unit_text,
@@ -304,6 +305,11 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise ValueError(f"Unit directory does not exist: {unit_dir}")
+    with unit_lock(unit_dir):
+        return _verify_unit_locked(unit_dir)
+
+
+def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     present = {
         str(file.relative_to(unit_dir))
         for file in unit_dir.rglob("*")
@@ -328,6 +334,11 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
     issues.extend(_unit_preflight_issues(unit_dir))
     envelope_path = unit_dir / "execution-envelope.json"
     envelope: dict[str, Any] | None = None
+    try:
+        maximum_agent_level = _unit_maximum_agent_level(unit_dir)
+    except ValueError as exc:
+        issues.append(str(exc))
+        maximum_agent_level = None
     if envelope_path.is_file():
         envelope = read_artifact("execution-envelope.json")
         if envelope is not None:
@@ -336,7 +347,10 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
             # its Envelope lapses.
             issues.extend(
                 _execution_envelope_issues(
-                    envelope, str(unit.get("id")), check_expiry=False
+                    envelope,
+                    str(unit.get("id")),
+                    check_expiry=False,
+                    maximum_agent_level=maximum_agent_level,
                 )
             )
             issues.extend(_approved_envelope_decision_issues(unit_dir, envelope, unit))

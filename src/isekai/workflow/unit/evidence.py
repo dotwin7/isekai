@@ -9,6 +9,7 @@ from typing import Any
 
 from .common import (
     _unit_json,
+    _unit_maximum_agent_level,
     _unit_path_without_symlinks,
     _unit_preflight_issues,
     _write_json,
@@ -42,6 +43,7 @@ EVIDENCE_COMMAND_REQUIRED_FIELDS = {
 }
 EVIDENCE_ALLOWED_STATUSES = {
     "construction",
+    "validation",
     "awaiting-release-decision",
     "releasing",
     "operating",
@@ -238,6 +240,7 @@ def _current_authorization_context(
         str(unit.get("id")),
         require_approved=True,
         check_expiry=check_expiry,
+        maximum_agent_level=_unit_maximum_agent_level(unit_dir),
     )
     envelope_issues.extend(
         _approved_envelope_decision_issues(unit_dir, envelope, unit)

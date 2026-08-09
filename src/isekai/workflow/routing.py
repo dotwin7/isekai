@@ -11,8 +11,14 @@ class WorkRoute(str, Enum):
     UNIT = "unit"
 
 
-ALLOWED_AGENT_LEVELS = {"L0", "L1"}
-AGENT_ALLOWED_ACTIONS = {"read", "edit", "test"}
+AGENT_LEVEL_ALLOWED_ACTIONS = {
+    # L0 is the safe default for projects that only want analysis and planning.
+    "L0": frozenset({"read"}),
+    # L1 permits bounded local delivery after an approved Execution Envelope.
+    "L1": frozenset({"read", "edit", "test"}),
+}
+ALLOWED_AGENT_LEVELS = set(AGENT_LEVEL_ALLOWED_ACTIONS)
+AGENT_ALLOWED_ACTIONS = set().union(*AGENT_LEVEL_ALLOWED_ACTIONS.values())
 AGENT_PROHIBITED_ACTIONS = {
     "remote",
     "deploy",

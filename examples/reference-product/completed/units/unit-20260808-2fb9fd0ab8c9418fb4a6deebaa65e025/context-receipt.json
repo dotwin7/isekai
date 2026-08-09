@@ -1,5 +1,5 @@
 {
-  "receipt_id": "CTX-e45e8802074c560c",
+  "receipt_id": "CTX-98087c143b926f43",
   "generated_at": "2026-08-08T05:54:43.868496+00:00",
   "project_id": "reference-product",
   "project_version": "0.1.0",
@@ -51,7 +51,7 @@
     }
   ],
   "route": "unit",
-  "maximum_agent_level": "L0",
+  "maximum_agent_level": "L1",
   "rule_ids": [
     "CONTEXT-001",
     "EVIDENCE-001",

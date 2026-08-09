@@ -42,7 +42,7 @@ def make_project(tmp_path: Path) -> Path:
         "extensions": [
             {"id": "reference-product-extension", "path": "extension/reference-product.json"}
         ],
-        "maximum_agent_level": "L0",
+        "maximum_agent_level": "L1",
     }
     (project_root / "project.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"

@@ -19,6 +19,7 @@ from ..distribution import (
 )
 from ..foundation import FoundationError, load_foundation
 from ..plugin_contract import dispatch
+from ..support.locking import LockUnavailable
 from ..workflow import WorkRoute, resolve_context, unit_status, verify_unit
 
 
@@ -123,6 +124,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             _json(result)
             return plugin_exit_code(action, result)
         return 0
-    except (FoundationError, ValueError, FileExistsError) as exc:
+    except (FoundationError, ValueError, FileExistsError, LockUnavailable) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2

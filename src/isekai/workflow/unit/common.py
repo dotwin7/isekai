@@ -9,7 +9,7 @@ from ...support.files import UnsafeControlFile, read_control_file
 from ...support.jsonio import write_json_atomic
 from ...support.locking import file_lock
 from ..project import _context_receipt_id
-from ..routing import WorkRoute
+from ..routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -108,6 +108,17 @@ def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
     return value
 
 
+def _unit_maximum_agent_level(unit_dir: Path) -> str:
+    receipt = _unit_json(unit_dir, "context-receipt.json")
+    level = receipt.get("maximum_agent_level")
+    if level not in ALLOWED_AGENT_LEVELS:
+        raise ValueError(
+            "Context Receipt maximum_agent_level must be one of: "
+            + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
+        )
+    return str(level)
+
+
 def _unit_preflight_issues(unit_dir: Path) -> list[str]:
     issues: list[str] = []
     for relative in sorted(UNIT_REQUIRED_FILES):
@@ -138,6 +149,7 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         "extensions",
         "foundation_version",
         "foundation_digest",
+        "maximum_agent_level",
         "source_manifest",
     }
     missing_context = sorted(required_context - receipt.keys())
@@ -151,6 +163,12 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         issues.append("Context Receipt document_language does not match Unit")
     if receipt.get("route") != WorkRoute.UNIT.value:
         issues.append("Context Receipt route must be unit")
+    maximum_agent_level = receipt.get("maximum_agent_level")
+    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+        issues.append(
+            "Context Receipt maximum_agent_level must be one of: "
+            + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
+        )
     if receipt.get("foundation_version") != unit.get("foundation_version"):
         issues.append("Context Receipt foundation_version does not match Unit")
     if receipt.get("foundation_digest") != unit.get("foundation_digest"):

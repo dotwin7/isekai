@@ -10,7 +10,11 @@ from typing import Any
 from ...support.jsonio import write_bytes_atomic
 from ...support.locking import LockUnavailable
 from ...support.scope import scope_pattern_matches
-from ..routing import AGENT_ALLOWED_ACTIONS, AGENT_PROHIBITED_ACTIONS
+from ..routing import (
+    AGENT_ALLOWED_ACTIONS,
+    AGENT_LEVEL_ALLOWED_ACTIONS,
+    AGENT_PROHIBITED_ACTIONS,
+)
 from .authorization import (
     _authorization_ledger_issues,
     _authorization_target_protection_issue,
@@ -19,6 +23,7 @@ from .authorization import (
 from .common import (
     _unit_bytes,
     _unit_json,
+    _unit_maximum_agent_level,
     _unit_preflight_issues,
     _write_json,
     unit_lock,
@@ -62,6 +67,7 @@ EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
     "inception",
     "awaiting-inception-decision",
     "construction",
+    "validation",
     "awaiting-release-decision",
     "releasing",
     "operating",
@@ -125,6 +131,7 @@ def _execution_envelope_issues(
     *,
     require_approved: bool = False,
     check_expiry: bool = True,
+    maximum_agent_level: str | None = None,
 ) -> list[str]:
     """Report structural problems with an Envelope.
 
@@ -205,6 +212,21 @@ def _execution_envelope_issues(
                 "Execution Envelope cannot allow prohibited actions: "
                 + ", ".join(prohibited_actions)
             )
+        if maximum_agent_level is not None:
+            level_actions = AGENT_LEVEL_ALLOWED_ACTIONS.get(maximum_agent_level)
+            if level_actions is None:
+                issues.append(
+                    "Execution Envelope has an unsupported maximum_agent_level: "
+                    + maximum_agent_level
+                )
+            else:
+                above_level = sorted(set(allowed_actions) - level_actions)
+                if above_level:
+                    issues.append(
+                        "Execution Envelope actions exceed Project "
+                        f"maximum_agent_level {maximum_agent_level}: "
+                        + ", ".join(above_level)
+                    )
         if isinstance(forbidden_actions, list) and all(
             isinstance(item, str) for item in forbidden_actions
         ):
@@ -370,7 +392,11 @@ def _propose_execution_envelope_locked(
         "expires_at": (now + timedelta(hours=expires_in_hours)).isoformat(),
     }
     envelope["approval_digest"] = _execution_envelope_approval_digest(envelope)
-    issues = _execution_envelope_issues(envelope, str(unit.get("id")))
+    issues = _execution_envelope_issues(
+        envelope,
+        str(unit.get("id")),
+        maximum_agent_level=_unit_maximum_agent_level(unit_dir),
+    )
     if issues:
         raise ValueError("Execution Envelope rejected: " + "; ".join(issues))
     ledger = {
@@ -420,7 +446,11 @@ def _propose_execution_envelope_locked(
 def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> None:
     envelope = _unit_json(unit_dir, "execution-envelope.json")
     unit = _unit_json(unit_dir, "unit.json")
-    issues = _execution_envelope_issues(envelope, str(unit.get("id")))
+    issues = _execution_envelope_issues(
+        envelope,
+        str(unit.get("id")),
+        maximum_agent_level=_unit_maximum_agent_level(unit_dir),
+    )
     if issues:
         raise ValueError("Execution Envelope approval blocked: " + "; ".join(issues))
     decision_issues = _decision_record_issues(
@@ -534,6 +564,7 @@ def authorize_action(
                 envelope,
                 str(unit.get("id")),
                 require_approved=True,
+                maximum_agent_level=_unit_maximum_agent_level(unit_dir),
             )
             if envelope_issues:
                 return {

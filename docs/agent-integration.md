@@ -86,10 +86,12 @@ Adapter는 모든 Core plugin action 전에 Adapter version, Core version, proto
 
 초기 구현은 모든 로컬 도구를 프록시하지 않는다. 다음 고위험 부작용부터 외부 경계에서 통제한다.
 
+Project의 `maximum_agent_level`은 로컬 action의 상한이다. `L0`은 승인된 Envelope에서도 `read`만 허용하고, `L1`은 승인된 scope·stage·iteration 예산 안에서 `read`, `edit`, `test`를 허용한다. Adapter는 Context Receipt의 값을 읽고 상한을 넘는 Envelope를 제안하지 않아야 하며, Core도 제안·승인·authorize·verify에서 같은 상한을 fail-closed로 집행한다. 어느 level도 아래 고위험 action을 허용하지 않는다.
+
 - 보호 브랜치와 원격 Git 변경
 - 프로덕션·클라우드·Kubernetes 변경
 - 고객 데이터와 Engagement Scope
 - 비밀정보·자격증명 사용
 - 고위험 보안운영·진단·레드팀 도구
 
-일반적인 로컬 탐색·작성·테스트에는 과도하게 개입하지 않는다. 강한 통제는 원격 IAM, 보호 브랜치, 승인 시스템과 격리 실행 환경에서 최종 집행한다.
+일반적인 로컬 탐색·작성·테스트는 선택한 agent level과 승인된 Envelope 안에서 수행한다. 강한 통제는 원격 IAM, 보호 브랜치, 승인 시스템과 격리 실행 환경에서 최종 집행한다.

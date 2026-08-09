@@ -15,6 +15,8 @@ param(
     [switch]$AdoptFoundation,
     [switch]$Init,
     [string[]]$Profile = @(),
+    [ValidateSet("L0", "L1")]
+    [string]$MaximumAgentLevel = "L0",
     [string]$Python
 )
 
@@ -66,6 +68,9 @@ if ($Ref.StartsWith("-")) {
 }
 if ($Profile.Count -gt 0 -and -not $Init) {
     throw "-Profile requires -Init"
+}
+if ($PSBoundParameters.ContainsKey("MaximumAgentLevel") -and -not $Init) {
+    throw "-MaximumAgentLevel requires -Init"
 }
 if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) {
     throw "Project directory does not exist: $ProjectPath"
@@ -158,7 +163,12 @@ try {
         }
         else {
             $launcher = Join-Path $resolvedProject ".isekai/bin/isekai.py"
-            $initArgs = @($launcher, "init", "--path", $resolvedProject)
+            $initArgs = @(
+                $launcher,
+                "init",
+                "--path", $resolvedProject,
+                "--maximum-agent-level", $MaximumAgentLevel
+            )
             foreach ($selectedProfile in $Profile) {
                 $initArgs += @("--profile", $selectedProfile)
             }

@@ -7,7 +7,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .common import _unit_json, _unit_preflight_issues, _write_json, unit_lock
+from .common import (
+    _unit_json,
+    _unit_maximum_agent_level,
+    _unit_preflight_issues,
+    _write_json,
+    unit_lock,
+)
 
 
 LIFECYCLE_STATUSES = (
@@ -15,6 +21,7 @@ LIFECYCLE_STATUSES = (
     "inception",
     "awaiting-inception-decision",
     "construction",
+    "validation",
     "awaiting-release-decision",
     "releasing",
     "operating",
@@ -25,7 +32,8 @@ ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "proposed": ("inception",),
     "inception": ("awaiting-inception-decision",),
     "awaiting-inception-decision": ("construction",),
-    "construction": ("awaiting-release-decision",),
+    "construction": ("validation",),
+    "validation": ("awaiting-release-decision",),
     "awaiting-release-decision": ("releasing",),
     "releasing": ("operating",),
     "operating": ("learned",),
@@ -41,6 +49,7 @@ DECISION_ALLOWED_STATUSES = {
     "inception": {
         "awaiting-inception-decision",
         "construction",
+        "validation",
         "awaiting-release-decision",
         "releasing",
         "operating",
@@ -55,6 +64,7 @@ DECISION_ALLOWED_STATUSES = {
 }
 REQUIRED_DECISIONS_FOR_TRANSITIONS = {
     "construction": "inception",
+    "validation": "architecture",
     "awaiting-release-decision": "architecture",
     "releasing": "release",
     "operating": "release",
@@ -65,7 +75,8 @@ STATUS_PHASE = {
     "inception": "inception",
     "awaiting-inception-decision": "inception",
     "construction": "construction",
-    "awaiting-release-decision": "construction",
+    "validation": "validation",
+    "awaiting-release-decision": "validation",
     "releasing": "release",
     "operating": "operations",
     "learned": "operations",
@@ -519,7 +530,9 @@ def record_decision(
                 )
             envelope = _unit_json(unit_dir, "execution-envelope.json")
             envelope_issues = _execution_envelope_issues(
-                envelope, str(unit.get("id"))
+                envelope,
+                str(unit.get("id")),
+                maximum_agent_level=_unit_maximum_agent_level(unit_dir),
             )
             if envelope_issues:
                 raise ValueError(

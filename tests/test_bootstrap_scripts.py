@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from isekai.distribution import doctor_install, write_distribution_manifest
 
 
@@ -62,6 +64,8 @@ def test_posix_bootstrap_installs_and_initializes_from_local_git_tag(
             "--runtime",
             "kiro",
             "--init",
+            "--maximum-agent-level",
+            "L1",
             "--python",
             sys.executable,
         ],
@@ -75,7 +79,8 @@ def test_posix_bootstrap_installs_and_initializes_from_local_git_tag(
     lock = json.loads((project / "isekai.lock.json").read_text(encoding="utf-8"))
     assert lock["source"]["ref"] == "v0.1.0"
     assert set(lock["adapters"]) == {"kiro"}
-    assert (project / "project.json").is_file()
+    manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    assert manifest["maximum_agent_level"] == "L1"
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
     assert doctor_install(project)["ready"] is True
 
@@ -90,6 +95,7 @@ def test_posix_bootstrap_help_does_not_require_dependencies() -> None:
 
     assert completed.returncode == 0
     assert "--source GIT_URL" in completed.stdout
+    assert "--maximum-agent-level L" in completed.stdout
 
 
 def test_posix_bootstrap_preserves_git_failure_exit_code(tmp_path: Path) -> None:
@@ -345,3 +351,57 @@ def test_powershell_bootstrap_rejects_noncanonical_file_authorities() -> None:
 
     assert validation < clone
     assert '$sourceUri.Host.Equals("localhost"' in content
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows PowerShell")
+def test_powershell_bootstrap_installs_and_initializes_from_local_git_tag(
+    tmp_path: Path,
+) -> None:
+    release = _tagged_release(tmp_path)
+    project = tmp_path / "windows-product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(release / "scripts/install.ps1"),
+            "-Source",
+            str(release),
+            "-Ref",
+            "v0.1.0",
+            "-ProjectPath",
+            str(project),
+            "-Runtime",
+            "kiro",
+            "-Init",
+            "-MaximumAgentLevel",
+            "L1",
+            "-Profile",
+            "software-delivery-profile",
+            "-Python",
+            sys.executable,
+        ],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    launcher = project / ".isekai/bin/isekai.py"
+    doctor = subprocess.run(
+        [sys.executable, str(launcher), "doctor", "--path", str(project)],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert doctor.returncode == 0, doctor.stdout + doctor.stderr
+    assert json.loads(doctor.stdout)["ready"] is True
+    assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
+    manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    assert manifest["maximum_agent_level"] == "L1"

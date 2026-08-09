@@ -54,3 +54,23 @@ jobs:
         run: python -m pip install -e ".[test]"
       - name: Run adapter contract tests
         run: python -m pytest -q tests/test_adapter_contract.py
+
+  windows-runtime:
+    name: Windows runtime and PowerShell bootstrap
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install package and test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+      - name: Run Windows locking and reparse-point tests
+        run: python -m pytest -q tests/test_windows_runtime.py
+      - name: Run PowerShell bootstrap end to end
+        run: >-
+          python -m pytest -q
+          tests/test_bootstrap_scripts.py::test_powershell_bootstrap_installs_and_initializes_from_local_git_tag

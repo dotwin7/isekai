@@ -11,6 +11,7 @@ from .project import initialize_project as _initialize_project
 from .project import load_project, resolve_context
 from .routing import (
     AGENT_ALLOWED_ACTIONS,
+    AGENT_LEVEL_ALLOWED_ACTIONS,
     AGENT_PROHIBITED_ACTIONS,
     ALLOWED_AGENT_LEVELS,
     RouteDecision,
@@ -93,6 +94,7 @@ def initialize_project(
 
 
 __all__ = [
+    "AGENT_LEVEL_ALLOWED_ACTIONS",
     "RouteDecision",
     "RouteRequest",
     "WorkRoute",

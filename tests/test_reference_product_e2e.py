@@ -542,6 +542,8 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
         "software-delivery-profile",
         "--document-language",
         "ko",
+        "--maximum-agent-level",
+        "L1",
     )
     project_manifest = project / "project.json"
     project_value = json.loads(project_manifest.read_text(encoding="utf-8"))
@@ -814,6 +816,15 @@ def test_reference_product_feature_runs_through_installed_codex_plugin(
         "architecture",
         "순수 도메인 함수 구현을 승인한다.",
         ["architecture.md", "implementation-guide.md"],
+    )
+    _run_isekai(
+        project,
+        "plugin",
+        "transition",
+        "--unit",
+        str(unit),
+        "--to",
+        "validation",
     )
     _run_isekai(
         project,

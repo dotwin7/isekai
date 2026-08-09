@@ -303,6 +303,7 @@ def _parser() -> argparse.ArgumentParser:
             "inception",
             "awaiting-inception-decision",
             "construction",
+            "validation",
             "awaiting-release-decision",
             "releasing",
             "operating",

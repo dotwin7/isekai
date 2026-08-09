@@ -72,6 +72,7 @@ bash /tmp/isekai-install.sh \
   --path . \
   --runtime codex \
   --init \
+  --maximum-agent-level L1 \
   --profile software-delivery-profile
 ./.isekai/bin/isekai doctor --path .
 ```
@@ -90,6 +91,7 @@ Invoke-WebRequest `
   -Path . `
   -Runtime codex `
   -Init `
+  -MaximumAgentLevel L1 `
   -Profile software-delivery-profile
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
@@ -110,10 +112,11 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
 ```bash
 ./.isekai/bin/isekai init \
   --path . \
+  --maximum-agent-level L1 \
   --profile software-delivery-profile
 ```
 
-보안 개발 규칙도 함께 사용할 프로젝트는 `--profile security-profile`을 추가할 수 있습니다. 이미 존재하는 `project.json`은 자동으로 덮어쓰지 않습니다.
+`maximum_agent_level`의 기본값 `L0`은 승인된 Envelope 안에서도 읽기만 허용합니다. 로컬 파일 편집과 테스트가 필요한 프로젝트는 초기화할 때 `L1`을 명시합니다. `L1`도 승인된 scope·stage·iteration 예산 안의 `read`, `edit`, `test`만 허용하며 원격·배포·자격증명 action은 허용하지 않습니다. 보안 개발 규칙도 함께 사용할 프로젝트는 `--profile security-profile`을 추가할 수 있습니다. 이미 존재하는 `project.json`은 자동으로 덮어쓰지 않습니다.
 
 ### 설치 결과
 
@@ -189,9 +192,10 @@ Inception → Human Decision → Construction → Validation
 ```
 
 - Inception에서는 Intent, Scope, Requirements, Acceptance Criteria와 Risk를 정리합니다.
-- Construction에서는 승인된 범위 안에서 설계, 구현, 테스트와 Evidence를 만듭니다.
+- Construction에서는 승인된 범위 안에서 설계와 구현을 수행합니다.
+- Validation에서는 독립된 lifecycle 상태와 stage authorization 아래 테스트를 실행하고 Evidence를 만듭니다.
 - Release와 Operations에서는 사람이 배포·롤백·고위험 결정을 승인하고 결과를 다음 Unit에 반영합니다.
-- Execution Envelope 밖의 action, canonical Project scope 또는 실제 Unit stage는 Core가 거부합니다. 승인 grant는 Unit ledger에 기록되고 iteration 예산을 소모합니다.
+- Execution Envelope 밖의 action, Project의 `maximum_agent_level`, canonical Project scope 또는 실제 Unit stage를 벗어난 action은 Core가 거부합니다. 승인 grant는 Unit ledger에 기록되고 iteration 예산을 소모합니다.
 
 ### Execution Envelope 갱신
 
@@ -227,13 +231,14 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 - 모든 새 대화는 ISEKAI mode가 `off`입니다.
 - Adapter version, Core version, protocol과 project lock이 맞지 않으면 handshake가 fail-closed합니다.
 - 현재 Adapter 계약에는 자율적인 high-risk action이 없습니다.
+- `L0` Project는 `read`만, `L1` Project는 승인된 범위의 `read`·`edit`·`test`만 허용합니다.
 - 쓰기 action과 lifecycle Decision은 명시적 사용자 의도 또는 사람 승인을 요구합니다.
 - 고객 데이터나 민감한 원본 Evidence는 Git에서 제외되는 `units/**/evidence/raw/` 아래에 둡니다.
 - 일반 update는 Foundation을 자동으로 교체하지 않습니다.
 
 ### Core가 강제하는 것과 강제하지 않는 것
 
-Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 Decision은 해당 lifecycle gate에서만 기록할 수 있고, Release Decision은 현재 passing Evidence의 ID와 digest를 결박합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Verification Evidence의 각 command는 같은 stage의 최신 `test` authorization과 연결되며, Evidence는 기록 시점의 Envelope와 authorization 원장 digest에도 결박됩니다. 이후 grant가 추가되면 다시 검증해야 하고, 미완료 acceptance·artifact·checkpoint가 남으면 `releasing` 또는 `learned` 전이를 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
+Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 Decision은 해당 lifecycle gate에서만 기록할 수 있고, Release Decision은 현재 passing Evidence의 ID와 digest를 결박합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Project의 `maximum_agent_level`보다 넓은 action을 담은 Envelope도 제안·승인·authorize·verify 단계에서 fail-closed합니다. Verification Evidence의 각 command는 같은 stage의 최신 `test` authorization과 연결되며, Evidence는 기록 시점의 Envelope와 authorization 원장 digest에도 결박됩니다. 이후 grant가 추가되면 다시 검증해야 하고, 미완료 acceptance·artifact·checkpoint가 남으면 `releasing` 또는 `learned` 전이를 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
 
 Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 사람의 개입은 호스트 런타임의 승인 UI(도구 실행 승인)에서 집행되며, ISEKAI가 제공하는 것은 그 판단을 감사 가능하게 기록하고 이후의 무단 변경을 탐지하는 계층입니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
 
@@ -245,7 +250,7 @@ decision  foundation-decision  foundation-promote
 
 `envelope-approve`와 `transition`은 이미 기록된 Decision과 승인된 계획을 반영하는 기계적 상태 변경이므로 별도의 인간 판단 action으로 분류하지 않습니다. 다만 승인된 범위·위험·외부 효과나 단계 계획이 달라지면 새 Decision이 먼저 필요합니다.
 
-Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 운영체제 file lock으로 직렬화됩니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰는 대신 실패합니다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일을 시간 기준으로 경쟁적으로 회수하지 않습니다.
+Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은 Unit·Foundation 단위 운영체제 file lock으로 직렬화됩니다. Unit의 `verify`, `status`, `resume`도 같은 락 아래에서 여러 artifact의 일관된 snapshot을 읽습니다. 다른 프로세스가 쓰는 중이면 짧게 대기하고, 그래도 잡히지 않으면 조용히 덮어쓰거나 traceback을 노출하는 대신 구조화된 오류로 실패합니다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일을 시간 기준으로 경쟁적으로 회수하지 않습니다.
 
 릴리스 digest 검증도 같은 성격입니다. `distribution/release.json`은 태그 안의 component 경로·bytes·실행 비트와 source manifest에서 유도한 ID·version·path metadata가 서로 일치하는지 확인하며, 서명 검증이 아니므로 신뢰 기준점은 지정한 Git 원격과 immutable tag입니다.
 

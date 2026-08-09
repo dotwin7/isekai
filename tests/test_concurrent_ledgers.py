@@ -12,7 +12,12 @@ import pytest
 from isekai.foundation import record_foundation_decision
 from isekai.locking import LockUnavailable, file_lock
 from isekai.support.files import metadata_is_path_alias
-from isekai.workflow import authorize_action, record_decision, transition_unit
+from isekai.workflow import (
+    authorize_action,
+    record_decision,
+    transition_unit,
+    verify_unit,
+)
 
 from test_core_workflow import ROOT
 from test_execution_envelope import approve_inception, make_enveloped_unit
@@ -114,6 +119,28 @@ def test_concurrent_authorizations_never_exceed_the_iteration_budget(
     assert [grant["iteration"] for grant in ledger["grants"]] == list(
         range(1, len(granted) + 1)
     )
+
+
+def test_verification_waits_for_a_consistent_unit_snapshot(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    started = threading.Event()
+    finished = threading.Event()
+    result: dict[str, object] = {}
+
+    def inspect() -> None:
+        started.set()
+        result.update(verify_unit(unit))
+        finished.set()
+
+    with file_lock(unit / ".isekai-unit.lock", subject="Unit mutation"):
+        thread = threading.Thread(target=inspect)
+        thread.start()
+        assert started.wait(timeout=1)
+        assert not finished.wait(timeout=0.05)
+
+    thread.join(timeout=2)
+    assert finished.is_set()
+    assert "valid" in result
 
 
 def test_concurrent_transitions_apply_exactly_one_edge(tmp_path: Path) -> None:

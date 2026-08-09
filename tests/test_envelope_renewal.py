@@ -163,6 +163,20 @@ def test_exhausted_iteration_budget_is_recoverable_by_renewal(tmp_path: Path) ->
     assert recovered["iteration"] == 1
 
 
+def test_validation_unit_can_renew_an_expired_envelope(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    approve(unit, "architecture")
+    transition_unit(unit, "validation")
+    expire_envelope(unit)
+
+    renew(unit)
+
+    recovered = authorize_action(unit, action="test", target="tests/validation.py")
+    assert recovered["allowed"] is True
+    assert recovered["stage"] == "validation"
+
+
 def test_operating_unit_can_renew_an_exhausted_envelope_and_finish(
     tmp_path: Path,
 ) -> None:
@@ -172,6 +186,7 @@ def test_operating_unit_can_renew_an_exhausted_envelope_and_finish(
     approve(unit, "inception")
     transition_unit(unit, "construction")
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     passing_evidence(unit)
     approve(unit, "release")
@@ -231,6 +246,7 @@ def test_releasing_unit_can_refresh_envelope_evidence_and_release_decision(
     approve(unit, "inception")
     transition_unit(unit, "construction")
     approve(unit, "architecture")
+    transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
     passing_evidence(unit)
     approve(unit, "release")

@@ -42,6 +42,7 @@ proposed
 → inception
 → awaiting-inception-decision
 → construction
+→ validation
 → awaiting-release-decision
 → releasing
 → operating
@@ -108,11 +109,11 @@ Core는 lifecycle을 임의로 건너뛰는 전이를 허용하지 않는다.
 
 ```text
 proposed → inception → awaiting-inception-decision
-→ construction → awaiting-release-decision → releasing
+→ construction → validation → awaiting-release-decision → releasing
 → operating → learned
 ```
 
-`construction` 진입에는 승인된 Inception Decision, `awaiting-release-decision` 진입에는 승인된 Architecture Decision, `releasing` 진입에는 승인된 Release Decision과 passing verification Evidence, `learned` 진입에는 승인된 Operation Decision이 필요하다. 같은 게이트의 최신 Decision이 `rejected`이면 승인으로 간주하지 않는다.
+`construction` 진입에는 승인된 Inception Decision, `validation` 진입에는 승인된 Architecture Decision, `releasing` 진입에는 승인된 Release Decision과 passing verification Evidence, `learned` 진입에는 승인된 Operation Decision이 필요하다. `awaiting-release-decision`은 Validation을 완료한 뒤에만 진입할 수 있다. 같은 게이트의 최신 Decision이 `rejected`이면 승인으로 간주하지 않는다.
 
 Decision은 해당 게이트를 실제로 검토할 수 있는 lifecycle 상태에서만 기록한다. Inception Decision은 `awaiting-inception-decision`과 Envelope 갱신·철회를 위한 Construction·Release·Operations 상태에서, Architecture Decision은 `construction`, Release Decision은 `awaiting-release-decision` 또는 Release 단계에서 Evidence를 갱신한 `releasing`, Operation Decision은 `operating`에서만 허용한다. 승인된 Release Decision은 현재 passing Verification Evidence의 ID와 digest를 `approval_subject`로 결박하므로 Evidence보다 먼저 선승인하거나 Evidence 교체 뒤 재사용할 수 없다. `decision_digest`는 감사 대상인 Decision 전체를 정규화해 계산하고 `previous_decision_digest`는 직전 Decision을 연결한다. Core는 전체 원장의 digest chain, 고유 ID와 엄격히 증가하는 `decided_at`을 검증하므로 레코드 변경이나 재정렬이 발견되면 해당 원장을 무효로 처리한다.
 
@@ -128,7 +129,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
   "type": "verification-evidence",
   "schema_version": "1.0.0",
   "unit_id": "UNIT-...",
-  "stage": "construction",
+  "stage": "validation",
   "passed": true,
   "scope": "Core and plugin Golden Path",
   "recorded_by": "validator",
@@ -149,7 +150,7 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
 }
 ```
 
-Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
+Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 진입 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. 정식 release 검증은 `validation` lifecycle 상태와 stage에서 실행한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
 ## Execution Envelope
 
@@ -168,6 +169,11 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
       "name": "construction",
       "depth": "standard",
       "allowed_actions": ["read", "edit", "test"]
+    },
+    {
+      "name": "validation",
+      "depth": "standard",
+      "allowed_actions": ["read", "test"]
     }
   ],
   "allowed_actions": ["read", "edit", "test"],
@@ -181,6 +187,8 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
 
 Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다. 저장된 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 `project.json`, `isekai.lock.json`, `.git`, `.isekai` 같은 내부 control path로 바뀌면 즉시 원장을 거부한다. 기존 파일은 regular file이고 link count가 1일 때만 허용해 hardlink를 통한 Project 외부 읽기·수정을 차단한다. Unit 필수 artifact 경로의 symlink도 읽기 전에 거부한다.
 
+Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 action의 상한이다. `L0`은 `read`만 허용하고 `L1`은 `read`, `edit`, `test`를 허용한다. Core는 Envelope 제안·승인·authorization·Unit 검증에서 이 상한을 다시 확인하므로, 낮은 level의 Project에서 더 넓은 action을 적어 넣어도 권한이 생기지 않는다.
+
 `scope` 패턴은 디렉토리 경계를 존중한다. `*`와 `?`는 한 경로 세그먼트 안에서만 매칭하고, 세그먼트 전체가 `**`일 때만 0개 이상의 세그먼트를 가로지른다. 예를 들어 `src/*.py`는 `src/main.py`만 허용하고 `src/vendor/deep.py`는 스코프 밖이다. 하위 트리 전체를 허용하려면 `src/**`처럼 명시해야 한다.
 
 ### Envelope 갱신
@@ -193,13 +201,13 @@ decision --gate inception --outcome approved --reference execution-envelope.json
 envelope-approve --unit PATH          # 새 Decision에 결박해 활성화
 ```
 
-교체 Envelope는 `proposed` 상태로 시작하므로, 새 Decision이 승인하기 전까지 Unit은 어떤 authorization도 보유하지 않는다. 즉 갱신은 만료를 우회하는 경로가 아니라 사람의 승인을 다시 요구하는 경로다. 갱신은 Construction뿐 아니라 `releasing`과 `operating`에서도 가능하다. Release 단계에서 새 grant와 Evidence를 만든 경우에는 현재 Evidence에 결박된 Release Decision도 다시 기록해야 Operations로 전이할 수 있다. 만료는 authorization 시점에만 판정하며, `verify`는 Envelope의 구조와 결박만 감사하므로 승인 창이 닫힌 뒤에도 Unit 기록은 계속 검증 가능하다.
+교체 Envelope는 `proposed` 상태로 시작하므로, 새 Decision이 승인하기 전까지 Unit은 어떤 authorization도 보유하지 않는다. 즉 갱신은 만료를 우회하는 경로가 아니라 사람의 승인을 다시 요구하는 경로다. 갱신은 Construction과 Validation뿐 아니라 `releasing`과 `operating`에서도 가능하다. Release 단계에서 새 grant와 Evidence를 만든 경우에는 현재 Evidence에 결박된 Release Decision도 다시 기록해야 Operations로 전이할 수 있다. 만료는 authorization 시점에만 판정하며, `verify`는 Envelope의 구조와 결박만 감사하므로 승인 창이 닫힌 뒤에도 Unit 기록은 계속 검증 가능하다.
 
 ## 원장 동시성
 
-`decisions.json`과 `unit.json`은 read-modify-write 원장이다. 여러 세션·런타임이 같은 Unit을 다룰 수 있으므로, Unit의 모든 변경(Decision, transition, Envelope 제안·승인, Evidence, checkpoint, authorization)은 Unit 단위 파일 락으로 직렬화한다. Foundation release Decision도 같은 방식으로 Foundation 단위 락을 사용한다. Scope wildcard matching은 반복된 `**`가 같은 suffix를 다시 탐색하지 않도록 동적 계획법으로 제한해, 승인된 패턴이 authorization을 지수 시간 동안 점유하지 않게 한다.
+`decisions.json`과 `unit.json`은 read-modify-write 원장이다. 여러 세션·런타임이 같은 Unit을 다룰 수 있으므로, Unit의 모든 변경(Decision, transition, Envelope 제안·승인, Evidence, checkpoint, authorization)은 Unit 단위 파일 락으로 직렬화한다. `verify`, `status`, `resume`도 같은 락 아래에서 여러 Unit artifact의 일관된 snapshot을 읽는다. Foundation release Decision도 같은 방식으로 Foundation 단위 락을 사용한다. Scope wildcard matching은 반복된 `**`가 같은 suffix를 다시 탐색하지 않도록 동적 계획법으로 제한해, 승인된 패턴이 authorization을 지수 시간 동안 점유하지 않게 한다.
 
-락은 운영체제의 advisory file lock으로 획득한다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일의 시각을 추측하거나 경쟁적으로 삭제하지 않는다. lock path는 single-link regular file만 허용하고, 대기 중 열어 둔 inode가 교체된 경우에는 현재 lock path와 같은 파일인지 재확인한 뒤에만 임계 구역에 들어간다. 락을 잡지 못하면 짧게 대기하고, 그래도 실패하면 덮어쓰지 않고 오류를 낸다.
+락은 운영체제의 advisory file lock으로 획득한다. 프로세스가 비정상 종료되면 운영체제가 lock을 해제하므로 방치 파일의 시각을 추측하거나 경쟁적으로 삭제하지 않는다. lock path는 single-link regular file만 허용하고, 대기 중 열어 둔 inode가 교체된 경우에는 현재 lock path와 같은 파일인지 재확인한 뒤에만 임계 구역에 들어간다. 락을 잡지 못하면 짧게 대기하고, 그래도 실패하면 덮어쓰지 않으며 CLI는 traceback 대신 구조화된 오류를 반환한다.
 
 Decision 기록의 postflight는 "내 레코드가 마지막인가"가 아니라 "이전 레코드가 모두 보존된 채 내 레코드가 추가되었는가"를 확인한다. 전자는 남의 레코드를 덮어쓴 writer도 통과시킨다.
 

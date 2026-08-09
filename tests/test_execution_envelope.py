@@ -16,7 +16,9 @@ from isekai.workflow import (
     propose_execution_envelope,
     record_decision,
     transition_unit,
+    verify_unit,
 )
+from isekai.workflow.project import _context_receipt_id
 from isekai.workflow.unit.execution import _scope_pattern_matches
 
 from test_core_workflow import make_project
@@ -29,6 +31,11 @@ def envelope_stages() -> list[dict[str, object]]:
             "name": "construction",
             "depth": "standard",
             "allowed_actions": ["read", "edit", "test"],
+        },
+        {
+            "name": "validation",
+            "depth": "standard",
+            "allowed_actions": ["read", "test"],
         },
     ]
 
@@ -187,6 +194,95 @@ def approve_inception(unit: Path) -> None:
         decided_by="human-reviewer",
     )
     transition_unit(unit, "construction")
+
+
+def test_validation_is_a_real_authorizable_lifecycle_phase(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    record_decision(
+        unit,
+        gate="architecture",
+        outcome="approved",
+        summary="Approve entry into the Validation phase.",
+        rationale=["Construction is complete and the bounded tests are ready."],
+        alternatives=[],
+        tradeoffs=[],
+        risks=[],
+        references=["architecture.md"],
+        decided_by="human-reviewer",
+    )
+
+    transition = transition_unit(unit, "validation")
+    authorization = authorize_action(
+        unit,
+        action="test",
+        target="tests/test_validation.py",
+    )
+
+    assert transition["phase"] == "validation"
+    assert authorization["allowed"] is True
+    assert authorization["stage"] == "validation"
+
+
+def test_l0_project_rejects_edit_and_test_envelopes(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    manifest = json.loads(project.read_text(encoding="utf-8"))
+    manifest["maximum_agent_level"] = "L0"
+    project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    unit = initialize_unit(project, "Read-only Agent Level", project.parent / "units")
+
+    with pytest.raises(ValueError, match="maximum_agent_level L0"):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=[
+                {
+                    "name": "construction",
+                    "depth": "standard",
+                    "allowed_actions": ["read", "edit", "test"],
+                }
+            ],
+            allowed_actions=["read", "edit", "test"],
+            forbidden_actions=["remote"],
+            max_iterations=3,
+            proposed_by="planner-agent",
+        )
+
+    result = propose_execution_envelope(
+        unit,
+        scope=["src/**"],
+        stages=[
+            {
+                "name": "inception",
+                "depth": "light",
+                "allowed_actions": ["read"],
+            }
+        ],
+        allowed_actions=["read"],
+        forbidden_actions=["remote"],
+        max_iterations=1,
+        proposed_by="planner-agent",
+    )
+    assert result["envelope"]["allowed_actions"] == ["read"]
+
+
+def test_authorize_and_verify_enforce_the_receipt_agent_level(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    receipt_path = unit / "context-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["maximum_agent_level"] = "L0"
+    receipt["receipt_id"] = _context_receipt_id(receipt)
+    write_json_atomic(receipt_path, receipt)
+
+    authorization = authorize_action(unit, action="edit", target="src/main.py")
+    verification = verify_unit(unit)
+
+    assert authorization["allowed"] is False
+    assert "maximum_agent_level L0" in authorization["reason"]
+    assert any(
+        "maximum_agent_level L0" in issue for issue in verification["issues"]
+    )
 
 
 def test_construction_transition_restores_envelope_when_unit_write_fails(
