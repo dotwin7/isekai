@@ -127,6 +127,19 @@ def test_runtime_route_and_compatibility_are_enveloped() -> None:
     }
 
 
+@pytest.mark.parametrize("field", ["ambiguous", "multi_party", "remote", "sensitive"])
+@pytest.mark.parametrize("invalid_value", ["false", 0, []])
+def test_runtime_route_rejects_non_boolean_flags(
+    field: str,
+    invalid_value: object,
+) -> None:
+    with pytest.raises(RuntimeContractError, match=f"field {field} must be boolean"):
+        dispatch(
+            "route",
+            {"change": "local", "risk": "low", field: invalid_value},
+        )
+
+
 def test_runtime_unit_migrate_is_idempotent_for_portable_receipt(
     tmp_path: Path,
 ) -> None:

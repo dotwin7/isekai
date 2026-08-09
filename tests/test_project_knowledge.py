@@ -17,7 +17,11 @@ from isekai.workflow import (
 )
 from isekai.workflow.errors import IntegrityError, LifecycleError
 from isekai.workflow.project import _context_receipt_id
-from isekai.workflow.project_knowledge_schema import context_digest
+from isekai.workflow.project_knowledge_schema import (
+    catalog_digest,
+    context_digest,
+    release_digest,
+)
 
 from test_core_workflow import make_project
 
@@ -323,3 +327,36 @@ def test_candidate_scope_must_be_project_relative(tmp_path: Path) -> None:
             entries=[_entry("unsafe-scope-v1", scope=["../other-project/**"])],
             proposed_by="learning-agent",
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "message"),
+    [
+        ("version", {"not": "a-version"}, "semantic versioning"),
+        ("promoted_at", [], "ISO-8601 timestamp"),
+    ],
+)
+def test_project_knowledge_catalog_rejects_malformed_release_fields(
+    tmp_path: Path,
+    field: str,
+    invalid_value: object,
+    message: str,
+) -> None:
+    project = make_project(tmp_path)
+    source = _operating_unit(project)
+    proposed = _propose(source, "malformed-release-probe-v1")
+    reference = str(proposed["reference"])
+    _approve(source, reference)
+    promote_project_knowledge(source, candidate=reference)
+    catalog_path = project.parent / "project-knowledge/catalog.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    release = catalog["releases"][0]
+    release[field] = invalid_value
+    release["release_digest"] = release_digest(release)
+    if field == "version":
+        catalog["current_version"] = invalid_value
+    catalog["catalog_digest"] = catalog_digest(catalog)
+    write_json_atomic(catalog_path, catalog)
+
+    with pytest.raises(IntegrityError, match=message):
+        project_knowledge_status(project)

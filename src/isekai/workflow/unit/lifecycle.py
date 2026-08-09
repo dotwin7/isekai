@@ -36,9 +36,10 @@ from .evidence import (
     _evidence_issues,
     _passing_evidence,
 )
-from .execution import (
-    _approve_execution_envelope,
-    _execution_envelope_issues,
+from .execution import _approve_execution_envelope, _execution_envelope_issues
+from .execution_history import (
+    EXECUTION_AUTHORIZATION_RECORDS_DIR,
+    _execution_authorization_record_issues,
 )
 
 
@@ -399,6 +400,49 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                     ledger, unit, envelope, unit_dir=unit_dir
                 )
             )
+
+    authorization_records = unit_dir / EXECUTION_AUTHORIZATION_RECORDS_DIR
+    if authorization_records.is_symlink():
+        issues.append("Execution authorization records path contains a symlink")
+    elif authorization_records.exists() and not authorization_records.is_dir():
+        issues.append("Execution authorization records path must be a directory")
+    elif authorization_records.is_dir():
+        try:
+            record_paths = sorted(authorization_records.iterdir())
+        except OSError as exc:
+            issues.append(f"cannot inspect Execution authorization records: {exc}")
+            record_paths = []
+        for record_path in record_paths:
+            relative = record_path.relative_to(unit_dir).as_posix()
+            if (
+                record_path.is_symlink()
+                or not record_path.is_file()
+                or record_path.suffix != ".json"
+            ):
+                issues.append(
+                    f"Execution authorization record must be a regular JSON file: {relative}"
+                )
+                continue
+            record = read_artifact(relative)
+            if record is not None:
+                issues.extend(
+                    _execution_authorization_record_issues(
+                        record,
+                        unit,
+                        expected_envelope_id=record_path.stem,
+                    )
+                )
+                archived_envelope = record.get("envelope")
+                if isinstance(archived_envelope, dict):
+                    issues.extend(
+                        "archived " + issue
+                        for issue in _execution_envelope_issues(
+                            archived_envelope,
+                            str(unit.get("id")),
+                            check_expiry=False,
+                            maximum_agent_level=maximum_agent_level,
+                        )
+                    )
 
     decision_entries = decisions.get("decisions") if decisions is not None else None
     if decisions is not None:

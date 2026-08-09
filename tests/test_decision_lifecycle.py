@@ -573,6 +573,55 @@ def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> No
         )
 
 
+@pytest.mark.parametrize("invalid_exit_code", [None, "0", False])
+def test_output_evidence_rejects_non_integer_exit_codes(
+    tmp_path: Path,
+    invalid_exit_code: object,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+
+    with pytest.raises(EvidenceError, match="exit_code must be an integer"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="invalid exit code",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": invalid_exit_code,
+                    "output": "caller-observed output",
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
+                    "authorization_id": authorization_id,
+                }
+            ],
+        )
+
+
+def test_output_evidence_rejects_a_missing_exit_code(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+
+    with pytest.raises(EvidenceError, match="missing fields: exit_code"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="missing exit code",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "output": "caller-observed output",
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
+                    "authorization_id": authorization_id,
+                }
+            ],
+        )
+
+
 def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)

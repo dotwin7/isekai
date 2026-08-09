@@ -20,11 +20,16 @@ from .authorization import (
     _authorization_target_protection_issue,
     _normalize_authorization_target,
 )
+from .execution_history import (
+    _execution_authorization_record_relative,
+    _persist_execution_authorization_record,
+)
 from .common import (
     _restore_snapshots,
     _unit_bytes,
     _unit_json,
     _unit_maximum_agent_level,
+    _unit_path_without_symlinks,
     _unit_preflight_issues,
     _write_json,
     unit_lock,
@@ -412,6 +417,17 @@ def _propose_execution_envelope_locked(
     ledger_path = unit_dir / "execution-authorizations.json"
     previous_envelope = _unit_bytes(unit_dir, "execution-envelope.json")
     previous_ledger = _unit_bytes(unit_dir, "execution-authorizations.json")
+    previous_envelope_record = _unit_json(unit_dir, "execution-envelope.json")
+    previous_ledger_record = _unit_json(unit_dir, "execution-authorizations.json")
+    previous_grants = previous_ledger_record.get("grants")
+    archive_target: Path | None = None
+    archive_preexisting = False
+    if isinstance(previous_grants, list) and previous_grants:
+        archive_relative = _execution_authorization_record_relative(
+            str(previous_envelope_record.get("id", ""))
+        )
+        archive_target = _unit_path_without_symlinks(unit_dir, archive_relative)
+        archive_preexisting = archive_target.exists() or archive_target.is_symlink()
     try:
         _write_json(envelope_path, envelope)
         _write_json(ledger_path, ledger)
@@ -425,12 +441,32 @@ def _propose_execution_envelope_locked(
             raise IntegrityError(
                 "Execution Envelope postflight blocked: records were not persisted"
             )
+        if archive_target is not None:
+            _persist_execution_authorization_record(
+                unit_dir,
+                unit,
+                previous_envelope_record,
+                previous_ledger_record,
+            )
     except Exception as exc:
+        archive_cleanup_error: OSError | None = None
+        if archive_target is not None and not archive_preexisting:
+            try:
+                archive_target.unlink(missing_ok=True)
+                archive_target.parent.rmdir()
+            except OSError as cleanup_exc:
+                if archive_target.exists() or archive_target.is_symlink():
+                    archive_cleanup_error = cleanup_exc
         _restore_snapshots(
             [(envelope_path, previous_envelope), (ledger_path, previous_ledger)],
             "Execution Envelope transaction",
             exc,
         )
+        if archive_cleanup_error is not None:
+            raise IntegrityError(
+                "Execution Envelope transaction failed and authorization archive "
+                f"rollback failed: {archive_cleanup_error}"
+            ) from exc
         raise
     return {"path": str(unit_dir / "execution-envelope.json"), "envelope": envelope}
 

@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..errors import (
     AuthorizationError,
@@ -451,13 +451,22 @@ def _record_evidence_locked(
             raise EvidenceError(f"command {index} must be an object")
         item = dict(command)
         if "output" in item:
+            missing_input_fields = sorted(
+                {"command", "exit_code", "observed_at", "authorization_id"}
+                - item.keys()
+            )
+            if missing_input_fields:
+                raise EvidenceError(
+                    f"command {index} missing fields: "
+                    + ", ".join(missing_input_fields)
+                )
             core_derived_outputs += 1
             output = item.pop("output")
             computed = build_command_evidence(
-                str(item.get("command", "")),
-                int(item.get("exit_code", 0)),
+                cast(str, item["command"]),
+                cast(int, item["exit_code"]),
                 output,
-                str(item.get("observed_at", "")),
+                cast(str, item["observed_at"]),
             )
             supplied_digest = item.get("output_digest")
             if (

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 
@@ -16,6 +17,22 @@ CANDIDATE_REFERENCE = re.compile(
 )
 ENTRY_ID = re.compile(r"[A-Za-z][A-Za-z0-9._-]{1,63}")
 SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+SEMVER = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+PROJECT_KNOWLEDGE_CANDIDATE_ID = re.compile(r"PKC-[A-Z0-9-]+")
+
+
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _is_iso_timestamp(value: Any) -> bool:
+    if not _non_empty_string(value):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def canonical_digest(value: dict[str, Any], digest_field: str) -> str:
@@ -106,11 +123,17 @@ def entry_issues(entry: Any, *, released: bool) -> list[str]:
     if released:
         if entry.get("status") not in {"approved", "deprecated"}:
             issues.append("released Project Knowledge entry has an invalid status")
-        for field in ("source_unit_id", "candidate_id", "decision_id", "promoted_at"):
-            if not isinstance(entry.get(field), str) or not entry.get(field, "").strip():
+        for field in ("source_unit_id", "candidate_id", "decision_id"):
+            if not _non_empty_string(entry.get(field)):
                 issues.append(f"released Project Knowledge entry requires {field}")
-        if entry.get("status") == "deprecated" and not isinstance(
-            entry.get("superseded_by"), str
+        if not _is_iso_timestamp(entry.get("promoted_at")):
+            issues.append(
+                "released Project Knowledge entry promoted_at must be an ISO-8601 timestamp"
+            )
+        superseded_by = entry.get("superseded_by")
+        if entry.get("status") == "deprecated" and (
+            not isinstance(superseded_by, str)
+            or ENTRY_ID.fullmatch(superseded_by) is None
         ):
             issues.append("deprecated Project Knowledge entry requires superseded_by")
     return issues
@@ -135,33 +158,65 @@ def release_issues(release: Any, *, project_id: str) -> list[str]:
         "source_decision_id",
         "release_digest",
     }
+    allowed = set(required)
     missing = sorted(required - release.keys())
     if missing:
         issues.append("Project Knowledge release missing fields: " + ", ".join(missing))
+    unexpected = sorted(set(release) - allowed)
+    if unexpected:
+        issues.append(
+            "Project Knowledge release has unsupported fields: "
+            + ", ".join(unexpected)
+        )
     if release.get("type") != "project-knowledge-release":
         issues.append("Project Knowledge release has an invalid type")
     if release.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
         issues.append("Project Knowledge release has an unsupported schema_version")
     if release.get("project_id") != project_id:
         issues.append("Project Knowledge release project_id does not match Project")
+    version = release.get("version")
+    if not isinstance(version, str) or SEMVER.fullmatch(version) is None:
+        issues.append("Project Knowledge release version must be semantic versioning")
+    release_id = release.get("id")
+    if not _non_empty_string(release_id) or (
+        isinstance(version, str)
+        and SEMVER.fullmatch(version) is not None
+        and release_id != f"PKR-{version}"
+    ):
+        issues.append("Project Knowledge release id does not match its version")
     if release.get("status") != "approved":
         issues.append("Project Knowledge release status must be approved")
+    if not _is_iso_timestamp(release.get("promoted_at")):
+        issues.append(
+            "Project Knowledge release promoted_at must be an ISO-8601 timestamp"
+        )
+    for field in ("promoted_by", "source_decision_id"):
+        if not _non_empty_string(release.get(field)):
+            issues.append(f"Project Knowledge release requires {field}")
+    source_candidate_id = release.get("source_candidate_id")
+    if (
+        not isinstance(source_candidate_id, str)
+        or PROJECT_KNOWLEDGE_CANDIDATE_ID.fullmatch(source_candidate_id) is None
+    ):
+        issues.append("Project Knowledge release source_candidate_id is invalid")
     entries = release.get("entries")
     if not isinstance(entries, list):
         issues.append("Project Knowledge release entries must be a list")
     else:
-        ids: list[Any] = []
+        ids: list[str] = []
         for index, entry in enumerate(entries):
             issues.extend(
                 f"entry {index}: {issue}"
                 for issue in entry_issues(entry, released=True)
             )
-            if isinstance(entry, dict):
-                ids.append(entry.get("id"))
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+                ids.append(entry["id"])
         if len(ids) != len(set(ids)):
             issues.append("Project Knowledge release contains duplicate entry ids")
     previous = release.get("previous_release_digest")
-    if previous is not None and not isinstance(previous, str):
+    if previous is not None and (
+        not isinstance(previous, str) or SHA256.fullmatch(previous) is None
+    ):
         issues.append("Project Knowledge previous_release_digest is invalid")
     digest = release.get("release_digest")
     if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
@@ -175,6 +230,23 @@ def catalog_issues(catalog: Any, *, project_id: str) -> list[str]:
     if not isinstance(catalog, dict):
         return ["Project Knowledge catalog must be an object"]
     issues: list[str] = []
+    required = {
+        "type",
+        "schema_version",
+        "project_id",
+        "current_version",
+        "releases",
+        "catalog_digest",
+    }
+    missing = sorted(required - catalog.keys())
+    if missing:
+        issues.append("Project Knowledge catalog missing fields: " + ", ".join(missing))
+    unexpected = sorted(set(catalog) - required)
+    if unexpected:
+        issues.append(
+            "Project Knowledge catalog has unsupported fields: "
+            + ", ".join(unexpected)
+        )
     if catalog.get("type") != "project-knowledge-catalog":
         issues.append("Project Knowledge catalog has an invalid type")
     if catalog.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
@@ -185,7 +257,7 @@ def catalog_issues(catalog: Any, *, project_id: str) -> list[str]:
     if not isinstance(releases, list):
         return issues + ["Project Knowledge catalog releases must be a list"]
     previous: str | None = None
-    versions: list[Any] = []
+    versions: list[str] = []
     for index, release in enumerate(releases):
         issues.extend(
             f"release {index}: {issue}"
@@ -195,10 +267,21 @@ def catalog_issues(catalog: Any, *, project_id: str) -> list[str]:
             if release.get("previous_release_digest") != previous:
                 issues.append(f"release {index}: release digest chain is broken")
             previous = release.get("release_digest")
-            versions.append(release.get("version"))
+            version = release.get("version")
+            if isinstance(version, str):
+                versions.append(version)
     if len(versions) != len(set(versions)):
         issues.append("Project Knowledge catalog contains duplicate versions")
-    expected_version = releases[-1].get("version") if releases else None
+    latest_release = releases[-1] if releases else None
+    expected_version = (
+        latest_release.get("version") if isinstance(latest_release, dict) else None
+    )
+    current_version = catalog.get("current_version")
+    if current_version is not None and (
+        not isinstance(current_version, str)
+        or SEMVER.fullmatch(current_version) is None
+    ):
+        issues.append("Project Knowledge catalog current_version is invalid")
     if catalog.get("current_version") != expected_version:
         issues.append("Project Knowledge catalog current_version is invalid")
     digest = catalog.get("catalog_digest")
@@ -244,6 +327,24 @@ def candidate_issues(candidate: Any, *, project_id: str, unit_id: str) -> list[s
         issues.append("Project Knowledge candidate project_id does not match Project")
     if candidate.get("source_unit_id") != unit_id:
         issues.append("Project Knowledge candidate source_unit_id does not match Unit")
+    candidate_id = candidate.get("id")
+    if (
+        not isinstance(candidate_id, str)
+        or PROJECT_KNOWLEDGE_CANDIDATE_ID.fullmatch(candidate_id) is None
+    ):
+        issues.append("Project Knowledge candidate id is invalid")
+    base_release_digest = candidate.get("base_release_digest")
+    if base_release_digest is not None and (
+        not isinstance(base_release_digest, str)
+        or SHA256.fullmatch(base_release_digest) is None
+    ):
+        issues.append("Project Knowledge candidate base_release_digest is invalid")
+    if not _non_empty_string(candidate.get("proposed_by")):
+        issues.append("Project Knowledge candidate requires proposed_by")
+    if not _is_iso_timestamp(candidate.get("proposed_at")):
+        issues.append(
+            "Project Knowledge candidate proposed_at must be an ISO-8601 timestamp"
+        )
     source_unit = candidate.get("source_unit")
     if source_unit is not None:
         if not isinstance(source_unit, dict):
@@ -279,28 +380,38 @@ def candidate_issues(candidate: Any, *, project_id: str, unit_id: str) -> list[s
     if not isinstance(entries, list) or not entries:
         issues.append("Project Knowledge candidate entries must be a non-empty list")
     else:
-        ids: list[Any] = []
+        ids: list[str] = []
         for index, entry in enumerate(entries):
             issues.extend(
                 f"entry {index}: {issue}"
                 for issue in entry_issues(entry, released=False)
             )
-            if isinstance(entry, dict):
-                ids.append(entry.get("id"))
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+                ids.append(entry["id"])
         if len(ids) != len(set(ids)):
             issues.append("Project Knowledge candidate contains duplicate entry ids")
     artifacts = candidate.get("source_artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         issues.append("Project Knowledge candidate source_artifacts must be non-empty")
     else:
-        references: list[Any] = []
+        references: list[str] = []
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 issues.append("Project Knowledge source artifact must be an object")
                 continue
-            references.append(artifact.get("reference"))
-            if not isinstance(artifact.get("reference"), str):
+            unexpected_artifact_fields = sorted(
+                set(artifact) - {"reference", "digest"}
+            )
+            if unexpected_artifact_fields:
+                issues.append(
+                    "Project Knowledge source artifact has unsupported fields: "
+                    + ", ".join(unexpected_artifact_fields)
+                )
+            reference = artifact.get("reference")
+            if not _non_empty_string(reference):
                 issues.append("Project Knowledge source artifact reference is invalid")
+            elif isinstance(reference, str):
+                references.append(reference)
             if not isinstance(artifact.get("digest"), str) or SHA256.fullmatch(
                 artifact.get("digest", "")
             ) is None:
@@ -422,6 +533,12 @@ def context_issues(context: Any, *, project_id: str) -> list[str]:
     missing = sorted(required - context.keys())
     if missing:
         issues.append("Project Knowledge context missing fields: " + ", ".join(missing))
+    unexpected = sorted(set(context) - required)
+    if unexpected:
+        issues.append(
+            "Project Knowledge context has unsupported fields: "
+            + ", ".join(unexpected)
+        )
     if context.get("type") != "project-knowledge-context":
         issues.append("Project Knowledge context has an invalid type")
     if context.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
@@ -439,7 +556,7 @@ def context_issues(context: Any, *, project_id: str) -> list[str]:
     if not isinstance(entries, list):
         issues.append("Project Knowledge context entries must be a list")
     else:
-        ids: list[Any] = []
+        ids: list[str] = []
         for index, entry in enumerate(entries):
             issues.extend(
                 f"entry {index}: {issue}"
@@ -447,14 +564,32 @@ def context_issues(context: Any, *, project_id: str) -> list[str]:
             )
             if isinstance(entry, dict) and entry.get("status") != "approved":
                 issues.append(f"entry {index}: selected entry must be approved")
-            if isinstance(entry, dict):
-                ids.append(entry.get("id"))
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+                ids.append(entry["id"])
         if len(ids) != len(set(ids)):
             issues.append("Project Knowledge context contains duplicate entry ids")
     selection = context.get("selection")
     if not isinstance(selection, dict):
         issues.append("Project Knowledge context selection must be an object")
     else:
+        selection_fields = {
+            "mode",
+            "work_scope",
+            "active_entry_count",
+            "selected_entry_count",
+        }
+        missing_selection_fields = sorted(selection_fields - selection.keys())
+        if missing_selection_fields:
+            issues.append(
+                "Project Knowledge context selection missing fields: "
+                + ", ".join(missing_selection_fields)
+            )
+        unexpected_selection_fields = sorted(set(selection) - selection_fields)
+        if unexpected_selection_fields:
+            issues.append(
+                "Project Knowledge context selection has unsupported fields: "
+                + ", ".join(unexpected_selection_fields)
+            )
         scopes = selection.get("work_scope")
         if not isinstance(scopes, list) or any(
             not isinstance(scope, str) or not scope.strip() for scope in scopes

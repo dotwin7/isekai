@@ -31,6 +31,7 @@ unit/
 ├─ context-receipt.json
 ├─ execution-envelope.json
 ├─ execution-authorizations.json
+├─ execution-authorization-records/ENV-*.json
 ├─ release.md
 └─ operations.md
 ```
@@ -191,7 +192,7 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
 }
 ```
 
-Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다. 저장된 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 `project.json`, `isekai.lock.json`, `.git`, `.isekai` 같은 내부 control path로 바뀌면 즉시 원장을 거부한다. 기존 파일은 regular file이고 link count가 1일 때만 허용해 hardlink를 통한 Project 외부 읽기·수정을 차단한다. Unit 필수 artifact 경로의 symlink도 읽기 전에 거부한다.
+Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다. grant가 있는 Envelope를 교체하면 Core는 이전 Envelope와 authorization ledger를 `execution-authorization-records/ENV-*.json`에 digest-bound 불변 레코드로 보존해 과거 Evidence의 `authorization_ledger_digest`와 독립적으로 대조할 수 있게 한다. 저장된 현재 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 `project.json`, `isekai.lock.json`, `.git`, `.isekai` 같은 내부 control path로 바뀌면 즉시 원장을 거부한다. 기존 파일은 regular file이고 link count가 1일 때만 허용해 hardlink를 통한 Project 외부 읽기·수정을 차단한다. Unit 필수 artifact와 authorization archive 경로의 symlink도 읽기 전에 거부한다.
 
 Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 action의 상한이다. `L0`은 `read`만 허용하고 `L1`은 `read`, `edit`, `test`를 허용한다. Core는 Envelope 제안·승인·authorization·Unit 검증에서 이 상한을 다시 확인하므로, 낮은 level의 Project에서 더 넓은 action을 적어 넣어도 권한이 생기지 않는다.
 

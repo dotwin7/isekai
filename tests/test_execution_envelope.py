@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import isekai.workflow.unit.execution as execution_module
+import isekai.workflow.unit.execution_history as execution_history_module
 import isekai.workflow.unit.lifecycle as lifecycle_module
 from isekai.jsonio import write_json_atomic
 from isekai.workflow.errors import AuthorizationError, IntegrityError
@@ -89,6 +90,36 @@ def test_envelope_proposal_write_failure_restores_both_control_records(
         )
 
     assert (envelope_path.read_bytes(), ledger_path.read_bytes()) == before
+
+
+def test_envelope_archive_write_failure_restores_active_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    assert authorize_action(unit, action="edit", target="src/first.py")["allowed"] is True
+    envelope_path = unit / "execution-envelope.json"
+    ledger_path = unit / "execution-authorizations.json"
+    before = (envelope_path.read_bytes(), ledger_path.read_bytes())
+    def fail_archive_write(path: Path, value: object) -> None:
+        raise OSError("forced authorization archive write failure")
+
+    monkeypatch.setattr(execution_history_module, "_write_json", fail_archive_write)
+
+    with pytest.raises(OSError, match="forced authorization archive write failure"):
+        propose_execution_envelope(
+            unit,
+            scope=["src/**"],
+            stages=envelope_stages(),
+            allowed_actions=["read", "edit", "test"],
+            forbidden_actions=["remote"],
+            max_iterations=3,
+            proposed_by="planner-agent",
+        )
+
+    assert (envelope_path.read_bytes(), ledger_path.read_bytes()) == before
+    assert not list((unit / "execution-authorization-records").glob("*.json"))
 
 
 def test_envelope_accepts_an_adaptive_stage_plan_with_explicit_skip(
@@ -652,7 +683,17 @@ def test_authorization_grants_consume_the_iteration_budget(tmp_path: Path) -> No
     assert len(ledger["grants"]) == 1
 
 
-def test_authorization_cannot_edit_its_own_control_ledger(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "control_relative",
+    [
+        "execution-authorizations.json",
+        "execution-authorization-records/ENV-ARCHIVED.json",
+    ],
+)
+def test_authorization_cannot_edit_its_own_control_ledger(
+    tmp_path: Path,
+    control_relative: str,
+) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Protected Ledger", project.parent / "units")
     propose_execution_envelope(
@@ -672,7 +713,7 @@ def test_authorization_cannot_edit_its_own_control_ledger(tmp_path: Path) -> Non
     )
     approve_inception(unit)
     ledger_target = str(
-        (unit / "execution-authorizations.json").relative_to(project.parent)
+        (unit / control_relative).relative_to(project.parent)
     )
 
     result = authorize_action(unit, action="edit", target=ledger_target)

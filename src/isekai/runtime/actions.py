@@ -301,6 +301,13 @@ def _list_field(payload: Mapping[str, Any], key: str) -> list[Any]:
     return list(value)
 
 
+def _boolean_field(payload: Mapping[str, Any], key: str) -> bool:
+    value = payload.get(key, False)
+    if not isinstance(value, bool):
+        raise RuntimeContractError(f"runtime request field {key} must be boolean")
+    return value
+
+
 def _handshake(values: Mapping[str, Any]) -> dict[str, Any]:
     try:
         return verify_adapter_handshake(
@@ -411,10 +418,10 @@ def _route(values: Mapping[str, Any]) -> dict[str, Any]:
     request = RouteRequest(
         change=str(_required(values, "change")),
         risk=str(values.get("risk", "low")),
-        ambiguous=bool(values.get("ambiguous", False)),
-        multi_party=bool(values.get("multi_party", False)),
-        remote=bool(values.get("remote", False)),
-        sensitive=bool(values.get("sensitive", False)),
+        ambiguous=_boolean_field(values, "ambiguous"),
+        multi_party=_boolean_field(values, "multi_party"),
+        remote=_boolean_field(values, "remote"),
+        sensitive=_boolean_field(values, "sensitive"),
     )
     return classify_work(request).as_dict()
 

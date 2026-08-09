@@ -156,12 +156,57 @@ def test_exhausted_iteration_budget_is_recoverable_by_renewal(tmp_path: Path) ->
     exhausted = authorize_action(unit, action="edit", target="src/second.py")
     assert exhausted["allowed"] is False
     assert "exhausted" in exhausted["reason"]
+    previous_envelope = json.loads(
+        (unit / "execution-envelope.json").read_text(encoding="utf-8")
+    )
+    previous_ledger = json.loads(
+        (unit / "execution-authorizations.json").read_text(encoding="utf-8")
+    )
 
     renew(unit, max_iterations=2)
 
+    archived = json.loads(
+        (
+            unit
+            / "execution-authorization-records"
+            / f"{previous_envelope['id']}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert archived["envelope"] == previous_envelope
+    assert archived["authorization_ledger"] == previous_ledger
+    assert archived["authorization_ledger_digest"].startswith("sha256:")
+    assert not any(
+        "authorization record" in issue.lower()
+        for issue in verify_unit(unit)["issues"]
+    )
     recovered = authorize_action(unit, action="edit", target="src/second.py")
     assert recovered["allowed"] is True
     assert recovered["iteration"] == 1
+
+
+def test_renewed_authorization_archive_tampering_is_detected(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    assert authorize_action(unit, action="edit", target="src/first.py")["allowed"] is True
+    previous_envelope = json.loads(
+        (unit / "execution-envelope.json").read_text(encoding="utf-8")
+    )
+    renew(unit)
+    archive_path = (
+        unit
+        / "execution-authorization-records"
+        / f"{previous_envelope['id']}.json"
+    )
+    archived = json.loads(archive_path.read_text(encoding="utf-8"))
+    archived["authorization_ledger"]["grants"][0]["target"] = "src/tampered.py"
+    archive_path.write_text(json.dumps(archived, indent=2) + "\n", encoding="utf-8")
+
+    result = verify_unit(unit)
+
+    assert any(
+        "authorization record ledger digest" in issue.lower()
+        for issue in result["issues"]
+    )
 
 
 def test_validation_unit_can_renew_an_expired_envelope(tmp_path: Path) -> None:

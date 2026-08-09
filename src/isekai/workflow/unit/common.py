@@ -49,7 +49,10 @@ PROTECTED_UNIT_ARTIFACTS = {
     "evaluations/criteria.json",
     "evidence/verification.json",
 }
-PROTECTED_UNIT_ARTIFACT_PREFIXES = ("evidence/records/",)
+PROTECTED_UNIT_ARTIFACT_PREFIXES = (
+    "evidence/records/",
+    "execution-authorization-records/",
+)
 UNIT_LOCK_NAME = ".isekai-unit.lock"
 
 
