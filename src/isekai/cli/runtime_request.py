@@ -32,8 +32,11 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         payload = {"project": args.project, "unit": args.unit}
     elif action in {"off", "compatibility"}:
         payload = {}
+    elif action == "feature-status":
+        payload = {}
     elif action == "intake":
         payload = {
+            "project": args.project,
             "source": args.source,
             "goal": args.goal,
             "expected_outcome": args.expected_outcome,
@@ -80,6 +83,7 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         payload = {"unit": args.unit, "candidate": args.candidate}
     elif action == "route":
         payload = {
+            "project": args.project,
             "change": args.change,
             "risk": args.risk,
             "ambiguous": args.ambiguous,
@@ -103,6 +107,21 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "blocked_by": args.blocked_by,
             "next_action": args.next_action,
         }
+    elif action == "amend":
+        payload = {
+            "unit": args.unit,
+            "request": args.request,
+            "reason": args.reason,
+            "affected_artifacts": args.affected_artifacts,
+            "requested_by": args.requested_by,
+        }
+    elif action == "active-unit-detach":
+        payload = {
+            "project": args.project,
+            "unit": args.unit,
+            "requested_by": args.requested_by,
+            "reason": args.reason,
+        }
     elif action == "envelope-propose":
         payload = {
             "unit": args.unit,
@@ -125,6 +144,23 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "stage": args.stage,
             "method": args.method,
             "credential_ref": args.credential_ref,
+        }
+    elif action == "managed-edit":
+        payload = {
+            "unit": args.unit,
+            "changes": json.loads(args.changes_json),
+        }
+    elif action == "artifact-write":
+        payload = {
+            "unit": args.unit,
+            "artifacts": json.loads(args.artifacts_json),
+        }
+    elif action == "managed-test":
+        payload = {
+            "unit": args.unit,
+            "target": args.target,
+            "command": json.loads(args.command_json),
+            "timeout_seconds": args.timeout_seconds,
         }
     elif action == "evidence":
         payload = {
@@ -161,6 +197,8 @@ def runtime_exit_code(action: str, result: dict[str, Any]) -> int:
     values = result["result"]
     gates = {
         "authorize": "allowed",
+        "managed-edit": "allowed",
+        "managed-test": "allowed",
         "verify": "valid",
         "release-check": "ready",
         "foundation-promote": "promoted",

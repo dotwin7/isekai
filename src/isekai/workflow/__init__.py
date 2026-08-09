@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-"""Stable workflow API backed by focused domain modules.
-
-The Runtime Skill, CLI, and downstream callers keep importing ``isekai.workflow``.
-Implementation lives in smaller modules so each lifecycle concern can evolve
-without recreating a monolithic workflow module.
-"""
-
 from .project import initialize_project as _initialize_project
 from .project import load_project, resolve_context
+from .features import (
+    feature_resources,
+    load_feature_catalog,
+    read_feature_resource,
+)
 from .project_knowledge import (
     current_project_knowledge,
     project_knowledge_status,
@@ -32,6 +30,7 @@ from .unit.authorization import (
     AUTHORIZATION_LEDGER_REQUIRED_FIELDS,
     _authorization_ledger_issues,
 )
+from .unit.amendments import record_unit_amendment
 from .unit.common import (
     PROTECTED_UNIT_ARTIFACTS,
     UNIT_LOCK_NAME,
@@ -123,11 +122,13 @@ __all__ = [
     "approve_execution_envelope",
     "authorize_action",
     "build_command_evidence",
+    "feature_resources",
     "classify_work",
     "current_project_knowledge",
     "initialize_project",
     "initialize_unit",
     "load_project",
+    "load_feature_catalog",
     "propose_execution_envelope",
     "project_knowledge_status",
     "promote_project_knowledge",
@@ -136,6 +137,8 @@ __all__ = [
     "summarize_project_knowledge",
     "record_decision",
     "record_evidence",
+    "record_unit_amendment",
+    "read_feature_resource",
     "resolve_context",
     "transition_unit",
     "unit_lock",

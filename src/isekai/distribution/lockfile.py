@@ -106,6 +106,19 @@ def _install_lock_issues(lock: object) -> list[str]:
             source_digest=True,
         )
     )
+    features = lock.get("features")
+    if features is not None:
+        issues.extend(
+            _component_lock_issues(
+                features,
+                label="features",
+                source_digest=True,
+            )
+        )
+        if isinstance(features, dict):
+            issues.extend(
+                _non_empty_string_issues(features.get("id"), label="features.id")
+            )
     foundation = lock.get("foundation")
     issues.extend(
         _component_lock_issues(

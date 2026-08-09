@@ -41,7 +41,7 @@ Core는 도메인별 이름 대신 재사용 가능한 최소 추상 계약만 �
 
 ## Domain Profile과 Product Extension
 
-Domain Profile은 Core를 전문화하는 용어·관계·제약·Semantic mapping 묶음이다. Product Extension은 해당 Profile을 변경하지 않고 제품 전용 필드·워크플로·지표를 namespace 아래 추가한다.
+Domain Profile은 Core를 전문화하는 용어·관계·제약·Semantic mapping 묶음이다. Product Extension은 해당 Profile을 변경하지 않고 제품 전용 필드·워크플로·지표를 namespace 아래 추가한다. ISEKAI가 제공하는 Runtime 기능은 Product Extension과 분리된 [ISEKAI Feature Catalog](features.md)가 소유한다.
 
 ```text
 Security Profile: Asset, Identity, Event, Alert, Case, Finding, Control
@@ -88,11 +88,12 @@ scope: tenant-workspace-project
 
 ```text
 Project Artifacts + Foundation Version + Decisions
-+ Context Receipt + Checkpoint + Evidence References
++ Active Unit Binding + Context Receipt + Checkpoint + Evidence References
 = 재구성 가능한 작업 컨텍스트
 ```
 
-- **Context Receipt:** Unit, Foundation 버전, 적용 규칙, Knowledge·Semantic 참조, Agent 권한과 Scope
+- **Context Receipt:** Unit, Foundation 버전, 적용 규칙, Knowledge·Semantic 참조, Capability catalog digest, Agent 권한과 Scope
+- **Active Unit Binding:** `learned` 전까지 Project의 persistent work를 Unit 하나에 고정하는 ignored Core enforcement state. 명시적 detach와 최종 learned 사건을 digest chain으로 기록한다.
 - **Project Knowledge release:** Unit에서 나온 재사용 항목을 사람의 Knowledge Decision으로 승인한 프로젝트 범위 snapshot. 새 Unit은 생성 시점 release digest와 자기 `work_scope`에 겹치는 활성 항목만 Receipt에 고정하며 기존 Unit은 자동 갱신하지 않는다.
 - **Checkpoint:** 완료·미완료 단계, 결정과 근거, 차단 요소와 다음 행동
 - **복구:** 컨텍스트 압축·세션 종료·에이전트 교체 후 원본 산출물과 Checkpoint에서 재개

@@ -8,7 +8,9 @@
 
 Thin @@RUNTIME_LABEL@@ adapter for the project-local ISEKAI Core. Does not replace the host agent.
 
-Adapter `0.2.0`, protocol `1.1.0`. Use the Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` (POSIX) or `.isekai/bin/isekai.cmd` (Windows). Never fall back to an `isekai` command from `PATH`. If the launcher or lock is absent, stop and ask the user to install. Before every runtime action except `handshake` itself, run `runtime handshake --runtime @@RUNTIME@@ --adapter-version 0.2.0 --protocol-version 1.1.0 --project PROJECT_ROOT` and stop on incompatibility.
+ISEKAI active-Unit work uses an exclusive Core execution boundary, not lifecycle hooks. The Project execution guard must expose Project files as read-only and connect the project-local `isekai-core` MCP server from `<PROJECT_ROOT>/.isekai/bin/isekai mcp-serve --project <PROJECT_ROOT> --runtime @@RUNTIME@@`. Host `Edit`, `Write`, `apply_patch`, notebook edit, and write-capable shell tools must be unavailable inside that boundary. If those tools remain writable, stop: the session is not an enforceable ISEKAI execution environment.
+
+Adapter `0.2.1`, protocol `1.1.0`. Use the Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` (POSIX) or `.isekai/bin/isekai.cmd` (Windows). Never fall back to an `isekai` command from `PATH`. If the launcher or lock is absent, stop and ask the user to install. Before every runtime action except `handshake` itself, run `runtime handshake --runtime @@RUNTIME@@ --adapter-version 0.2.1 --protocol-version 1.1.0 --project PROJECT_ROOT` and stop on incompatibility.
 
 ## Activation gate
 
@@ -16,7 +18,7 @@ The adapter may be discoverable by @@RUNTIME_LABEL@@, but discovery is not activ
 
 @@ACTIVATION_BODY@@
 
-While mode is active, normalize each new request through `intake` and follow its Query, Quick Change, or Unit route. A response to a pending Human Gate is handled as that Gate's review response before considering a new intake route; revision feedback must never be downgraded to a separate Quick Change. Mode is conversation-local and separate from Unit lifecycle status. In a new or interrupted session, invoke `on` to activate the Project, then invoke `resume` separately only when continuing an existing Unit.
+Core persists one Project-scoped active Unit binding in ignored `.isekai-runtime/active-unit.json`. `unit-init` and `resume` bind an unfinished Unit; `on`, `status`, and `resume` expose `active_unit_binding`; `off` never clears it; and the final transition to `learned` clears it mechanically. While the binding is active, Core blocks a new `intake`, `route`, `inception`, `unit-init`, and every persistent action against a sibling Unit. Treat every new user message as part of the bound Unit and use `amend` for additions or changes. Only an explicit user decision to start separate work, abandon the Unit, or switch Units may invoke `active-unit-detach` after a current Checkpoint; then run `resume` for an existing Unit or `intake` for new work.
 
 Before calling `intake`, classify the full user request and conversation context rather than forwarding CLI defaults. Always pass `--change` when the route-relevant change size is known. Pass `--risk high`, `--ambiguous`, `--multi-party`, `--remote`, and `--sensitive` whenever their conditions apply, including read-only requests involving production systems, credentials, customer data, or consequential multi-person decisions. Core performs conservative text inference as defense in depth, but it cannot see omitted conversation context and does not replace Adapter classification. Never use an explicit low-risk or false flag to downgrade a signal Core inferred from the request.
 
@@ -24,14 +26,23 @@ Before calling `intake`, classify the full user request and conversation context
 
 The host agent drives the lifecycle; Core classifies work, validates boundaries, and records durable state. After `intake`, treat the returned `workflow` object as the orchestration contract.
 
+- After `on` or `resume`, read `feature-status` once and use only cataloged ISEKAI Features with `active: true`. A preview feature has no executable authority. Never let a Feature raise `maximum_agent_level`, add an Envelope action, bypass a Human Gate, or invoke an undeclared external tool.
 - For `direct-response`, inspect only what is needed, answer, and create no ISEKAI artifact.
-- For `bounded-change`, state a compact scope/change/verification plan, perform the smallest reversible change, verify it, and report. Re-route to Unit if scope, persistence, uncertainty, or risk expands.
+- For `bounded-change`, state a compact scope/change/verification plan. Read-only work may remain bounded. If it requires a Project file mutation, re-route it to an adaptive Unit because `managed-edit` is Unit-bound; never fall back to a direct host writer. Re-route as well if scope, persistence, uncertainty, or risk expands.
 - For `adaptive-unit`, perform read-only project discovery first, then propose an autonomy-bounded plan with the goal, expected outcome, scope, non-goals, acceptance criteria, risks, verification, and every lifecycle stage with `apply` or `skip` plus `light`, `standard`, or `deep` depth and a reason. Inception, Construction, Validation, and Learn are required; propose whether Release and Operations apply.
 - Read `maximum_agent_level` before proposing an Envelope. `L0`=read only, `L1`=read+edit+test, `L2`=L1+exact budgeted dev/test `external-api`. The Project ceiling cannot be overridden.
 - Ask only questions whose answers would materially change the plan. Do not turn Inception into a questionnaire.
 - Obtain one explicit user approval for the complete autonomy-bounded plan before `unit-init` or any other Unit write. Pass the normalized intent to `--intent-json`, translate the stage plan into the Envelope, preserve each stage's `disposition`, `depth`, `reason`, and bounded `allowed_actions`.
+- Immediately after `unit-init` and before the first lifecycle transition, use Core `artifact-write` to persist the exact approved plan in `plan.md` and materialize `intent.md`, `requirements.md`, `acceptance.md`, the Release and Operations dispositions, and the initial Checkpoint. Remove every `ISEKAI:placeholder` marker. Never leave an approved plan only in the conversation or continue while a required artifact is still template text.
+- Complete the approved source implementation during Construction, materialize `architecture.md` and `implementation-guide.md`, and present the Architecture Decision Packet before transitioning to Validation. Validation is for the approved verification plan and Evidence; do not defer the primary implementation until after the Validation transition.
+- Use Core `managed-edit` for every Project file batch and `managed-test` for every test command. Managed tests run in a disposable Project copy, so test-generated writes never flow back to the source Project. These actions validate, execute, and record the result inside Core; they never return a free-standing host write grant. Runtime `authorize --action edit|test` is intentionally denied. Treat `checkpoint_required: true` from `managed-edit`, `managed-test`, or `external-api` authorization as a post-action obligation. After each managed work batch, use `artifact-write` for the affected stage document and write a Checkpoint before requesting another implementation action. At minimum, checkpoint before any progress report, Human Gate, context or Unit switch, final response, or intentional stop. Do not rewrite the approved Intent or Plan merely to report progress; use Checkpoint, Architecture, Implementation Guide, Acceptance, Release, or Operations as appropriate.
+- On `resume`, inspect `checkpoint_fresh`, `checkpoint_issues`, and `recovery_required`. If stale, stop new implementation, reconcile the recorded authorization targets with the workspace, update the affected Unit artifacts, and write a recovery Checkpoint first. Never present a stale `next_action` as authoritative.
+- For any user-requested addition, deletion, or behavior change while the Unit is active, invoke `amend` before implementation with the normalized request, the real requesting user, and every affected Unit artifact. This is an approved Amendment Decision, not a rejection. Map intent, scope, requirements, plan, or acceptance meaning changes to the Inception artifacts; behavior or implementation changes to Architecture and Implementation Guide; release changes to Release; and operational changes to Operations. Checking an existing acceptance item from `[ ]` to `[x]` is progress, not an Amendment, but changing its text or unchecking it is not allowed through that exception. Core rewinds the same Unit to the required phase, invalidates current Evidence, and blocks progress until every named artifact changes and a fresh gate Decision references the amendment ID.
+- Treat Core's `active-unit-amendment-required` intake result and active Unit mismatch errors as hard stops. Do not bypass them with `route`, a new `unit-init`, a sibling Unit path, direct host edits, or repeated `on`. The Core gateway refuses a different Project or Unit. If the user did not explicitly approve leaving the Unit, continue with `amend`.
+- An explicit rejection of a presented Human Gate remains a `rejected` Decision. Do not label an ordinary user-requested addition or change as rejected. After applying an amendment, update implementation and affected documents, verify, checkpoint, present the revised packet with the amendment ID and changed artifacts, and obtain the fresh required Decision. If scope, stage plan, risk, external effects, or allowed actions change, also replace the Envelope and obtain a fresh Inception Decision.
 - Plan approval covers local Unit artifact writes and mechanical Core transitions within approved scope. Do not ask again for every file, checkpoint, `envelope-approve`, or `transition`. Obtain a new user decision when a consequential gate is reached or the approved scope, risk, external effects, or stage plan changes materially.
 - A `human_decision_actions` entry requires an actual user decision. Never invent a Decision from plan approval when the relevant choice was not part of it.
+- `active-unit-detach` is a human-decision action, not cleanup. Present the active Unit, pending work, Checkpoint, and consequence of leaving it unfinished; invoke it only after an explicit user decision and pass the real requester and reason.
 - Core attests the actor but does not authenticate human identity. Use the host's real confirmation channel before human-decision actions.
 - Read `document_language` from the selected Project and Unit before writing human-facing artifacts. For `ko`, write `intent.md`, `requirements.md`, `architecture.md`, `implementation-guide.md`, `plan.md`, `acceptance.md`, `release.md`, `operations.md`, Execution Envelope reasons, Checkpoint descriptions, and Decision descriptions in Korean. Keep IDs, JSON keys, enums, CLI commands, code, paths, and logs in their interoperable form. For `en`, write in English. Never replace a Project's language merely to simplify generation; `verify` treats a mismatch as a blocker.
 
@@ -49,7 +60,7 @@ The host agent drives the lifecycle; Core classifies work, validates boundaries,
 - The Inception Decision binds the exact Execution Envelope before Construction. The plan response may serve as this Decision only when the exact scope, actions, stage plan, risks, and Envelope subject were approved; otherwise ask again at `awaiting-inception-decision`.
 - Architecture Decision before Validation; Release Decision (bound to current passing Evidence) before Releasing; Operation Decision before Learned. Knowledge and Foundation promotion have their own Decisions.
 - Read `status` or `resume` field `human_gate` before each transition. If `confirmation_required` is true, present the gate, Decision Packet, approval subject, tradeoffs, and risks, then stop. `authorize`, `envelope-approve`, tool permissions, silence, and successful commands are not Decisions.
-- Human Gates are repeatable review loops, not one-shot acknowledgements. If the user answers with corrections, additional requirements, or any request to change the result instead of approving, record `rejected` for the current `review_round` with feedback. After revising and re-verifying, present a fresh packet with the new round and changes, then stop for explicit approval. Never reuse an earlier approval for the revised result. Repeat this reject → revise → verify → re-request cycle for every further revision. Do not silently finish after implementing review feedback.
+- Human Gates are repeatable review loops, not one-shot acknowledgements. Record `rejected` only when the user rejects the presented result. Record additions or requested changes with `amend`, apply them in the same Unit, and then present a fresh packet with the amendment ID, changed artifacts, and new review round. Never reuse an earlier approval for a revised result or silently finish after implementing feedback.
 - If feedback changes scope, stage plan, risk, or required actions, propose a replacement Envelope and obtain a fresh Inception Decision first.
 - An unattended, headless, `dontAsk`, bypass-permission, or pre-trusted tool session cannot originate a new human Decision. It may continue only with an authenticated external approval; otherwise emit the pending Decision Packet and stop.
 
@@ -71,6 +82,7 @@ handshake --runtime @@RUNTIME@@ --adapter-version VERSION --protocol-version VER
 on [--project PATH]
 off
 compatibility
+feature-status
 release-check --foundation PATH
 foundation-decision --foundation PATH --outcome approved|rejected --summary TEXT --decided-by HUMAN
 foundation-evidence --foundation PATH --passed --checks-json JSON --scope TEXT --recorded-by ACTOR
@@ -78,17 +90,22 @@ foundation-promote --foundation PATH
 project-knowledge-status [--project PATH]
 project-knowledge-propose --unit PATH --entries-json JSON --proposed-by ACTOR
 project-knowledge-promote --unit PATH --candidate project-knowledge/candidates/PKC-....json
-intake --source host-goal|direct-request --goal TEXT [--expected-outcome TEXT] [--scope PATH] [--constraint TEXT] [--acceptance-criterion TEXT] [--change none|local|persistent] [--risk low|high] [--ambiguous] [--multi-party] [--remote] [--sensitive]
+intake --project PATH --source host-goal|direct-request --goal TEXT [--expected-outcome TEXT] [--scope PATH] [--constraint TEXT] [--acceptance-criterion TEXT] [--change none|local|persistent] [--risk low|high] [--ambiguous] [--multi-party] [--remote] [--sensitive]
 status --project PATH [--unit PATH]
-route --change none|local|persistent [--risk low|high] [flags]
+route --project PATH --change none|local|persistent [--risk low|high] [flags]
 inception --project PATH
 resume --project PATH [--unit PATH]
 unit-migrate --project PATH --unit PATH
 unit-init --project PATH --title TITLE [--output PATH] [--owner OWNER]
 checkpoint --unit PATH --next-action TEXT [--completed ITEM ...] [--pending ITEM ...] [--blocked-by ITEM ...]
+amend --unit PATH --request TEXT --affected-artifact UNIT_DOC [--affected-artifact UNIT_DOC ...] --requested-by HUMAN [--reason TEXT]
+active-unit-detach --project PATH --unit PATH --requested-by HUMAN --reason TEXT
 envelope-propose --unit PATH --scope PATH [--scope PATH ...] --stages-json JSON --allowed-action ACTION [--allowed-action ACTION ...] [--external-access-json JSON] --max-iterations N --proposed-by ACTOR [--expires-in-hours HOURS]
 envelope-approve --unit PATH
 authorize --unit PATH --action ACTION --target PROJECT_RELATIVE_PATH_OR_HTTPS_URL [--stage CURRENT_UNIT_PHASE] [--method HTTP_METHOD] [--credential-ref secret://provider/name]
+artifact-write --unit PATH --artifacts-json '[{"target":"plan.md","expected_digest":"sha256:...","content":"..."}]'
+managed-edit --unit PATH --changes-json '[{"target":"src/file.py","expected_digest":"absent|sha256:...","content":"..."}]'
+managed-test --unit PATH --target PROJECT_RELATIVE_TEST_PATH --command-json '["test-runner","arg"]' [--timeout-seconds N]
 evidence --unit PATH --passed --commands-json JSON --scope TEXT --recorded-by ACTOR [--notes TEXT]
 decision --unit PATH --gate GATE --outcome approved|rejected --summary TEXT --rationale TEXT [--alternatives-json JSON] [--tradeoff TEXT] [--risk TEXT] [--reference TEXT] --decided-by HUMAN
 transition --unit PATH --to STATUS
@@ -99,7 +116,7 @@ Project installation management uses the top-level launcher rather than `isekai 
 
 ```text
 install --source GIT --ref TAG [--path PATH] [--runtime all|kiro|claude|codex] [--adopt-foundation]
-doctor [--path PATH]
+doctor [--path PATH] [--fix]
 update --check --ref TAG [--path PATH] [--include-foundation]
 update --ref TAG [--path PATH] [--include-foundation] [--adopt-foundation]
 rollback [--path PATH]
@@ -107,17 +124,18 @@ rollback [--path PATH]
 
 ## Workflow rules
 
-1. Run `intake` for every active-mode request except a pending Human Gate response. Handle Gate responses first: approval records `approved`; corrections record `rejected` and start a new review round. Use `status` before persistent work.
-2. Follow the returned workflow contract. The approved plan determines stage depth and applicability. Inspect `human_gate` before each transition; stop when `confirmation_required` is true.
-3. Get explicit user confirmation before `install`, `update`, or `rollback`. A successful `authorize` only writes an audit grant already covered by the Envelope. Run `update --check` before applying.
-4. Use `resume` after a new session. Treat one resumed Unit as the only active Unit for persistent work. Never use its Envelope to read, edit, or test a sibling Unit. Preserve the current Checkpoint before switching Units. Use `unit-migrate` only for same-contract path relocation.
-5. Consume Project Knowledge only from the active Unit's `context.project_knowledge` snapshot. Never authorize direct access to `project-knowledge/`. To promote reusable learning: `project-knowledge-propose` → human `knowledge` Decision → `project-knowledge-promote`. Use `project-knowledge-status` to inspect candidates without treating it as Unit context.
-6. Run `verify` after implementation and report its actual result. Do not claim success from an unexecuted command. Evidence distinguishes `core-derived` from `caller-supplied` output digests.
-7. Do not execute remote Git, cloud, credential, customer-data, or high-risk security actions. L2 `external-api` is the only network exception. Updates must use the Git source pinned in `isekai.lock.json` unless the user approves a change.
-8. Do not inject the entire Foundation or conversation. Load only the Project, Unit, Receipt, Checkpoint, and referenced artifacts needed.
-9. Preserve the pinned Foundation during updates. Use `--include-foundation` only after human approval. Start a new conversation after an Adapter update.
-10. Call `authorize` immediately before each governed action. Supply a Project-relative target for local actions; exact query-free HTTPS URL, method, and credential ref for `external-api`. Never override the Unit's actual phase with `--stage`. Link each `test` grant's `authorization_id` to Evidence commands; link external grants via `external_authorization_ids`.
+1. Use `status` before persistent work and read `active_unit_binding`. With no active unfinished Unit, run `intake`. With a bound Unit whose status is not `learned`, keep all follow-up work in that Unit: questions use its context, additions and changes use `amend`, explicit Gate rejection records `rejected`, and approval records `approved`. Core rejects another route or Unit. Do not invoke `active-unit-detach` unless the user explicitly chooses to leave the unfinished Unit.
+2. Follow the returned workflow contract. The approved plan determines stage depth and applicability. Materialize the artifacts required for the target stage and keep the Checkpoint current, then inspect `human_gate` before each transition; stop when artifacts are incomplete, checkpoint progress is stale, or `confirmation_required` is true.
+3. Get explicit user confirmation before `install`, an explicit repair with `doctor --fix`, `update`, or `rollback`. The bootstrap installer applies the Project execution guard for every selected Runtime, so do not ask for a second setup step after an approved installation. `doctor --fix` discovers those Runtimes from the Project lock; do not ask the user to select one. It registers no lifecycle hook, and `handshake` fails closed until the Project configuration declares a read-only filesystem and the required Core MCP gateway. If the current Host still exposes a direct writer because a higher-precedence flag or managed policy overrode that configuration, stop instead of treating `handshake` as proof of the effective Host process. `authorize` is only for read and exact `external-api` access; edit and test must execute through Core-managed actions. Run `update --check` before applying.
+4. Use `on` after a new session and inspect the durable binding. If it names an unfinished Unit, invoke `resume` for that exact Unit. The Project has only one Core-bound active Unit for persistent work. Never use its Envelope to read, edit, or test a sibling Unit. Preserve the current Checkpoint and obtain the user's explicit detach decision before switching Units. Use `unit-migrate` only for same-contract path relocation.
+5. Read the ISEKAI Feature catalog after activation or resume. Apply only active Features within the current Receipt, Agent level, Envelope, and Unit lifecycle. Feature packages attach functionality to ISEKAI itself; Product Extensions remain Project information-model contracts. A preview Feature or catalog entry does not grant execution or network authority.
+6. Consume Project Knowledge only from the active Unit's `context.project_knowledge` snapshot. Never authorize direct access to `project-knowledge/`. To promote reusable learning: `project-knowledge-propose` → human `knowledge` Decision → `project-knowledge-promote`. Use `project-knowledge-status` to inspect candidates without treating it as Unit context.
+7. Run `verify` after implementation and report its actual result. Do not claim success from an unexecuted command. Evidence distinguishes `core-derived` from `caller-supplied` output digests.
+8. Do not execute remote Git, cloud, credential, customer-data, or high-risk security actions. L2 `external-api` is the only network exception. Updates must use the Git source pinned in `isekai.lock.json` unless the user approves a change.
+9. Do not inject the entire Foundation or conversation. Load only the Project, Unit, Receipt, Checkpoint, active Capability, and referenced artifacts needed.
+10. Preserve the pinned Foundation during updates. Use `--include-foundation` only after human approval. Start a new conversation after an Adapter update.
+11. Call `managed-edit` or `managed-test` for local mutation and verification. Each target requires an optimistic `expected_digest`, and a multi-file edit is one atomic Core batch. Call `authorize` only for governed read or `external-api` access. Never override the Unit's actual phase with `--stage`. Link each `managed-test` authorization ID to Evidence commands; link external grants via `external_authorization_ids`.
 
 ## Output discipline
 
-Present JSON results briefly, preserve errors and blockers, identify the next action. Never invent evidence or turn a denied/pending decision into approval.
+Present JSON results briefly, preserve errors and blockers, identify the next action. Before yielding a progress or final response for an active Unit, persist completed, pending, blockers, and the exact next action in its Checkpoint. Do not claim the Unit is complete or route later changes elsewhere until the user has approved the final Operation Decision and Core has transitioned it to `learned`. Never invent evidence or turn a denied/pending decision into approval.

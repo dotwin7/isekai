@@ -21,6 +21,7 @@ EXPECTED_ACTIONS = {
     "route",
     "inception",
     "compatibility",
+    "feature-status",
     "release-check",
     "foundation-decision",
     "foundation-evidence",
@@ -32,9 +33,14 @@ EXPECTED_ACTIONS = {
     "unit-migrate",
     "unit-init",
     "checkpoint",
+    "amend",
+    "active-unit-detach",
     "envelope-propose",
     "envelope-approve",
     "authorize",
+    "managed-edit",
+    "managed-test",
+    "artifact-write",
     "evidence",
     "decision",
     "transition",
@@ -45,9 +51,14 @@ EXPECTED_WRITES = {
     "unit-init",
     "unit-migrate",
     "checkpoint",
+    "amend",
+    "active-unit-detach",
     "envelope-propose",
     "envelope-approve",
     "authorize",
+    "managed-edit",
+    "managed-test",
+    "artifact-write",
     "evidence",
     "decision",
     "transition",
@@ -73,6 +84,7 @@ def test_packaged_and_runtime_compatibility_matrices_cannot_drift() -> None:
     assert _compatibility_issues(packaged) == []
     manifest = read_json(ROOT / "runtime/manifest.json")
     assert packaged["trust_model"] == manifest["trust_model"]
+    assert packaged["feature_model"] == manifest["feature_model"]
     assert packaged["runtime_contract"] == {
         "high_risk_actions": manifest["high_risk_actions"],
         "human_decision_actions": manifest["human_decision_actions"],
@@ -87,6 +99,16 @@ def test_tested_runtime_versions_require_linked_live_evidence() -> None:
     broken["runtimes"][0]["tested_versions"] = ["99.0.0"]
 
     assert any("tested_versions lack live evidence" in issue for issue in _compatibility_issues(broken))
+
+
+def test_feature_permission_contract_cannot_be_silently_weakened() -> None:
+    matrix = read_json(ROOT / "runtime/compatibility.json")
+    broken = copy.deepcopy(matrix)
+    broken["feature_model"]["permission_effect"] = "may-expand-unit-authority"
+
+    assert "compatibility matrix has an invalid feature_model" in (
+        _compatibility_issues(broken)
+    )
 
 
 def test_live_smoke_writes_digest_bound_surface_evidence(tmp_path: Path) -> None:
@@ -156,23 +178,35 @@ def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
     # them, so adapters must obtain real user confirmation before invoking.
     human = set(manifest["human_decision_actions"])
     assert human == {
+        "amend",
+        "active-unit-detach",
         "decision",
         "foundation-decision",
         "foundation-promote",
     }
     assert human <= set(manifest["writes"])
     assert manifest["trust_model"] == {
-        "core_enforcement": "record-consistency-and-tamper-detection",
-        "action_execution": "runtime-host-outside-core",
+        "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
+        "action_execution": "core-managed-edit-and-test",
+        "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
         "human_identity": "caller-attested-not-core-verified",
-        "evidence_execution": "runtime-attested-not-core-executed",
+        "evidence_execution": "core-receipted-for-managed-tests",
         "secret_resolution": "runtime-host-outside-core",
         "external_controls_required": [
-            "runtime sandbox and permission policy",
+            "host direct-write tools disabled in favor of the Core gateway",
+            "active-Unit user-turn routing by the Runtime Adapter",
             "authenticated human confirmation channel",
             "CI or host execution provenance",
             "host secret broker and output redaction",
         ],
+    }
+    assert manifest["feature_model"] == {
+        "unit": "versioned-isekai-feature",
+        "distribution": "core-bundled-or-feature-package",
+        "exposure": "project-local-core-mcp-control-plane",
+        "context_binding": "sha256-feature-catalog-and-package-digests",
+        "project_ownership": "not-a-product-extension",
+        "permission_effect": "cannot-expand-foundation-project-or-unit-authority",
     }
 
 
@@ -269,16 +303,17 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
     ]
     required_contract = [
         "off by default in every new conversation",
-        "normalize each new request through `intake`",
-        "separate from Unit lifecycle status",
-        "new or interrupted session",
+        "Treat every new user message as part of the bound Unit",
+        "Core blocks a new `intake`",
+        "final transition to `learned` clears it mechanically",
+        ".isekai-runtime/active-unit.json",
         "without activating persistent conversation mode",
         "descendant workspace candidates",
         "get explicit user confirmation before initializing",
         "Project root's `units/`",
         "never selects or resumes a Unit",
-        "invoke `resume` separately",
-        "Treat one resumed Unit as the only active Unit for persistent work.",
+        "Use `on` after a new session",
+        "The Project has only one Core-bound active Unit for persistent work.",
         "Never use its Envelope to read, edit, or test a sibling Unit.",
     ]
     for path in skill_paths:
@@ -303,6 +338,20 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
         "every lifecycle stage with `apply` or `skip`",
         "Ask only questions whose answers would materially change the plan.",
         "one explicit user approval for the complete autonomy-bounded plan",
+        "Immediately after `unit-init` and before the first lifecycle transition",
+        "Never leave an approved plan only in the conversation",
+        "Complete the approved source implementation during Construction",
+        "do not defer the primary implementation until after the Validation transition",
+        "Treat `checkpoint_required: true`",
+        "checkpoint before any progress report",
+        "On `resume`, inspect `checkpoint_fresh`",
+        "Never present a stale `next_action` as authoritative.",
+        "Project-scoped active Unit binding",
+        "invoke `amend` before implementation",
+        "not a rejection",
+        "Core rejects another route or Unit.",
+        "active-unit-amendment-required",
+        "`active-unit-detach` is a human-decision action",
         "Do not ask again for every file, checkpoint, `envelope-approve`, or `transition`.",
         "human_decision_actions",
         "Read `document_language` from the selected Project and Unit",
@@ -315,11 +364,16 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
         "## Human confirmation boundary",
         "Read `status` or `resume` field `human_gate`",
         "Human Gates are repeatable review loops, not one-shot acknowledgements.",
-        "corrections, additional requirements",
-        "Never reuse an earlier approval for the revised result.",
-        "reject → revise → verify → re-request",
-        "Do not silently finish after implementing review feedback.",
+        "Record additions or requested changes with `amend`",
+        "Never reuse an earlier approval for a revised result",
+        "fresh packet with the amendment ID",
+        "silently finish after implementing feedback",
         "An unattended, headless, `dontAsk`, bypass-permission, or pre-trusted tool session cannot originate a new human Decision.",
+        "exclusive Core execution boundary, not lifecycle hooks",
+        "Host `Edit`, `Write`, `apply_patch`",
+        "use Core `artifact-write`",
+        "Use Core `managed-edit`",
+        "Runtime `authorize --action edit|test` is intentionally denied.",
     ]
     for path in skill_paths:
         content = path.read_text(encoding="utf-8")

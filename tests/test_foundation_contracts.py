@@ -178,7 +178,7 @@ def test_root_and_reference_product_use_same_contract_graph() -> None:
     root_context = resolve_context(ROOT / "project.json", WorkRoute.UNIT)
     reference_context = resolve_context(ROOT / "examples/reference-product/project.json", WorkRoute.UNIT)
     assert root_context["foundation_id"] == reference_context["foundation_id"] == "isekai-foundation"
-    assert root_context["foundation_version"] == reference_context["foundation_version"] == "0.2.0"
+    assert root_context["foundation_version"] == reference_context["foundation_version"] == "0.2.1"
     assert reference_context["extension_assets"][0]["extends"][0]["version"] == "0.1.0"
 
 

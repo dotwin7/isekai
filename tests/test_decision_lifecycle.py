@@ -26,12 +26,13 @@ from isekai.workflow import (
 )
 from isekai.session import update_checkpoint
 
-from test_core_workflow import make_project
+from test_core_workflow import make_project, materialize_unit_artifacts
 
 
 def make_unit(tmp_path: Path) -> Path:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Decision Lifecycle", project.parent / "units")
+    materialize_unit_artifacts(unit)
     propose_execution_envelope(
         unit,
         scope=["src/**", "tests/**"],
@@ -81,6 +82,7 @@ def approve(unit: Path, gate: str) -> None:
 
 
 def start_construction(unit: Path) -> None:
+    materialize_unit_artifacts(unit)
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")
     approve(unit, "inception")
@@ -99,9 +101,71 @@ def authorize_test(unit: Path) -> str:
 
 def complete_acceptance(unit: Path) -> None:
     (unit / "acceptance.md").write_text(
-        "# 인수 조건\n\n- [x] 생명주기 동작을 검증했다.\n",
+        "# 인수 조건\n\n- [x] 승인된 테스트 동작이 통과한다.\n",
         encoding="utf-8",
     )
+
+
+def test_inception_transition_rejects_unmaterialized_templates(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Template Must Not Advance", project.parent / "units")
+
+    with pytest.raises(
+        LifecycleError,
+        match="requires materialized Unit artifacts",
+    ):
+        transition_unit(unit, "inception")
+
+    unit_value = json.loads((unit / "unit.json").read_text(encoding="utf-8"))
+    assert unit_value["status"] == "proposed"
+    assert any(
+        "plan.md still contains the ISEKAI placeholder marker" in issue
+        for issue in verify_unit(unit)["issues"]
+    )
+
+
+def test_inception_decision_binds_the_materialized_plan(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    transition_unit(unit, "inception")
+    transition_unit(unit, "awaiting-inception-decision")
+    approve(unit, "inception")
+    decisions = json.loads((unit / "decisions.json").read_text(encoding="utf-8"))
+    snapshot = decisions["decisions"][-1]["artifact_snapshot"]
+    assert [item["reference"] for item in snapshot["artifacts"]] == [
+        "intent.md",
+        "requirements.md",
+        "plan.md",
+        "acceptance.md",
+    ]
+
+    plan = unit / "plan.md"
+    plan.write_text(
+        plan.read_text(encoding="utf-8") + "\n승인 뒤 추가된 구현 단계다.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match="plan.md changed after"):
+        transition_unit(unit, "construction")
+
+
+def test_architecture_decision_binds_construction_documents(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    approve(unit, "architecture")
+    architecture = unit / "architecture.md"
+    architecture.write_text(
+        architecture.read_text(encoding="utf-8") + "\n승인 뒤 변경된 구조다.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match="architecture.md changed after"):
+        transition_unit(unit, "validation")
 
 
 def test_record_rejects_english_decision_descriptions_in_korean_unit(
@@ -147,6 +211,13 @@ def passing_evidence(unit: Path) -> None:
                 "authorization_id": authorization_id,
             }
         ],
+    )
+    update_checkpoint(
+        unit,
+        completed=["현재 단계 검증과 Evidence 기록"],
+        pending=["다음 lifecycle Decision"],
+        blocked_by=[],
+        next_action="현재 검증 결과를 검토하고 다음 Decision을 기록한다.",
     )
 
 
@@ -203,20 +274,11 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     approve(unit, "release")
     with pytest.raises(LifecycleError, match="acceptance criteria remain unchecked"):
         transition_unit(unit, "releasing")
-    (unit / "acceptance.md").write_text(
-        "# Acceptance Criteria\n\n* [ ] Alternate Markdown bullet remains open.\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(LifecycleError, match="acceptance criteria remain unchecked"):
-        transition_unit(unit, "releasing")
-    (unit / "acceptance.md").write_text("# Acceptance Criteria\n", encoding="utf-8")
-    with pytest.raises(LifecycleError, match="acceptance criteria are missing"):
-        transition_unit(unit, "releasing")
     complete_acceptance(unit)
     architecture = unit / "architecture.md"
     architecture_content = architecture.read_text(encoding="utf-8")
     architecture.unlink()
-    with pytest.raises(LifecycleError, match="required Unit artifacts are missing"):
+    with pytest.raises(LifecycleError, match="missing Unit file: architecture.md"):
         transition_unit(unit, "releasing")
     architecture.write_text(architecture_content, encoding="utf-8")
     criteria_path = unit / "evaluations/criteria.json"
@@ -290,6 +352,27 @@ def test_status_exposes_the_human_gate_for_the_next_transition(tmp_path: Path) -
     architecture = verify_unit(unit)["human_gate"]
     assert architecture["gate"] == "architecture"
     assert architecture["confirmation_required"] is True
+
+
+@pytest.mark.parametrize(
+    ("content", "issue"),
+    [
+        (
+            "# 인수 조건\n\n* [ ] 대체 Markdown bullet이 아직 열려 있다.\n",
+            "acceptance criteria remain unchecked",
+        ),
+        ("# 인수 조건\n", "acceptance criteria are missing"),
+    ],
+)
+def test_verify_reports_incomplete_acceptance_markdown(
+    tmp_path: Path,
+    content: str,
+    issue: str,
+) -> None:
+    unit = make_unit(tmp_path)
+    (unit / "acceptance.md").write_text(content, encoding="utf-8")
+
+    assert issue in verify_unit(unit)["issues"]
 
 
 def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
@@ -434,7 +517,7 @@ def test_release_rejects_evidence_made_stale_by_a_later_authorization(
     assert any("stale" in issue for issue in verify_unit(unit)["issues"])
 
     passing_evidence(unit)
-    with pytest.raises(IntegrityError, match="Release Decision"):
+    with pytest.raises(IntegrityError, match="release Decision"):
         transition_unit(unit, "releasing")
     approve(unit, "release")
     complete_acceptance(unit)
@@ -589,6 +672,13 @@ def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) 
         scope="initial verification",
         recorded_by="test-validator",
         commands=[command],
+    )
+    update_checkpoint(
+        unit,
+        completed=["초기 검증 Evidence 기록"],
+        pending=["검증 이후 변경"],
+        blocked_by=[],
+        next_action="검증 이후 변경을 수행한다.",
     )
     edit = authorize_action(unit, action="edit", target="src/after-test.py")
     assert edit["allowed"] is True
@@ -836,7 +926,7 @@ def test_operating_transition_rejects_evidence_staled_during_release(
 
     assert authorization["allowed"] is True
     assert any("stale" in issue for issue in verify_unit(unit)["issues"])
-    with pytest.raises(LifecycleError, match="passing verification Evidence"):
+    with pytest.raises(LifecycleError, match="current checkpoint"):
         transition_unit(unit, "operating")
     assert json.loads((unit / "unit.json").read_text(encoding="utf-8"))["status"] == "releasing"
 
@@ -877,6 +967,7 @@ def test_foreign_unit_decision_cannot_satisfy_a_gate(tmp_path: Path) -> None:
     first = initialize_unit(project, "First Decision Unit", project.parent / "units")
     second = initialize_unit(project, "Second Decision Unit", project.parent / "units")
     for unit in (first, second):
+        materialize_unit_artifacts(unit)
         propose_execution_envelope(
             unit,
             scope=["src/**"],

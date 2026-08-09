@@ -39,6 +39,7 @@ from .common import (
     _write_json,
     unit_lock,
 )
+from .checkpointing import progress_authorization_block, progress_authorization_obligation
 from .decisions import (
     _approved_envelope_decision_issues,
     _decision_ledger_issues,
@@ -70,13 +71,8 @@ EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
 EXECUTION_ENVELOPE_STATUSES = {"proposed", "approved"}
 EXECUTION_STAGE_DEPTHS = {"light", "standard", "deep"}
 EXECUTION_STAGE_DISPOSITIONS = {"apply", "skip"}
-# An Envelope bounds how long an approval keeps authorizing actions. Units are
-# meant to span sessions, so the default is a working week rather than a day,
-# and an expired Envelope is renewed through a fresh human Decision.
 EXECUTION_ENVELOPE_DEFAULT_HOURS = 168
 EXECUTION_ENVELOPE_MAX_HOURS = 720
-# Statuses in which an Envelope may be proposed or re-proposed. Re-proposing
-# revokes the active approval until a new Inception Decision approves it.
 EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
     "proposed",
     "inception",
@@ -87,6 +83,8 @@ EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
     "releasing",
     "operating",
 }
+
+
 def _execution_envelope_issues(
     envelope: Any,
     unit_id: str | None = None,
@@ -681,6 +679,9 @@ def _authorize_action_locked(
                     f"{external_policy['id']}"
                 ),
             }
+    checkpoint_block = progress_authorization_block(unit_dir, action, ledger)
+    if checkpoint_block is not None:
+        return {"allowed": False, "reason": checkpoint_block}
     now = datetime.now(timezone.utc)
     iteration = len(grants) + 1
     grant = {
@@ -731,6 +732,7 @@ def _authorize_action_locked(
         "remaining_iterations": envelope["max_iterations"] - iteration,
         "authorization_id": grant["id"],
     }
+    result.update(progress_authorization_obligation(action))
     if external_policy is not None and external_request is not None:
         result.update(
             {

@@ -51,6 +51,76 @@ def make_project(tmp_path: Path) -> Path:
     return project_root / "project.json"
 
 
+def materialize_unit_artifacts(unit: Path) -> None:
+    artifacts = {
+        "intent.md": """# 테스트 Unit
+
+## 목표
+
+제한된 테스트 동작을 구현하고 검증한다.
+
+## 기대 결과
+
+승인된 범위에서 결정적인 테스트 결과를 만든다.
+
+## 범위
+
+- src/**
+- tests/**
+
+## 제약사항
+
+- 원격 변경과 배포를 수행하지 않는다.
+
+## 인수 조건
+
+- [ ] 승인된 테스트 동작이 통과한다.
+""",
+        "requirements.md": """# 요구사항
+
+- 승인된 로컬 범위에서 테스트 동작을 구현한다.
+- 검증 결과를 Evidence로 보존한다.
+
+## 비목표
+
+- 원격 배포와 운영 환경 변경은 포함하지 않는다.
+""",
+        "plan.md": """# Level-1 계획
+
+| Stage | Disposition | Depth | 사유 |
+|---|---|---|---|
+| Inception | apply | standard | 요구사항과 인수 조건을 확정한다. |
+| Construction | apply | standard | 제한된 구현을 수행한다. |
+| Validation | apply | standard | 자동화 테스트로 검증한다. |
+| Release | skip | light | 배포 범위가 없다. |
+| Operations | skip | light | 운영 범위가 없다. |
+| Learn | apply | light | 결과를 보존한다. |
+""",
+        "acceptance.md": """# 인수 조건
+
+- [ ] 승인된 테스트 동작이 통과한다.
+""",
+        "architecture.md": """# 아키텍처
+
+테스트 대상 로직과 검증 코드를 로컬 파일 범위에 한정하고 외부 계약을 변경하지 않는다.
+""",
+        "implementation-guide.md": """# 구현 가이드
+
+승인된 소스와 테스트 파일만 변경하고 같은 Unit의 자동화 테스트로 동작을 확인한다.
+""",
+        "release.md": """# 릴리스
+
+Disposition: `skip`. 이 테스트 Unit은 게시하거나 배포하지 않는다.
+""",
+        "operations.md": """# 운영
+
+Disposition: `skip`. 이 테스트 Unit은 운영 환경을 변경하지 않는다.
+""",
+    }
+    for relative, content in artifacts.items():
+        (unit / relative).write_text(content, encoding="utf-8")
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -117,7 +187,7 @@ def test_context_receipt_resolves_project_profiles_rules_and_policies(
     receipt = resolve_context(project, WorkRoute.UNIT)
 
     assert receipt["project_id"] == "test-project"
-    assert receipt["foundation_version"] == "0.2.0"
+    assert receipt["foundation_version"] == "0.2.1"
     assert receipt["profiles"] == ["security-profile", "software-delivery-profile"]
     assert "FOUNDATION-001" in receipt["rule_ids"]
     evidence_rule = next(rule for rule in receipt["rules"] if rule["id"] == "EVIDENCE-001")
@@ -312,7 +382,7 @@ def test_resume_rejects_project_contract_drift(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Project Contract Drift", project.parent / "units")
     manifest = json.loads(project.read_text(encoding="utf-8"))
-    manifest["version"] = "0.2.0"
+    manifest["version"] = "0.2.1"
     manifest["profiles"] = ["software-delivery-profile"]
     project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -445,7 +515,7 @@ def test_unit_context_migration_rejects_project_contract_changes(
     unit = initialize_unit(project, "Contract Change", project.parent / "units")
     before = (unit / "context-receipt.json").read_bytes()
     manifest = json.loads(project.read_text(encoding="utf-8"))
-    manifest["version"] = "0.2.0"
+    manifest["version"] = "0.2.1"
     project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     with pytest.raises(SessionError, match="project_version"):

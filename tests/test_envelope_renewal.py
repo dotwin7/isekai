@@ -76,6 +76,13 @@ def expire_envelope(unit: Path) -> None:
 
 
 def renew(unit: Path, *, max_iterations: int = 3) -> None:
+    update_checkpoint(
+        unit,
+        completed=["현재 Envelope의 승인 작업 기록"],
+        pending=["교체 Envelope 승인"],
+        blocked_by=[],
+        next_action="교체 Envelope를 제안하고 승인한다.",
+    )
     propose_execution_envelope(
         unit,
         scope=["src/**", "tests/**"],

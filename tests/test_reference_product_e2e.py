@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -13,6 +12,7 @@ from pathlib import Path
 from isekai.distribution.install import (
     _install_from_verified_checkout as install_from_checkout,
 )
+from isekai.distribution import apply_execution_profile
 from isekai.workflow.unit.lifecycle import verify_unit
 
 
@@ -361,28 +361,66 @@ def _record_decision(
     return _run_isekai(project, *arguments)
 
 
-def _run_product_tests(project: Path) -> subprocess.CompletedProcess[str]:
-    environment = dict(os.environ)
-    environment["PYTHONPATH"] = str(project / "src")
-    return subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
-        cwd=project,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
+def _record_checkpoint(
+    project: Path,
+    unit: Path,
+    *,
+    completed: str,
+    pending: str,
+    next_action: str,
+) -> dict[str, object]:
+    return _run_isekai(
+        project,
+        "runtime",
+        "checkpoint",
+        "--unit",
+        str(unit),
+        "--completed",
+        completed,
+        "--pending",
+        pending,
+        "--next-action",
+        next_action,
+    )
+
+
+def _run_product_tests(project: Path, unit: Path) -> dict[str, object]:
+    return _run_isekai(
+        project,
+        "runtime",
+        "managed-test",
+        "--unit",
+        str(unit),
+        "--target",
+        "tests/test_proposals.py",
+        "--command-json",
+        json.dumps(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys, unittest; sys.path.insert(0, 'src'); "
+                    "suite = unittest.defaultTestLoader.discover('tests'); "
+                    "result = unittest.TextTestRunner(verbosity=2).run(suite); "
+                    "raise SystemExit(0 if result.wasSuccessful() else 1)"
+                ),
+            ]
+        ),
     )
 
 
 def _record_product_evidence(
     project: Path,
     unit: Path,
-    authorization: dict[str, object],
-    completed: subprocess.CompletedProcess[str],
+    managed_test: dict[str, object],
     *,
     passed: bool,
 ) -> dict[str, object]:
-    output = completed.stdout + completed.stderr
+    result = managed_test["result"]
+    assert isinstance(result, dict)
+    output = str(result["stdout"]) + str(result["stderr"])
+    execution = result["execution"]
+    assert isinstance(execution, dict)
     arguments = [
         "runtime",
         "evidence",
@@ -400,12 +438,10 @@ def _record_product_evidence(
                         "command": (
                             f"{sys.executable} -m unittest discover -s tests -v"
                         ),
-                        "exit_code": completed.returncode,
+                        "exit_code": execution["exit_code"],
                         "output_digest": hashlib.sha256(output.encode()).hexdigest(),
                         "observed_at": datetime.now(timezone.utc).isoformat(),
-                        "authorization_id": authorization["result"][  # type: ignore[index]
-                            "authorization_id"
-                        ],
+                        "authorization_id": result["authorization_id"],
                     }
                 ]
             ),
@@ -418,7 +454,7 @@ def _record_product_evidence(
     return _run_isekai(project, *arguments)
 
 
-def _write_inception_artifacts(unit: Path) -> None:
+def _write_inception_artifacts(project: Path, unit: Path) -> None:
     artifacts = {
         "requirements.md": """# 요구사항
 
@@ -470,8 +506,25 @@ mapping 레코드 iterable을 `prioritize_proposals`에 전달한다. 함수는 
 제안을 검증하고 복사한 다음 새로 정렬된 목록을 반환한다.
 """,
     }
+    changes = []
     for relative, content in artifacts.items():
-        (unit / relative).write_text(content, encoding="utf-8")
+        before = (unit / relative).read_bytes()
+        changes.append(
+            {
+                "target": relative,
+                "expected_digest": "sha256:" + hashlib.sha256(before).hexdigest(),
+                "content": content,
+            }
+        )
+    _run_isekai(
+        project,
+        "runtime",
+        "artifact-write",
+        "--unit",
+        str(unit),
+        "--artifacts-json",
+        json.dumps(changes),
+    )
 
 
 def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
@@ -501,6 +554,8 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
     assert "Project-local Runtime Skill as `$isekai ACTION`" in skill
     assert "The host agent drives the lifecycle" in skill
 
+    apply_execution_profile(project, "codex")
+
     handshake = _run_isekai(
         project,
         "runtime",
@@ -508,7 +563,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         "--runtime",
         "codex",
         "--adapter-version",
-        "0.2.0",
+        "0.2.1",
         "--protocol-version",
         "1.1.0",
         "--project",
@@ -589,7 +644,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         json.dumps(result["intent"]),  # type: ignore[index]
     )
     unit = Path(created["result"]["created"])  # type: ignore[index]
-    _write_inception_artifacts(unit)
+    _write_inception_artifacts(project, unit)
 
     stages = [
         {
@@ -702,99 +757,132 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         "construction",
     )
 
-    test_authorization = _run_isekai(
+    test_edit = _run_isekai(
         project,
         "runtime",
-        "authorize",
+        "managed-edit",
         "--unit",
         str(unit),
-        "--action",
-        "edit",
-        "--target",
-        "tests/test_proposals.py",
+        "--changes-json",
+        json.dumps(
+            [
+                {
+                    "target": "tests/test_proposals.py",
+                    "expected_digest": "sha256:"
+                    + hashlib.sha256(
+                        (project / "tests/test_proposals.py").read_bytes()
+                    ).hexdigest(),
+                    "content": (COMPLETED / "tests/test_proposals.py").read_text(
+                        encoding="utf-8"
+                    ),
+                }
+            ]
+        ),
     )
-    assert test_authorization["result"]["allowed"] is True  # type: ignore[index]
-    (project / "tests/test_proposals.py").write_text(
-        (COMPLETED / "tests/test_proposals.py").read_text(encoding="utf-8"),
-        encoding="utf-8",
+    assert test_edit["result"]["allowed"] is True  # type: ignore[index]
+    _record_checkpoint(
+        project,
+        unit,
+        completed="제안 우선순위 인수 테스트를 작성했다.",
+        pending="실패하는 테스트를 실행한다.",
+        next_action="Red 단계 테스트를 실행하고 Evidence를 기록한다.",
     )
 
-    red_authorization = _run_isekai(
-        project,
-        "runtime",
-        "authorize",
-        "--unit",
-        str(unit),
-        "--action",
-        "test",
-        "--target",
-        "tests/test_proposals.py",
-    )
-    assert red_authorization["result"]["allowed"] is True  # type: ignore[index]
-    red_test = _run_product_tests(project)
-    assert red_test.returncode != 0
-    assert "prioritize_proposals" in red_test.stdout + red_test.stderr
+    red_test = _run_product_tests(project, unit)
+    assert red_test["result"]["passed"] is False  # type: ignore[index]
+    assert "prioritize_proposals" in str(red_test["result"])  # type: ignore[index]
     failed_evidence = _record_product_evidence(
         project,
         unit,
-        red_authorization,
         red_test,
         passed=False,
     )
     assert failed_evidence["result"]["passed"] is False  # type: ignore[index]
+    _record_checkpoint(
+        project,
+        unit,
+        completed="실패하는 Red 테스트와 Evidence를 기록했다.",
+        pending="제안 우선순위 기능을 구현한다.",
+        next_action="도메인 함수를 구현한다.",
+    )
 
-    source_authorization = _run_isekai(
+    source_edit = _run_isekai(
         project,
         "runtime",
-        "authorize",
+        "managed-edit",
         "--unit",
         str(unit),
-        "--action",
-        "edit",
-        "--target",
-        "src/reference_product/proposals.py",
-    )
-    assert source_authorization["result"]["allowed"] is True  # type: ignore[index]
-    (project / "src/reference_product/proposals.py").write_text(
-        (COMPLETED / "src/reference_product/proposals.py").read_text(
-            encoding="utf-8"
+        "--changes-json",
+        json.dumps(
+            [
+                {
+                    "target": "src/reference_product/proposals.py",
+                    "expected_digest": "sha256:"
+                    + hashlib.sha256(
+                        (project / "src/reference_product/proposals.py").read_bytes()
+                    ).hexdigest(),
+                    "content": (
+                        COMPLETED / "src/reference_product/proposals.py"
+                    ).read_text(encoding="utf-8"),
+                }
+            ]
         ),
-        encoding="utf-8",
+    )
+    assert source_edit["result"]["allowed"] is True  # type: ignore[index]
+    _record_checkpoint(
+        project,
+        unit,
+        completed="제안 우선순위 도메인 함수를 구현했다.",
+        pending="구현을 검증한다.",
+        next_action="Green 단계 테스트를 실행하고 Evidence를 기록한다.",
     )
 
-    green_authorization = _run_isekai(
-        project,
-        "runtime",
-        "authorize",
-        "--unit",
-        str(unit),
-        "--action",
-        "test",
-        "--target",
-        "tests/test_proposals.py",
+    product_test = _run_product_tests(project, unit)
+    assert product_test["result"]["passed"] is True  # type: ignore[index]
+    output = (
+        str(product_test["result"]["stdout"])  # type: ignore[index]
+        + str(product_test["result"]["stderr"])  # type: ignore[index]
     )
-    assert green_authorization["result"]["allowed"] is True  # type: ignore[index]
-    product_test = _run_product_tests(project)
-    assert product_test.returncode == 0, product_test.stdout + product_test.stderr
-    output = product_test.stdout + product_test.stderr
     evidence = _record_product_evidence(
         project,
         unit,
-        green_authorization,
         product_test,
         passed=True,
     )
     assert evidence["result"]["passed"] is True  # type: ignore[index]
+    _record_checkpoint(
+        project,
+        unit,
+        completed="Green 테스트와 passing Evidence를 기록했다.",
+        pending="Architecture Decision을 검토한다.",
+        next_action="구현 문서를 검토하고 Architecture Decision을 기록한다.",
+    )
 
-    (unit / "acceptance.md").write_text(
-        """# 인수 조건
+    acceptance = """# 인수 조건
 
 - [x] high, medium, low 제안이 올바른 순서로 정렬된다.
 - [x] 영향도가 같은 제안은 ID 순으로 정렬된다.
 - [x] 잘못된 영향도를 거부한다.
 - [x] 입력 레코드를 변경하지 않는다.
-""",
-        encoding="utf-8",
+"""
+    acceptance_before = (unit / "acceptance.md").read_bytes()
+    _run_isekai(
+        project,
+        "runtime",
+        "artifact-write",
+        "--unit",
+        str(unit),
+        "--artifacts-json",
+        json.dumps(
+            [
+                {
+                    "target": "acceptance.md",
+                    "expected_digest": "sha256:"
+                    + hashlib.sha256(acceptance_before).hexdigest(),
+                    "content": acceptance,
+                }
+            ]
+        ),
     )
     _record_decision(
         project,
@@ -899,6 +987,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
     assert verified["result"]["valid"] is True  # type: ignore[index]
     assert status["result"]["unit"]["status"] == "learned"  # type: ignore[index]
     assert status["result"]["unit"]["pending"] == []  # type: ignore[index]
+    assert status["result"]["active_unit_binding"]["active"] is False  # type: ignore[index]
     assert doctor["ready"] is True
     assert dispositions["release"] == "skip"
     assert dispositions["operations"] == "skip"

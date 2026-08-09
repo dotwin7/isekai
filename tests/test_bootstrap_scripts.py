@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from isekai.distribution import doctor_install, write_distribution_manifest
+from isekai.distribution import (
+    doctor_install,
+    execution_profile_status,
+    write_distribution_manifest,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,7 +86,50 @@ def test_posix_bootstrap_installs_and_initializes_from_local_git_tag(
     manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
     assert manifest["maximum_agent_level"] == "L1"
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
+    assert execution_profile_status(project, "kiro")["ready"] is True
+    assert (project / ".kiro/settings/mcp.json").is_file()
+    assert (project / ".kiro/agents/isekai-core.json").is_file()
     assert doctor_install(project)["ready"] is True
+
+
+def test_posix_bootstrap_configures_every_selected_host_without_manual_step(
+    tmp_path: Path,
+) -> None:
+    release = _tagged_release(tmp_path)
+    project = tmp_path / "all-runtimes-product"
+    project.mkdir()
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(release / "scripts/install.sh"),
+            "--source",
+            str(release),
+            "--ref",
+            "v0.1.0",
+            "--path",
+            str(project),
+            "--runtime",
+            "all",
+            "--init",
+            "--python",
+            sys.executable,
+        ],
+        cwd=project,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert all(
+        execution_profile_status(project, runtime)["ready"] is True
+        for runtime in ("codex", "claude", "kiro")
+    )
+    assert (project / ".codex/config.toml").is_file()
+    assert (project / ".mcp.json").is_file()
+    assert (project / ".kiro/settings/mcp.json").is_file()
+    assert not (project / ".agents/plugins/marketplace.json").exists()
 
 
 def test_posix_bootstrap_help_does_not_require_dependencies() -> None:
@@ -405,3 +452,4 @@ def test_powershell_bootstrap_installs_and_initializes_from_local_git_tag(
     assert (project / ".kiro/skills/isekai/SKILL.md").is_file()
     manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
     assert manifest["maximum_agent_level"] == "L1"
+    assert execution_profile_status(project, "kiro")["ready"] is True

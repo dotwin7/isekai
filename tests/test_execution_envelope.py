@@ -22,8 +22,9 @@ from isekai.workflow import (
 )
 from isekai.workflow.project import _context_receipt_id
 from isekai.workflow.unit.execution import _scope_pattern_matches
+from isekai.session import resume_session, update_checkpoint
 
-from test_core_workflow import make_project
+from test_core_workflow import make_project, materialize_unit_artifacts
 
 
 def envelope_stages() -> list[dict[str, object]]:
@@ -45,6 +46,7 @@ def envelope_stages() -> list[dict[str, object]]:
 def make_enveloped_unit(tmp_path: Path) -> Path:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Adaptive Envelope", project.parent / "units")
+    materialize_unit_artifacts(unit)
     propose_execution_envelope(
         unit,
         scope=["src/**", "tests/**"],
@@ -211,6 +213,7 @@ def test_envelope_rejects_invalid_adaptive_stage_contract(
 
 
 def approve_inception(unit: Path) -> None:
+    materialize_unit_artifacts(unit)
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")
     record_decision(
@@ -259,6 +262,66 @@ def test_validation_is_a_real_authorizable_lifecycle_phase(tmp_path: Path) -> No
     assert transition["phase"] == "validation"
     assert authorization["allowed"] is True
     assert authorization["stage"] == "validation"
+
+
+def test_authorized_work_requires_a_current_checkpoint_and_fresh_decision(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+
+    first = authorize_action(unit, action="edit", target="src/first.py")
+    resumed = resume_session(unit.parent.parent / "project.json", unit)
+
+    assert first["allowed"] is True
+    assert first["checkpoint_required"] is True
+    assert resumed["resume"]["checkpoint_fresh"] is False
+    assert resumed["resume"]["recovery_required"] is True
+    assert "stale" in resumed["resume"]["checkpoint_issues"][0]
+    with pytest.raises(IntegrityError, match="checkpoint is stale"):
+        record_decision(
+            unit,
+            gate="architecture",
+            outcome="approved",
+            summary="현재 구현 구조를 승인한다.",
+            rationale=["구현 진행 상태와 문서를 함께 검토했다."],
+            alternatives=[],
+            tradeoffs=[],
+            risks=[],
+            references=["architecture.md", "implementation-guide.md"],
+            decided_by="human-reviewer",
+        )
+
+    update_checkpoint(
+        unit,
+        completed=["src/first.py 구현"],
+        pending=["Architecture 검토"],
+        blocked_by=[],
+        next_action="Architecture Decision을 기록한다.",
+    )
+    record_decision(
+        unit,
+        gate="architecture",
+        outcome="approved",
+        summary="현재 구현 구조를 승인한다.",
+        rationale=["구현 진행 상태와 문서를 함께 검토했다."],
+        alternatives=[],
+        tradeoffs=[],
+        risks=[],
+        references=["architecture.md", "implementation-guide.md"],
+        decided_by="human-reviewer",
+    )
+
+    assert authorize_action(unit, action="edit", target="src/second.py")["allowed"]
+    update_checkpoint(
+        unit,
+        completed=["src/first.py와 src/second.py 구현"],
+        pending=["변경된 Architecture 재검토"],
+        blocked_by=[],
+        next_action="Architecture Decision을 다시 요청한다.",
+    )
+    with pytest.raises(IntegrityError, match="progress changed after"):
+        transition_unit(unit, "validation")
 
 
 def test_l0_project_rejects_edit_and_test_envelopes(tmp_path: Path) -> None:

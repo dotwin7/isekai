@@ -1,6 +1,6 @@
 {
   "foundation_id": "isekai-foundation",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "decisions": [
     {
       "id": "DEC-FND-20260805110909440545",
@@ -48,6 +48,26 @@
       },
       "previous_decision_digest": "sha256:82a0b553a54f1a255f22edd92c487e7720a23f569800d4d36b0e080003eb24e6",
       "decision_digest": "sha256:a1024c0101ddd94170b8c2d601b5b51e483ead6e35e23dd0d01ba0b662827441"
+    },
+    {
+      "id": "DEC-FND-20260809173943928643",
+      "type": "foundation-release-decision",
+      "schema_version": "1.0.0",
+      "foundation_id": "isekai-foundation",
+      "version": "0.2.1",
+      "approval_digest": "sha256:59eda63ede53ceaa2157c47ab2289b06dfff00863880f22b580e2cbb657c7827",
+      "outcome": "approved",
+      "summary": "사용자 요청에 따라 모든 현재 ISEKAI 배포 구성요소를 0.2.1로 정렬하고 Unit 실행 거버넌스와 Feature Catalog 변경을 포함한 Foundation 0.2.1 후보를 승인한다.",
+      "decided_by": "user",
+      "decided_at": "2026-08-09T17:39:43.928643+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "user",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:a1024c0101ddd94170b8c2d601b5b51e483ead6e35e23dd0d01ba0b662827441",
+      "decision_digest": "sha256:44586061946f93721d68bb9ba179cf395ea448c9f3efecaf4cb40f702567f648"
     }
   ]
 }

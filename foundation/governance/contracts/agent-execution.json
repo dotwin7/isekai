@@ -1,7 +1,7 @@
 {
   "id": "agent-execution-contract",
   "kind": "agent-execution-contract",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "schema_version": "1.0.0",
   "status": "approved",
   "owner": "foundation-agent-owner",
@@ -19,7 +19,7 @@
     }
   ],
   "content": {
-    "contract_version": "0.2.0",
+    "contract_version": "0.2.1",
     "references": [
       "core-rules",
       "high-risk-policy"

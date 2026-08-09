@@ -9,7 +9,7 @@
 
 > ISEKAI는 기존 AI 에이전트를 활용해 소프트웨어 제품과 서비스를 AI 중심으로 기획·개발·검증·운영하는 범용 AI-DLC와, 이를 도메인별로 일관되게 적용하는 Engineering Foundation이다. 보안은 첫 번째 Domain Profile이자 우선 적용 영역이다.
 
-최상위 목표는 Agent Platform을 만드는 것이 아니라 **AWS AI-Driven Development Life Cycle과 유사한 범용 AI 중심 개발 생명주기를 구현하는 것**이다. 보안기술팀과 보안 제품에서 먼저 검증하되 Core의 workflow·information model·governance는 특정 도메인에 종속시키지 않는다. CLI, Registry, Context Service와 Control Plane은 이 목표에 필요한 만큼 단계적으로 만든다.
+최상위 목표는 **AWS AI-Driven Development Life Cycle과 유사한 범용 AI 중심 개발 생명주기를 구현하는 것**이다. 자체 Planner·Reasoner·Agent Loop는 만들지 않지만, 기존 Agent가 사용할 Project-local MCP gateway와 버전형 Skill·Connection·Agent Role capability를 AI-DLC 경계 안에서 제공한다. 보안기술팀과 보안 제품에서 먼저 검증하되 Core의 workflow·information model·governance는 특정 도메인에 종속시키지 않는다. Registry, Context Service와 Control Plane은 여러 Project의 실제 수요가 생길 때 단계적으로 분리한다.
 
 참고: [AWS, AI-Driven Development Life Cycle: Reimagining Software Engineering, 2025-07-31](https://aws.amazon.com/blogs/devops/ai-driven-development-life-cycle/)
 
@@ -37,7 +37,7 @@ AI-DLC Core와 Foundation은 특정 제품이나 도메인에 종속되지 않�
 
 ## 4. 무엇을 만들 것인가
 
-ISEKAI는 다섯 가지로 구성된다.
+ISEKAI는 다음 구성으로 이루어진다.
 
 | 구성 | 역할 |
 |---|---|
@@ -45,7 +45,8 @@ ISEKAI는 다섯 가지로 구성된다.
 | Engineering Foundation | 범용 Core, Domain Profile과 개발·운영·Agent·Policy·평가 공통 규칙 |
 | Persistent Context | Unit, Decision, Evidence, Receipt, Checkpoint |
 | Agent Integration | 기존 에이전트를 교체 가능한 실행 엔진으로 연결 |
-| Security Extensions | 기준 제품, 신규 제품, 보안운영, 진단·레드팀 확장 |
+| ISEKAI Features | 이세카이가 제공하는 현재·향후 기능을 Project-local MCP 통제면에 연결하는 공통 Catalog |
+| Security Applications | 범용 AI-DLC와 Domain Profile을 보안 제품·서비스에 적용 |
 
 ```text
                          ISEKAI
@@ -67,13 +68,13 @@ Agent Integration은 사용자가 별도의 Python 모듈 명령을 실행하는
 User / Agent Host
         ↓ /isekai
 Runtime Skill Adapter
-        ↓ isekai runtime <action>
-Local ISEKAI Core
+        ↓ Project-local MCP / isekai runtime <action>
+Local ISEKAI Core gateway
         ↓
 Foundation + Project + Unit artifacts
 ```
 
-Core는 기본적으로 서버가 아니며, Plugin은 Host 연결과 사용자 명령 표면을 담당하고 Core는 workflow·Decision·Evidence·authorization을 담당한다.
+Core는 직접 CLI dispatch와 Project-local stdio MCP server를 함께 제공한다. 프로젝트 Runtime Skill이 Host 명령 표면을 담당하므로 전역 Plugin 설치는 필요하지 않다. Core는 공통 Feature discovery·compatibility·authorization과 action routing을 담당한다. ISEKAI가 제공하는 기능은 Feature Catalog에 등록되고 각 controller가 동작을 소유한다. Product Extension은 제품 계약만 확장하며 ISEKAI 추가 기능의 배포 수단이 아니다.
 
 ## 5. 문서 맵
 
@@ -87,5 +88,6 @@ Core는 기본적으로 서버가 아니며, Plugin은 Host 연결과 사용자 
 | [foundation.md](foundation.md) | Engineering Foundation 계층, Security Profile, v0.1 완료 조건과 승인 절차 |
 | [information-model.md](information-model.md) | 범용 Data·Semantic·Knowledge Model과 Persistent Context |
 | [agent-integration.md](agent-integration.md) | Runtime Adapter, 세션 모드, 실행 통제 |
+| [features.md](features.md) | ISEKAI Feature Catalog·패키지와 공통 MCP 통제면 |
 | [live-smoke.md](live-smoke.md) | 실제 Runtime Skill 발견, 활성화, intake와 Golden Path 검증 |
 | [roadmap.md](roadmap.md) | 제품·서비스 적용, 단계적 구현, 백로그, 성공 기준, 책임, 지표, 비목표, 남은 결정 |

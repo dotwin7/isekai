@@ -34,7 +34,7 @@
       "inferred_signals": []
     }
   },
-  "foundation_version": "0.2.0",
-  "foundation_digest": "sha256:d65ba553fad0c541c13ddf5fcf7a5517b3edfc6f8c22c8a2d2327f1b1bd45937",
+  "foundation_version": "0.2.1",
+  "foundation_digest": "sha256:4d8cbf99c9f5206de91e5fa2fc81c8cf22cf590a162b1c032423b646cbee4c46",
   "updated_at": "2026-08-09T10:38:13.479481+00:00"
 }

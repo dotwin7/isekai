@@ -398,6 +398,7 @@ def load_project(
 
 def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict[str, Any]:
     manifest_path, project, foundation, project_extensions = load_project(path)
+    from .features import load_feature_catalog
     from .project_knowledge import (
         current_project_knowledge,
         summarize_project_knowledge,
@@ -426,6 +427,7 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
         "profiles": project["profiles"],
         "extensions": project["extensions"],
         "extension_assets": sorted(project_extensions, key=lambda asset: asset["id"]),
+        "features": load_feature_catalog(),
         "route": route.value,
         "maximum_agent_level": project.get("maximum_agent_level", "L0"),
         "rule_ids": sorted(rule["id"] for rule in applicable_rules),
@@ -494,7 +496,7 @@ def initialize_project(
         "id": resolved_id,
         "kind": "project",
         "schema_version": "1.0.0",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "foundation_path": foundation_path,
         "profiles": selected_profiles,
         "extensions": [],

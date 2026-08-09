@@ -15,7 +15,7 @@ ISEKAI
 └─ Future Approved Agent Adapter
 ```
 
-Adapter는 프로젝트·Unit 컨텍스트 전달, Foundation·Profile 버전 표시, Decision 대기 상태, Evidence·Checkpoint 연결과 capability 차이 보고를 담당한다.
+Adapter는 프로젝트·Unit 컨텍스트 전달, Foundation·Profile 버전 표시, Decision 대기 상태, Evidence·Checkpoint 연결과 ISEKAI Feature 상태 보고를 담당한다. `feature-status`와 MCP resource로 설치된 Feature를 읽되, catalog나 `preview` 상태를 새로운 실행 권한으로 해석하지 않는다.
 
 Adapter는 모델의 추론 방식과 출력 스타일을 과도하게 교정하지 않는다. 상시 규율 주입, 도구 출력 압축·재작성과 코드 folding은 기본 기능이 아니다.
 
@@ -23,13 +23,37 @@ Adapter는 모델의 추론 방식과 출력 스타일을 과도하게 교정하
 
 ## Agent가 생명주기를 구동하는 방식
 
-ISEKAI는 프로젝트에 설치되는 Runtime Skill·Core·Foundation 묶음이다. 호스트 Agent가 계획과 실행의 주체이며, Skill이 orchestration 규칙을 제공하고 Core가 Route·상태·Decision·Evidence의 일관성을 담당한다. 기본 동작에는 훅이나 별도 상주 프로세스가 필요하지 않다.
+ISEKAI는 프로젝트에 설치되는 Runtime Skill·Core·Foundation 묶음이다. 호스트 Agent가 계획과 변경 내용을 제안하고, Skill이 orchestration 규칙을 제공하며 Core가 Route·상태·Decision·Evidence와 실제 쓰기 경계를 담당한다. lifecycle 훅은 이 경계의 구성요소가 아니다.
 
-활성 mode의 모든 새 요청은 `intake`를 호출한다. 응답의 `workflow` 계약에 따라 Agent는 Query를 직접 답하고, Quick Change에는 compact plan을 적용하며, Unit에는 프로젝트를 읽기 전용으로 탐색한 뒤 Project의 `maximum_agent_level`을 넘지 않는 계획을 제안한다. 사용자가 전체 계획을 승인하기 전에는 Unit을 생성하거나 쓰지 않는다.
+활성 mode에 끝나지 않은 active Unit이 없을 때만 새 요청에 `intake`를 호출한다. 응답의 `workflow` 계약에 따라 Agent는 Query를 직접 답하고, Quick Change에는 compact plan을 적용하며, Unit에는 프로젝트를 읽기 전용으로 탐색한 뒤 Project의 `maximum_agent_level`을 넘지 않는 계획을 제안한다. 사용자가 전체 계획을 승인하기 전에는 Unit을 생성하거나 쓰지 않는다.
 
-계획 승인 뒤에는 승인 범위의 Unit artifact·Checkpoint와 Decision을 Core에 기록한다. `envelope-approve`와 `transition`은 이미 승인된 계획·Decision을 반영하는 기계적 action이라 매번 별도 확인을 요구하지 않는다. 실제 인간 판단을 기록하는 `decision`, `foundation-decision`, 그리고 Foundation을 승격하는 `foundation-promote`는 manifest의 `human_decision_actions`로 표시한다.
+계획 승인 뒤에는 승인 범위의 Unit artifact·Checkpoint와 Decision을 Core에 기록한다. `envelope-approve`와 `transition`은 이미 승인된 계획·Decision을 반영하는 기계적 action이라 매번 별도 확인을 요구하지 않는다. 실제 인간 판단을 기록하는 `amend`, `decision`, `foundation-decision`, 그리고 Foundation을 승격하는 `foundation-promote`는 manifest의 `human_decision_actions`로 표시한다.
 
-Manifest의 `trust_model`은 Core가 레코드 일관성과 변경 탐지만 강제하며 실제 action 실행과 사람 신원 확인은 Runtime·CI·외부 승인 시스템의 경계라는 점을 기계적으로 공개한다. 새 Decision과 Evidence의 attestation도 같은 경계를 digest에 결박한다. Adapter는 `human_decision_actions` 전에 실제 호스트 사용자 확인을 받아야 하며 caller가 적은 actor 문자열을 인증 결과처럼 표현해서는 안 된다.
+계획을 대화에 제시한 것과 Unit에 기록한 것은 별개다. `unit-init` 직후 Agent는 승인된 계획을 `plan.md`에 그대로 영속화하고 Inception 문서와 stage disposition, Checkpoint를 materialize한 뒤에만 첫 transition을 수행한다. Construction 구현이 끝나면 Architecture와 Implementation Guide를 기록하고 Architecture packet을 승인받은 뒤 Validation으로 간다. Core의 artifact readiness와 Decision snapshot digest가 이 순서를 fail-closed로 검사한다.
+
+중간 구현 기록도 종료 시점의 선택 사항이 아니다. `managed-edit`·`managed-test`·`external-api`는 후속 Checkpoint 의무를 반환하며, Agent는 작업 batch 직후 `artifact-write`로 관련 stage 문서를 갱신하고 `completed`·`pending`·`blocked_by`·`next_action`을 기록한다. 진행 보고, Human Gate, Unit 전환, 최종 응답이나 의도적 중단 전에도 같은 기록이 필요하다. 예기치 않은 이탈 뒤 `resume`이 stale checkpoint를 보고하면 새 구현을 시작하지 않고 authorization target과 workspace를 대조해 복구 Checkpoint부터 기록한다.
+
+`unit-init`하거나 `resume`한 Unit은 최종 Operation Decision을 승인받아 `learned`가 될 때까지 Project의 active work boundary다. Core는 이 결박을 ignored `.isekai-runtime/active-unit.json`에 저장한다. 그 전에 사용자가 추가·삭제·행동 변경을 말하면 새 `intake`나 Quick Change로 빼지 않고 먼저 `amend`로 정확한 요청, 요청자, 영향받는 Unit 문서를 기록한다. 명시적으로 다른 작업 시작·현재 Unit 포기·다른 Unit 전환을 요청한 경우에만 현재 Checkpoint를 보존하고 사람 판단 action인 `active-unit-detach`를 기록한 뒤 경계를 바꾼다.
+
+`amend`는 사용자의 변경 승인을 append-only `amendments.json`과 Amendment Decision에 함께 결박한다. Core는 영향 문서에 따라 같은 Unit을 Inception·Construction·Validation·Operating 중 필요한 지점으로 되돌리고 기존 Evidence를 무효화한다. Agent는 해당 문서와 구현을 갱신하고 검증·Checkpoint를 기록한 뒤 amendment ID를 참조하는 새 lifecycle Decision을 받아야 한다. 사용자가 제시된 gate 결과 자체를 거부한 경우만 `rejected`로 기록하며, 일반 변경 요청을 거부로 바꾸지 않는다.
+
+MCP Core는 Host 대화 원문을 자동 수신하지 않는다. active Unit의 새 사용자 메시지를 `amend`로 보고하는 것은 Runtime Adapter의 attested routing 책임이다. 보고된 뒤의 동일 Unit 유지·되감기·문서 변경·Decision·Checkpoint는 Core가 강제하고, 새 `intake`를 시도해도 `active-unit-amendment-required`로 차단한다. 그러나 Adapter가 메시지를 아예 누락했다는 사실은 lifecycle 훅이나 Host 플러그인으로 대화를 가로채지 않는 현재 구조에서 Core가 독립적으로 탐지할 수 없다. Manifest는 이를 `conversation_change_reporting: runtime-adapter-attested-not-core-observed`로 공개한다.
+
+Manifest의 `trust_model`은 Core가 레코드 일관성·변경 탐지·active Unit 결박과 managed edit/test 실행을 강제하지만 사람 신원 확인과 외부 API 실행은 Runtime·CI·외부 승인 시스템의 경계라는 점을 기계적으로 공개한다. 새 Decision과 Evidence의 attestation도 같은 경계를 digest에 결박한다. Adapter는 `human_decision_actions` 전에 실제 호스트 사용자 확인을 받아야 하며 caller가 적은 actor 문자열을 인증 결과처럼 표현해서는 안 된다.
+
+## Core 전용 실행 경계
+
+ISEKAI 호스트 프로필은 Project 파일시스템을 호스트 Agent에게 읽기 전용으로 노출하고 Project-local `isekai-core` MCP server만 변경 통로로 연결한다. Codex의 일반 write/apply-patch, Claude의 Edit·Write·NotebookEdit·Bash, Kiro의 write·shell 도구는 이 프로필에서 사용할 수 없다. `handshake`는 Project 설정의 read-only 선언, 필수 MCP 연결과 Core tool allowlist를 확인하지 못하면 lifecycle action 전에 실패한다.
+
+이 검사는 Project-local 설정의 정합성 검사다. 실제 Host process가 더 높은 우선순위의 CLI flag나 조직 managed policy로 Project 설정을 덮어썼는지 Core가 stdio MCP 안에서 독립적으로 증명할 수는 없다. 따라서 정상 ISEKAI 실행 보호 설정에서는 사전에 direct writer가 제공되지 않으며, 사용자가 별도의 Host override로 sandbox를 다시 연 것은 운영자 우회로 취급한다. lifecycle 훅을 원하지 않는 조건에서 이 Host permission이 MCP 밖 직접 파일 수정을 사전 차단하는 경계이고, Core는 자기 MCP를 거친 요청을 다시 active Unit·Envelope·Decision으로 검사한다.
+
+## ISEKAI Feature Catalog 연결
+
+ISEKAI가 제공하는 기능은 Project-local Core MCP의 공통 Feature Catalog에 등록된다. Core MCP는 Catalog와 개별 Feature manifest resource를 노출하고 Unit Context Receipt는 Catalog digest를 고정한다. Adapter는 `active` Feature만 사용하며, 각 Feature action은 같은 active Unit·Envelope·Decision·Evidence 경계를 거쳐야 한다. 현재 등록된 실행 기능은 AI-DLC이며, 새 기능은 구현과 배포 계약이 준비된 뒤 고유한 Feature ID로 추가한다. 구체 계약은 [ISEKAI Features](features.md)를 따른다.
+
+파일 변경은 grant와 실행을 분리하지 않는다. `artifact-write`는 승인 전 Unit 문서를 materialize하고, 승인된 문서의 의미 변경에는 먼저 같은 Unit의 pending Amendment를 요구한다. 기존 acceptance 항목을 `[ ]`에서 `[x]`로만 진행시키는 것은 예외지만 문구 변경이나 역방향 변경은 허용하지 않는다. `managed-edit`는 모든 target의 Envelope 범위와 expected digest를 검증하고 한 Core batch에서 쓰기와 receipt 기록을 완료한다. `managed-test`는 일회용 Project 복제본에서 실행해 테스트가 만든 상대 경로 쓰기를 원본으로 되돌리지 않는다. Runtime `authorize --action edit|test`는 의도적으로 거부된다. 이 구조는 훅의 사후 감지에 의존하지 않는다.
+
+이 프로필 밖에서 사용자가 IDE나 별도 프로세스로 직접 파일을 바꾸는 행위까지 같은 OS 사용자 권한으로 금지하는 것은 Core의 범위가 아니다. 그런 외부 변경은 다음 Core write의 expected digest나 artifact snapshot 검증에서 충돌로 처리한다. 호스트 실행 옵션이나 조직 관리 정책이 Project 설정을 덮어쓸 수 있는 환경은 해당 상위 정책에서도 read-only/MCP 전용 경계를 강제해야 한다.
 
 사람 확인은 도구 호출 때마다 받는 것이 아니라 판단의 대상이 완성되는 lifecycle 경계에서 받는다.
 
@@ -72,17 +96,17 @@ ACTIVE + status 또는 resume
 OFF
 ```
 
-`on`은 현재 대화에서 선택한 Project의 ISEKAI mode만 활성화한다. Project·Foundation context와 Unit candidate 경로를 반환하지만 Unit을 선택·검증·resume하지 않으며 `unit`과 `active_unit`은 `null`이다. Unit 수와 관계없이 성공한다. 활성 중 새 요청은 `intake`를 거쳐 Query·Quick Change·Unit으로 라우팅한다.
+`on`은 현재 대화에서 선택한 Project의 ISEKAI mode만 활성화한다. Project·Foundation context와 Unit candidate 경로를 반환하지만 Unit을 새로 선택·검증·resume하지 않으며 `unit`은 `null`이다. 대신 Core가 이미 결박한 unfinished Unit이 있으면 `active_unit_binding`으로 알려 준다. Unit 수와 관계없이 성공한다. 결박이 없는 동안의 새 요청만 `intake`를 거쳐 Query·Quick Change·Unit으로 라우팅한다.
 
 기존 Unit 작업을 계속할 때는 `resume [--project PATH] [--unit PATH]`을 별도로 호출한다. `resume`만 Unit을 선택하고 Checkpoint와 원본 artifact를 복구한다. 여러 Unit이 있으면 명시적 `--unit`을 요구한다. `on` 응답은 기계용 ASCII 경로 배열 `unit_candidates`와 함께 `unit_candidate_details`에 사람용 `title`, 상태, 문서 언어를 제공하므로 Adapter는 선택 질문에서 경로와 제목을 함께 보여준다.
 
-`resume`한 Unit 하나만 현재 대화의 persistent work에 대한 active Unit으로 취급한다. Adapter는 현재 Unit의 Envelope로 형제 Unit을 읽거나 수정하거나 테스트하지 않는다. 다른 Unit을 계속하려면 현재 Checkpoint를 먼저 보존하고 전환 사실을 사용자에게 알린 뒤 해당 경로를 명시한 새 `resume --unit PATH`를 사용한다. Core는 stateless이므로 대화 전환 자체를 저장하지 않지만, authorization에서는 active Unit 바깥의 Unit collection과 형제 Unit artifact를 action 종류와 관계없이 거부한다. 프로젝트 소스와 고정 Foundation·Profile·Extension은 이 격리 대상이 아니며 계속 Envelope와 Context Receipt의 경계를 따른다. 재사용할 Unit 학습은 `project-knowledge-propose`로 후보화하고 실제 사람의 Knowledge Decision 뒤 `project-knowledge-promote`로 승격한다. Adapter는 active Unit에서 `project-knowledge/`를 직접 읽지 않고 `context.project_knowledge`에 고정된 release만 사용한다.
+Core가 결박한 Unit 하나만 Project의 persistent work에 대한 active Unit이며, Operation 승인과 `learned` 전까지 새 대화에서도 이 경계가 유지된다. Core는 active Unit이 있을 때 새 `intake`·`route`·`inception`·`unit-init`과 형제 Unit을 대상으로 한 persistent action을 fail-closed로 거부한다. 다른 Unit을 계속하려면 현재 Checkpoint를 먼저 보존하고 전환 결과를 사용자에게 설명한 뒤, 명시적 사용자 판단으로 `active-unit-detach`를 기록하고 해당 경로를 지정한 `resume --unit PATH`를 사용한다. 프로젝트 소스와 고정 Foundation·Profile·Extension은 이 격리 대상이 아니며 계속 Envelope와 Context Receipt의 경계를 따른다. 재사용할 Unit 학습은 `project-knowledge-propose`로 후보화하고 실제 사람의 Knowledge Decision 뒤 `project-knowledge-promote`로 승격한다. Adapter는 active Unit에서 `project-knowledge/`를 직접 읽지 않고 `context.project_knowledge`에 고정된 release만 사용한다.
 
-`off`는 자동 라우팅을 중단하지만 Unit, Decision, Evidence, Receipt와 Checkpoint를 변경하거나 삭제하지 않는다. 암묵적 checkpoint도 작성하지 않는다. 모드가 off인 상태의 명시적 `/isekai <action>`은 대화 모드를 활성화하지 않는 one-shot action이다.
+`off`는 자동 라우팅을 중단하지만 Unit, Decision, Evidence, Receipt와 Checkpoint를 변경하거나 삭제하지 않고 Core active Unit 결박도 해제하지 않는다. 암묵적 checkpoint도 작성하지 않는다. 모드가 off인 상태의 명시적 `/isekai <action>`은 대화 모드를 활성화하지 않는 one-shot action이지만 active Unit 경계는 그대로 적용된다.
 
-Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. Project Skill의 발견 여부와 대화 mode는 별개다.
+Core는 `on`과 `off`를 읽기 전용 handshake로 제공하며 대화 mode 자체는 artifact나 중앙 세션 저장소에 영속화하지 않는다. 다만 mode와 별개인 Project active Unit 결박은 `.isekai-runtime/active-unit.json`에 영속화해 새 대화와 one-shot action에도 같은 경계를 적용한다. Project Skill의 발견 여부, 대화 mode, active Unit 결박은 서로 다른 상태다.
 
-새 프로젝트에 라이브러리처럼 붙이는 활성화 표면은 host가 자동 탐색하는 repo/project/workspace Skill이다. 따라서 훅이나 resident harness 없이도 새 세션의 명시적 `on`, 대화 안의 mode 상태, 매 요청 `intake`, Core의 machine-readable `workflow` 계약으로 lifecycle이 이어진다.
+새 프로젝트에 라이브러리처럼 붙이는 활성화 표면은 host가 자동 탐색하는 repo/project/workspace Skill이다. 따라서 훅이나 resident harness 없이도 새 세션의 명시적 `on`, 대화 안의 mode 상태, Core가 Project에 저장한 active Unit 결박, 결박이 없을 때의 `intake`, active Unit의 `amend`로 lifecycle이 이어진다.
 
 Adapter는 모든 Core runtime action 전에 Adapter version, Core version, protocol version과 Project lock을 `handshake`로 검증한다. Project lock이 없거나 설치 파일 또는 Foundation digest가 lock과 다르거나 protocol이 호환되지 않으면 fail-closed하고 설치, `doctor` 또는 명시적 update를 요구한다.
 

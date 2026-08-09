@@ -30,6 +30,16 @@ def test_no_top_level_command_is_shadowed_by_a_runtime_alias() -> None:
     assert _top_level_commands() & DIRECT_RUNTIME_ACTIONS == set()
 
 
+def test_internal_host_profile_term_is_not_exposed_in_public_cli_help() -> None:
+    parser = _parser()
+
+    assert "host-profile" not in parser.format_help()
+    assert "doctor" in parser.format_help()
+    assert "--fix" in parser._subparsers._group_actions[0].choices[
+        "doctor"
+    ].format_help()
+
+
 def test_every_direct_alias_reaches_its_runtime_action() -> None:
     runtime_actions = set(
         _parser()._subparsers._group_actions[0]  # type: ignore[union-attr]

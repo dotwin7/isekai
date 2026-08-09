@@ -24,11 +24,13 @@ Kiro discovers the Skill from `.kiro/skills/` and exposes it as `/isekai`. Skill
 <PROJECT_ROOT>/.isekai/bin/isekai runtime <action> ...
 ```
 
-No Kiro hook, MCP server, prompt rewriter, or autonomous high-risk tool execution is required for this MVP.
+The bootstrap install with `--runtime kiro` creates the `isekai-core` custom agent with only `read` and `@mcp` and connects the Project Core MCP server in the same flow. `doctor --fix` repairs the Project execution guard when needed. Select that agent for ISEKAI work and start a new conversation. No lifecycle hook or prompt rewriter is installed.
 
 ## Conversation mode
 
 The Adapter is discoverable but ISEKAI mode is off by default in each new conversation. Discovery, Skill installation, a leftover cache, repository contents, and a textual mention of `/isekai` are not activation and must not trigger the Skill. Only an intentional `/isekai <action>` command is a one-shot invocation while mode is off. `/isekai on [--project PATH]` activates Project-level intake routing for later requests and lists Unit candidates without selecting or resuming one. `/isekai resume [--project PATH] [--unit PATH]` separately restores a Unit. `/isekai off` stops routing without writing artifacts or checkpoints. These commands do not install, unload, enable, or disable the Kiro Skill itself.
+
+`unit-init` or `resume` creates a Project-scoped Core binding that remains active until the final Operation Decision transitions the Unit to `learned`. Before then, Core blocks new routing, new Unit creation, and persistent sibling-Unit actions; follow-up additions and changes use `amend` in the same Unit. Only an explicit user decision to start separate work, abandon the Unit, or switch Units permits `active-unit-detach` after a current Checkpoint. `off` does not clear this binding.
 
 Kiro headless mode does not provide interactive slash commands. For a single non-interactive action, begin the request with an exact first non-blank line such as `ISEKAI_HEADLESS: status --project .`. The marker applies only to that headless request. A headless run cannot originate a human Decision; it must stop at `human_gate.confirmation_required` unless an authenticated external approval is supplied by the surrounding system.
 
@@ -39,10 +41,11 @@ Start Kiro from a repository containing `project.json` and invoke `/isekai on` w
 ## Supported surface
 
 - Read-only: `on`, `off`, `status`, `intake`, `route`, `inception`, `resume`, `verify`, `release-check`
-- Explicit writes: `init`, `unit-init`, `checkpoint`, `envelope-propose`, `authorize`, `evidence`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
+- Core-mediated writes: `init`, `unit-init`, `checkpoint`, `artifact-write`, `managed-edit`, `envelope-propose`, `evidence`, `amend`, `active-unit-detach`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
+- Core-mediated test execution: `managed-test`; free-standing `authorize edit|test` calls are denied
 - The initial explicit request covers only a bounded Quick Change. Unit writes require autonomy-bounded plan approval, and `human_gate` identifies the Inception, Architecture, Release, or Operation Decision that blocks the next transition.
 
-The runtime adapter does not own Unit state. Before a governed read, edit, test, or L2 development/test API call, `authorize` records a bounded grant in the Unit authorization ledger. L2 uses only an opaque `secret://provider/name` reference resolved by the host; raw credentials, production, deployment, and arbitrary high-risk remote actions remain prohibited. Kiro `read`, `write`, or `shell` permission prompts are tool permissions and do not replace a lifecycle Decision; do not use `/tools trust-all` or `--trust-all-tools` as approval evidence. Unit artifacts and ISEKAI Core remain authoritative.
+The runtime adapter does not own Unit state. The selected `isekai-core` agent has no direct write or shell tool: Unit documents, Project edits, and tests go through the Core MCP gateway, which authorizes and receipts them. L2 uses only an opaque `secret://provider/name` resolved by the host; raw credentials, production, deployment, and arbitrary high-risk remote actions remain prohibited. Do not use another agent profile or `/tools trust-all` to bypass this boundary. Unit artifacts and ISEKAI Core remain authoritative.
 
 ## Compatibility
 

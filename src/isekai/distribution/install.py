@@ -34,6 +34,7 @@ from .release import (
     tree_digest,
 )
 from ..foundation import FoundationError, load_foundation
+from .features import stage_feature_catalog
 from .marketplace import (
     CLAUDE_PROJECT_SETTINGS,
     CODEX_REPO_MARKETPLACE,
@@ -93,6 +94,11 @@ def doctor_install(project: str | Path) -> dict[str, Any]:
             components.append((label, entry))
         else:
             issues.append(f"lock is missing {label}")
+    features = lock.get("features")
+    if isinstance(features, dict):
+        components.append(("features", features))
+    elif lock.get("release") == __version__:
+        issues.append("lock is missing features")
     adapters = lock.get("adapters")
     if not isinstance(adapters, dict):
         issues.append("lock adapters must be an object")
@@ -418,6 +424,7 @@ def _install_from_checkout_locked(
             "commit": commit,
             "runtimes": installed_runtimes,
             "foundation": current_lock["foundation"],
+            "features": current_lock["features"],
             "lock": str(project_root / LOCK_NAME),
             "host_registration_required": False,
             "new_conversation_required": False,
@@ -461,6 +468,8 @@ def _install_from_checkout_locked(
             include_transients=True,
         )
         _write_launchers(staged)
+
+        features_entry = stage_feature_catalog(release_root, staged, manifest)
 
         if current_lock and not include_foundation:
             foundation_entry = dict(current_lock["foundation"])
@@ -561,6 +570,7 @@ def _install_from_checkout_locked(
                 "source_digest": manifest["core"]["digest"],
                 "digest": core_digest,
             },
+            "features": features_entry,
             "foundation": foundation_entry,
             "adapters": dict(sorted(adapter_entries.items())),
         }
@@ -658,6 +668,7 @@ def _install_from_checkout_locked(
         "commit": commit,
         "runtimes": installed_runtimes,
         "foundation": foundation_entry,
+        "features": features_entry,
         "lock": str(project_root / LOCK_NAME),
         "host_registration_required": False,
         "new_conversation_required": bool(selected),
@@ -714,6 +725,15 @@ def verify_adapter_handshake(
     health = doctor_install(root)
     if not health["ready"]:
         raise DistributionError("project installation is unhealthy: " + "; ".join(health["issues"]))
+    from .execution_profile import execution_profile_status
+
+    execution_guard = execution_profile_status(root, runtime)
+    if not execution_guard["ready"]:
+        raise DistributionError(
+            "Project execution guard is not ready: "
+            + "; ".join(execution_guard["issues"])
+            + "; run isekai doctor --path PROJECT --fix"
+        )
     return {
         "compatible": True,
         "runtime": runtime,
@@ -721,4 +741,5 @@ def verify_adapter_handshake(
         "core_version": __version__,
         "protocol_version": PROTOCOL_VERSION,
         "locked": True,
+        "execution_guard": execution_guard,
     }

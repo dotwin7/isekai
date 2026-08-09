@@ -65,7 +65,7 @@ examples/reference-product/
    └─ reference-product.json
 ```
 
-`project.json`은 공통 Profile은 Foundation ID로 선택하고, 제품 Extension은 `{ "id": "...", "path": "..." }` 형태로 프로젝트 로컬 파일을 참조한다.
+`project.json`은 공통 Profile은 Foundation ID로 선택하고, Product Extension은 `extensions`에서 프로젝트 로컬 파일을 참조한다. ISEKAI Runtime의 추가 기능은 Product Extension에 넣지 않고 [ISEKAI Feature Catalog](features.md)에 등록한다. 모든 Feature는 Foundation MUST, Project Agent level과 Unit Envelope를 넓힐 수 없다.
 
 ## 문서 언어 정책
 
@@ -120,6 +120,6 @@ Knowledge entry는 고유 ID를 가져야 하며 정확히 하나의 `required-p
 
 `release-check`는 승인 여부를 자동으로 결정하지 않고 현재 blocker를 보고한다. `foundation-promote`는 사람의 명시적 승인 이후에만 실행하는 쓰기 명령이다.
 
-현재 공통 기준선은 `isekai-foundation@0.2.0`이며 최신 Foundation Decision `DEC-FND-20260809103523530538`과 digest-bound passing Evidence를 근거로 release와 등록된 21개 asset이 `approved` 상태다. v0.2는 L2의 정확한 개발·테스트 외부 API 정책과 host-only secret resolution 경계를 추가한다. 후속 gap은 approved v0.2.0을 임의 수정하지 않고 patch/minor Foundation version으로 보완한다. API 사용 시 `plan_foundation_promotion(root)`은 release manifest와 등록 asset 21개를 합친 22개 target의 상대 path·version·from/to status를 결정적으로 반환한다. `promote_foundation(root, dry_run=True)`는 같은 plan과 blocker만 보고하며 JSON, mode, Decision, Evidence를 변경하지 않는다.
+현재 공통 기준선은 `isekai-foundation@0.2.1`이며 최신 Foundation Decision `DEC-FND-20260809103523530538`과 digest-bound passing Evidence를 근거로 release와 등록된 21개 asset이 `approved` 상태다. v0.2는 L2의 정확한 개발·테스트 외부 API 정책과 host-only secret resolution 경계를 추가한다. 후속 gap은 approved v0.2.1을 임의 수정하지 않고 patch/minor Foundation version으로 보완한다. API 사용 시 `plan_foundation_promotion(root)`은 release manifest와 등록 asset 21개를 합친 22개 target의 상대 path·version·from/to status를 결정적으로 반환한다. `promote_foundation(root, dry_run=True)`는 같은 plan과 blocker만 보고하며 JSON, mode, Decision, Evidence를 변경하지 않는다.
 
 실행 promotion은 모든 22개 JSON 결과를 메모리에서 만들고 `load_foundation` preflight와 readiness를 통과시킨 뒤 시작한다. 각 target은 같은 directory의 temporary file에 write·flush·fsync하고, 전체 staging 성공 후 `os.replace` commit한다. commit 또는 postflight(load, 22개 approved, readiness) 중 예외가 나면 원본 bytes와 mode를 복원하고 temporary file을 삭제한다. 이 transaction은 단일 프로세스·로컬 파일시스템 경계의 best-effort rollback이며 전원 손실, 파일시스템/외부 프로세스의 동시 변경, rollback 자체의 I/O 실패까지 원자성을 보장하지 않는다. descriptor의 중복·절대/상위 경로와 release.json 충돌은 preflight에서 차단한다. 기존 `promote_foundation(root)` 호출은 호환성을 위해 실행 모드로 유지한다.

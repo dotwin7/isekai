@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .authorization import _authorization_ledger_issues
+from .artifacts import (
+    approved_artifact_snapshot_issues,
+    latest_decision_artifact_issues,
+    status_artifact_readiness_issues,
+    target_artifact_readiness_issues,
+)
+from .checkpointing import checkpoint_progress_issues
 from .common import (
     UNIT_LOCK_NAME,
     UNIT_REQUIRED_FILES,
@@ -31,6 +38,7 @@ from .decisions import (
     _latest_decision,
     _release_decision_evidence_issues,
 )
+from .amendments import amendment_status, transition_amendment_issues
 from ..errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
 from .evidence import (
     _current_authorization_context,
@@ -275,9 +283,31 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             f"invalid lifecycle transition: {current_status} -> {target_status}"
         )
 
+    progress_issues = checkpoint_progress_issues(unit_dir)
+    if progress_issues:
+        raise LifecycleError(
+            f"transition to {target_status} requires a current checkpoint: "
+            + "; ".join(progress_issues)
+        )
+
+    artifact_issues = target_artifact_readiness_issues(unit_dir, target_status)
+    if artifact_issues:
+        raise LifecycleError(
+            f"transition to {target_status} requires materialized Unit artifacts: "
+            + "; ".join(artifact_issues)
+        )
+
     required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(target_status)
     if required_gate:
         decisions = _unit_json(unit_dir, "decisions.json")
+        amendment_issues = transition_amendment_issues(
+            unit_dir, decisions, required_gate
+        )
+        if amendment_issues:
+            raise LifecycleError(
+                f"transition to {target_status} has unresolved Unit amendments: "
+                + "; ".join(amendment_issues)
+            )
         if not _has_approved_decision(
             decisions,
             required_gate,
@@ -287,6 +317,14 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             raise LifecycleError(
                 f"transition to {target_status} requires an approved "
                 f"{required_gate} Decision"
+            )
+        binding_issues = latest_decision_artifact_issues(
+            unit_dir, decisions, required_gate
+        )
+        if binding_issues:
+            raise IntegrityError(
+                f"transition to {target_status} blocked by changed approved artifacts: "
+                + "; ".join(binding_issues)
             )
 
     unit_path = unit_dir / "unit.json"
@@ -403,6 +441,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     issues.extend(_unit_preflight_issues(unit_dir))
     envelope_path = unit_dir / "execution-envelope.json"
     envelope: dict[str, Any] | None = None
+    ledger: dict[str, Any] | None = None
     try:
         maximum_agent_level = _unit_maximum_agent_level(unit_dir)
     except IntegrityError as exc:
@@ -488,6 +527,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         from ..project_knowledge import knowledge_decision_candidate_issues
 
         issues.extend(knowledge_decision_candidate_issues(unit_dir, decisions))
+        issues.extend(approved_artifact_snapshot_issues(unit_dir, decisions))
     issues.extend(_human_document_language_issues(unit_dir, unit, decisions))
     if isinstance(decision_entries, list) and not decision_entries:
         issues.append("at least one recorded decision is required")
@@ -509,6 +549,8 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     status = unit.get("status")
     if status not in LIFECYCLE_STATUSES:
         issues.append(f"invalid lifecycle status: {status}")
+    elif isinstance(status, str):
+        issues.extend(status_artifact_readiness_issues(unit_dir, status))
     required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(str(status) if status is not None else "")
     if required_gate and isinstance(decision_entries, list):
         if decisions is not None and not _has_approved_decision(decisions, required_gate):
@@ -526,6 +568,17 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
             issues.append("learned Unit cannot have pending work")
 
     issues.extend(_acceptance_criteria_issues(unit_dir))
+    amendments = amendment_status(
+        unit_dir,
+        unit=unit,
+        decisions=decisions if decisions is not None else {"decisions": []},
+    )
+    issues.extend(amendments["issues"])
+    issues.extend(
+        f"pending Unit amendment {item.get('id')} requires a fresh "
+        f"{item.get('required_gate')} Decision"
+        for item in amendments["pending"]
+    )
 
     criteria_path = unit_dir / "evaluations/criteria.json"
     if criteria_path.is_file():
@@ -555,6 +608,16 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                 )
             )
 
+    progress_issues = (
+        checkpoint_progress_issues(
+            unit_dir,
+            checkpoint=checkpoint,
+            active_ledger=ledger,
+        )
+        if checkpoint is not None and ledger is not None
+        else ["checkpoint progress cannot be evaluated"]
+    )
+    issues.extend(progress_issues)
     issues = list(dict.fromkeys(issues))
     valid = not missing and not issues
     return {
@@ -571,6 +634,11 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         "project_id": unit.get("project_id"),
         "pending": checkpoint.get("pending", []) if checkpoint is not None else [],
         "blocked_by": checkpoint.get("blocked_by", []) if checkpoint is not None else [],
+        "checkpoint_progress": {
+            "fresh": not progress_issues,
+            "issues": progress_issues,
+        },
+        "amendments": amendments,
         "human_gate": _human_gate_status(unit, decisions),
         "evidence": {
             "id": evidence.get("id"),

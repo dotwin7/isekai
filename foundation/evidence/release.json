@@ -1,14 +1,14 @@
 {
-  "id": "EVD-FND-20260809103025019677",
+  "id": "EVD-FND-20260809174437412170",
   "type": "foundation-release-evidence",
   "schema_version": "1.0.0",
   "foundation_id": "isekai-foundation",
-  "version": "0.2.0",
-  "approval_digest": "sha256:84959d71feff2db10a00c264c7b64355597cbfe74611af3dba85eb5ec781b5aa",
+  "version": "0.2.1",
+  "approval_digest": "sha256:59eda63ede53ceaa2157c47ab2289b06dfff00863880f22b580e2cbb657c7827",
   "passed": true,
-  "scope": "Foundation v0.2.0 L2 development/test external API authorization boundary",
+  "scope": "ISEKAI 0.2.1 Unit execution governance, MCP boundary, and Feature Catalog release",
   "recorded_by": "codex-validation",
-  "recorded_at": "2026-08-09T10:30:25.019677+00:00",
+  "recorded_at": "2026-08-09T17:44:37.412170+00:00",
   "attestation": {
     "type": "local-evaluation-attestation",
     "reported_actor": "codex-validation",
@@ -19,103 +19,93 @@
     {
       "id": "routing",
       "passed": true,
-      "details": "9 routing evaluation cases passed",
+      "details": "9 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/routing.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "dod-evaluation",
       "passed": true,
-      "details": "2 DoD evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/dod.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "exception-evaluation",
       "passed": true,
-      "details": "2 exception evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/exception.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "gate-evaluation",
       "passed": true,
-      "details": "2 gate evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/gate.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "knowledge-evaluation",
       "passed": true,
-      "details": "2 knowledge evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/knowledge.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "release-evaluation",
       "passed": true,
-      "details": "2 release evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/release.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "semantic-evaluation",
       "passed": true,
-      "details": "2 semantic evaluation cases passed",
+      "details": "2 evaluation cases passed",
       "provenance": {
         "source": "foundation/evaluations/semantic.json",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
-      "id": "l2-external-api",
+      "id": "release-regression",
       "passed": true,
-      "details": "L2 exact HTTPS policy, opaque credential reference, request budget, and Evidence binding tests passed",
+      "details": "499 passed, 4 skipped",
       "provenance": {
-        "source": "uv run pytest -q tests/test_external_api_authorization.py",
+        "source": ".venv/bin/pytest -q",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
-      }
-    },
-    {
-      "id": "candidate-regression",
-      "passed": true,
-      "details": "442 passed, 4 skipped, 3 approval-state tests deselected",
-      "provenance": {
-        "source": "uv run pytest -q with Foundation approval-state assertions deselected",
-        "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     },
     {
       "id": "golden-e2e",
       "passed": true,
-      "details": "Reference Product installed Runtime E2E and regenerated Golden Unit passed",
+      "details": "Installed Runtime Reference Product lifecycle and Golden Unit validation passed",
       "provenance": {
         "source": "tests/test_reference_product_e2e.py",
         "recorded_by": "codex-validation",
-        "recorded_at": "2026-08-09T10:00:00Z"
+        "recorded_at": "2026-08-09T17:44:37.404615+00:00"
       }
     }
   ],
-  "evidence_digest": "sha256:c6a824dff347f7f255167a9539a946e252201483bb307af8217c53b686034865"
+  "evidence_digest": "sha256:cacf5ccd71a343bfba5d4147047c30144b67d4c563d90e8bade102766d15bfd9"
 }

@@ -24,6 +24,10 @@ from .unit.common import (
     _unit_preflight_issues,
     unit_lock,
 )
+from .unit.checkpointing import (
+    authorization_progress_cursor,
+    checkpoint_progress_issues,
+)
 from .unit.lifecycle import unit_status
 
 
@@ -170,6 +174,8 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
         "blocked_by": status.get("blocked_by", []),
         "decision_count": status.get("decision_count", 0),
         "human_gate": status.get("human_gate"),
+        "checkpoint_progress": status.get("checkpoint_progress"),
+        "amendments": status.get("amendments"),
     }
 
 
@@ -342,13 +348,19 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
         checkpoint = _unit_json(selected, "checkpoint.json")
     except ValueError as exc:
         raise SessionError(str(exc)) from exc
+    progress_issues = checkpoint_progress_issues(selected, checkpoint=checkpoint)
     return {
         **session,
         "resume": {
+            "active_unit": session["unit"].get("status") != "learned",
+            "amendments": session["unit"].get("amendments"),
             "completed": checkpoint.get("completed", []),
             "pending": checkpoint.get("pending", []),
             "blocked_by": checkpoint.get("blocked_by", []),
             "next_action": checkpoint.get("next_action"),
+            "checkpoint_fresh": not progress_issues,
+            "checkpoint_issues": progress_issues,
+            "recovery_required": bool(progress_issues),
             "artifact_count": sum(
                 1
                 for path in selected.rglob("*")
@@ -493,15 +505,26 @@ def update_checkpoint(
             )
         try:
             unit = _unit_json(path, "unit.json")
+            ledger = _unit_json(path, "execution-authorizations.json")
         except ValueError as exc:
             raise SessionError(str(exc)) from exc
-        checkpoint = _checkpoint_record(unit, completed, pending, blocked_by, next_action)
+        checkpoint = _checkpoint_record(
+            path,
+            unit,
+            ledger,
+            completed,
+            pending,
+            blocked_by,
+            next_action,
+        )
         write_json_atomic(path / "checkpoint.json", checkpoint)
     return {"path": str(path / "checkpoint.json"), "checkpoint": checkpoint}
 
 
 def _checkpoint_record(
+    unit_dir: Path,
     unit: dict[str, Any],
+    ledger: dict[str, Any],
     completed: list[str],
     pending: list[str],
     blocked_by: list[str],
@@ -513,5 +536,6 @@ def _checkpoint_record(
         "pending": pending,
         "blocked_by": blocked_by,
         "next_action": next_action,
+        "authorization_cursor": authorization_progress_cursor(unit_dir, ledger),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

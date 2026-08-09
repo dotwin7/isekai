@@ -15,8 +15,9 @@ from isekai.workflow import (
     transition_unit,
 )
 from isekai.workflow.errors import AuthorizationError, EvidenceError
+from isekai.session import update_checkpoint
 
-from test_core_workflow import make_project
+from test_core_workflow import make_project, materialize_unit_artifacts
 
 
 EXTERNAL_POLICY = {
@@ -37,6 +38,7 @@ def make_l2_unit(tmp_path: Path, *, max_requests: int = 2) -> Path:
     manifest["maximum_agent_level"] = "L2"
     project.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
     unit = initialize_unit(project, "External API", project.parent / "units")
+    materialize_unit_artifacts(unit)
     policy = {**EXTERNAL_POLICY, "max_requests": max_requests}
     propose_execution_envelope(
         unit,
@@ -202,6 +204,13 @@ def test_external_authorization_can_be_bound_to_verification_evidence(
         target="https://api.openai.com/v1/responses",
         method="POST",
         credential_ref="secret://openai/development",
+    )
+    update_checkpoint(
+        unit,
+        completed=["개발 External API 호출"],
+        pending=["통합 검증"],
+        blocked_by=[],
+        next_action="External API 결과를 통합 테스트로 검증한다.",
     )
     test = authorize_action(unit, action="test", target="tests/test_external.py")
     observed_at = datetime.now(timezone.utc).isoformat()

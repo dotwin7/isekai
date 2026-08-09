@@ -43,6 +43,7 @@ PROTECTED_UNIT_ARTIFACTS = {
     "unit.json",
     "context-receipt.json",
     "decisions.json",
+    "amendments.json",
     "execution-envelope.json",
     "execution-authorizations.json",
     "checkpoint.json",

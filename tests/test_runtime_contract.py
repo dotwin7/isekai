@@ -8,7 +8,7 @@ import pytest
 from isekai.runtime_contract import RuntimeContractError, dispatch
 from isekai.workflow.errors import AuthorizationError
 
-from test_core_workflow import make_project
+from test_core_workflow import make_project, materialize_unit_artifacts
 from test_execution_envelope import approve_inception, make_enveloped_unit
 from isekai.workflow import authorize_action, initialize_unit
 
@@ -31,6 +31,7 @@ def test_runtime_golden_path_exposes_core_session_contract(tmp_path: Path) -> No
     resumed = dispatch("resume", {"project": str(project)})
     assert resumed["result"]["resume"]["next_action"] == "의도와 인수 조건을 구체화합니다."
     assert resumed["result"]["unit"]["human_gate"]["next_transition"] == "inception"
+    assert resumed["result"]["active_unit_binding"]["active"] is True
 
     verified = dispatch("verify", {"unit": str(unit)})
     assert verified["result"]["valid"] is False
@@ -47,6 +48,7 @@ def test_runtime_on_activates_project_and_resume_restores_unit(
     assert activated_without_unit["result"]["activation"] == "project"
     assert activated_without_unit["result"]["unit"] is None
     assert activated_without_unit["result"]["unit_candidate_details"] == []
+    assert activated_without_unit["result"]["active_unit_binding"]["active"] is False
     assert activated_without_unit["result"]["adapter_mode"] == {
         "state": "on",
         "automatic_routing": True,
@@ -84,6 +86,7 @@ def test_runtime_on_activates_project_and_resume_restores_unit(
     )["result"]
     assert resumed["unit"]["unit_id"] == json_unit_id(first)
     assert resumed["resume"]["next_action"] == "의도와 인수 조건을 구체화합니다."
+    assert resumed["active_unit_binding"]["unit"]["path"] == str(first)
 
     deactivated = dispatch("off")
     assert deactivated["action"] == "off"
@@ -180,7 +183,7 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.2.0",
+                "adapter_version": "0.2.1",
                 "protocol_version": "1.1.0",
                 "project": str(project),
             },
@@ -190,7 +193,7 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.2.0",
+                "adapter_version": "0.2.1",
                 "protocol_version": "2.0.0",
                 "project": str(project),
             },
@@ -208,6 +211,7 @@ def test_runtime_decision_and_transition_actions_enforce_gate(
 ) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Runtime Decision", project.parent / "units")
+    materialize_unit_artifacts(unit)
     dispatch(
         "envelope-propose",
         {
@@ -291,6 +295,32 @@ def test_runtime_evidence_action_records_structured_result(tmp_path: Path) -> No
     assert evidence["action"] == "evidence"
     assert evidence["result"]["passed"] is True
     assert evidence["result"]["command_count"] == 1
+
+
+def test_runtime_amend_keeps_follow_up_change_in_the_active_unit(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+
+    amended = dispatch(
+        "amend",
+        {
+            "unit": str(unit),
+            "request": "동일 점수의 결정적 정렬을 추가한다.",
+            "reason": "사용자가 활성 Unit 완료 전에 기능을 추가했다.",
+            "affected_artifacts": [
+                "architecture.md",
+                "implementation-guide.md",
+            ],
+            "requested_by": "human-reviewer",
+        },
+    )
+
+    assert amended["action"] == "amend"
+    assert amended["result"]["status"] == "construction"
+    assert amended["result"]["decision_id"].startswith("DEC-")
+    assert amended["result"]["amendment_id"].startswith("AMD-")
 
 
 def test_runtime_init_creates_project_and_project_relative_unit(tmp_path: Path) -> None:

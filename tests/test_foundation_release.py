@@ -616,15 +616,15 @@ def test_promotion_plan_is_deterministic_and_contains_release_plus_21_assets(tmp
         "id": "isekai-foundation",
         "kind": "foundation-release",
         "path": "release.json",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "from_status": "draft",
         "to_status": "approved",
     }
     assert {target["from_status"] for target in first["targets"]} == {"draft"}
     assert {target["to_status"] for target in first["targets"]} == {"approved"}
     versions = {target["id"]: target["version"] for target in first["targets"]}
-    assert versions["isekai-foundation"] == "0.2.0"
-    assert versions["agent-execution-contract"] == "0.2.0"
+    assert versions["isekai-foundation"] == "0.2.1"
+    assert versions["agent-execution-contract"] == "0.2.1"
     assert {
         version
         for target_id, version in versions.items()

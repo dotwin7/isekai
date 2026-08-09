@@ -1,7 +1,7 @@
 {
   "id": "isekai-foundation",
   "kind": "foundation-release",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "schema_version": "1.0.0",
   "status": "approved",
   "owner": "foundation-owner",
@@ -70,7 +70,7 @@
     {
       "id": "agent-execution-contract",
       "kind": "agent-execution-contract",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "path": "governance/contracts/agent-execution.json"
     },
     {

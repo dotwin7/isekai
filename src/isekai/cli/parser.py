@@ -23,6 +23,7 @@ DIRECT_RUNTIME_ACTIONS = {
     "route",
     "inception",
     "compatibility",
+    "feature-status",
     "release-check",
     "foundation-decision",
     "foundation-evidence",
@@ -34,9 +35,14 @@ DIRECT_RUNTIME_ACTIONS = {
     "unit-migrate",
     "unit-init",
     "checkpoint",
+    "amend",
+    "active-unit-detach",
     "envelope-propose",
     "envelope-approve",
     "authorize",
+    "managed-edit",
+    "artifact-write",
+    "managed-test",
     "evidence",
     "decision",
     "transition",
@@ -47,6 +53,14 @@ DIRECT_RUNTIME_ACTIONS = {
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m isekai")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    mcp_serve = commands.add_parser(
+        "mcp-serve", help="serve the Project-scoped Core tool gateway over stdio"
+    )
+    mcp_serve.add_argument("--project", default=".")
+    mcp_serve.add_argument(
+        "--runtime", choices=("kiro", "claude", "codex"), required=True
+    )
 
     install = commands.add_parser(
         "install", help="install a pinned Git release into a project"
@@ -86,9 +100,15 @@ def _parser() -> argparse.ArgumentParser:
     update.add_argument("--check", action="store_true")
 
     doctor = commands.add_parser(
-        "doctor", help="verify project lock, installed files, and Foundation pin"
+        "doctor",
+        help="verify the project installation and Runtime execution guards",
     )
     doctor.add_argument("--path", default=".")
+    doctor.add_argument(
+        "--fix",
+        action="store_true",
+        help="restore Project-local Runtime execution guards",
+    )
 
     rollback = commands.add_parser(
         "rollback", help="restore the previous project-local ISEKAI installation"
@@ -159,6 +179,7 @@ def _parser() -> argparse.ArgumentParser:
     runtime_intake = runtime_commands.add_parser(
         "intake", help="normalize a Goal or direct request and route it"
     )
+    runtime_intake.add_argument("--project", default=".")
     runtime_intake.add_argument("--source", choices=("host-goal", "direct-request"), default="direct-request")
     runtime_intake.add_argument("--goal", required=True)
     runtime_intake.add_argument("--expected-outcome", dest="expected_outcome", default="")
@@ -177,6 +198,7 @@ def _parser() -> argparse.ArgumentParser:
     runtime_status.add_argument("--unit")
 
     runtime_route = runtime_commands.add_parser("route", help="route work through ISEKAI")
+    runtime_route.add_argument("--project", default=".")
     runtime_route.add_argument("--change", choices=("none", "local", "persistent"), required=True)
     runtime_route.add_argument("--risk", choices=("low", "high"), default="low")
     runtime_route.add_argument("--ambiguous", action="store_true")
@@ -189,6 +211,11 @@ def _parser() -> argparse.ArgumentParser:
 
     runtime_compatibility = runtime_commands.add_parser(
         "compatibility", help="show runtime CLI compatibility matrix"
+    )
+
+    runtime_commands.add_parser(
+        "feature-status",
+        help="show versioned features attached to this ISEKAI Runtime",
     )
 
     runtime_release_check = runtime_commands.add_parser(
@@ -268,6 +295,26 @@ def _parser() -> argparse.ArgumentParser:
     runtime_checkpoint.add_argument("--blocked-by", dest="blocked_by", action="append", default=[])
     runtime_checkpoint.add_argument("--next-action", required=True)
 
+    runtime_amend = runtime_commands.add_parser(
+        "amend", help="record a user-requested change to the active Unit"
+    )
+    runtime_amend.add_argument("--unit", required=True)
+    runtime_amend.add_argument("--request", required=True)
+    runtime_amend.add_argument("--reason", default="")
+    runtime_amend.add_argument(
+        "--affected-artifact", dest="affected_artifacts", action="append", required=True
+    )
+    runtime_amend.add_argument("--requested-by", dest="requested_by", required=True)
+
+    runtime_active_unit_detach = runtime_commands.add_parser(
+        "active-unit-detach",
+        help="release an unfinished active Unit after an explicit user decision",
+    )
+    runtime_active_unit_detach.add_argument("--project", default=".")
+    runtime_active_unit_detach.add_argument("--unit", required=True)
+    runtime_active_unit_detach.add_argument("--requested-by", dest="requested_by", required=True)
+    runtime_active_unit_detach.add_argument("--reason", required=True)
+
     runtime_envelope_propose = runtime_commands.add_parser(
         "envelope-propose", help="propose an adaptive Execution Envelope for a Unit"
     )
@@ -310,6 +357,31 @@ def _parser() -> argparse.ArgumentParser:
     runtime_authorize.add_argument("--stage")
     runtime_authorize.add_argument("--method")
     runtime_authorize.add_argument("--credential-ref")
+
+    runtime_managed_edit = runtime_commands.add_parser(
+        "managed-edit",
+        help="authorize and apply a Project file edit batch inside Core",
+    )
+    runtime_managed_edit.add_argument("--unit", required=True)
+    runtime_managed_edit.add_argument("--changes-json", required=True)
+
+    runtime_artifact_write = runtime_commands.add_parser(
+        "artifact-write",
+        help="persist human-facing Unit documents through Core",
+    )
+    runtime_artifact_write.add_argument("--unit", required=True)
+    runtime_artifact_write.add_argument("--artifacts-json", required=True)
+
+    runtime_managed_test = runtime_commands.add_parser(
+        "managed-test",
+        help="authorize and execute a test command inside Core",
+    )
+    runtime_managed_test.add_argument("--unit", required=True)
+    runtime_managed_test.add_argument("--target", required=True)
+    runtime_managed_test.add_argument("--command-json", required=True)
+    runtime_managed_test.add_argument(
+        "--timeout-seconds", type=int, default=300
+    )
 
     runtime_evidence = runtime_commands.add_parser("evidence", help="record structured verification Evidence")
     runtime_evidence.add_argument("--unit", required=True)

@@ -22,6 +22,7 @@ from .install import (
     rollback_install,
     verify_adapter_handshake,
 )
+from .execution_profile import apply_execution_profile, execution_profile_status
 from .release import (
     DISTRIBUTION_SCHEMA_VERSION,
     LOCK_NAME,
@@ -51,8 +52,10 @@ from .marketplace import (
 
 __all__ = [
     "DistributionError",
+    "apply_execution_profile",
     "build_distribution_manifest",
     "doctor_install",
+    "execution_profile_status",
     "install_from_bootstrap_checkout",
     "install_from_checkout",
     "install_from_git",

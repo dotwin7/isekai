@@ -487,6 +487,10 @@ def _validate_grant_target(
         return
     action = grant.get("action")
     if action == EXTERNAL_API_ACTION:
+        if "targets" in grant:
+            issues.append(
+                f"Execution authorization grant {index} external action cannot have targets"
+            )
         request, request_issue = normalize_external_api_request(
             target,
             grant.get("method"),
@@ -528,6 +532,46 @@ def _validate_grant_target(
         issues.append(
             f"Execution authorization grant {index} has external fields for a local action"
         )
+    batch_targets = grant.get("targets", [target])
+    if not isinstance(batch_targets, list) or not batch_targets:
+        issues.append(
+            f"Execution authorization grant {index} targets must be a non-empty list"
+        )
+        return
+    if batch_targets[0] != target:
+        issues.append(
+            f"Execution authorization grant {index} target must match its first batch target"
+        )
+    if len(set(item for item in batch_targets if isinstance(item, str))) != len(
+        batch_targets
+    ):
+        issues.append(
+            f"Execution authorization grant {index} has duplicate batch targets"
+        )
+    for batch_target in batch_targets:
+        _validate_local_grant_target(
+            index,
+            batch_target,
+            action,
+            envelope,
+            unit_dir,
+            issues,
+        )
+
+
+def _validate_local_grant_target(
+    index: int,
+    target: object,
+    action: object,
+    envelope: dict[str, Any],
+    unit_dir: Path | None,
+    issues: list[str],
+) -> None:
+    if not isinstance(target, str) or not target.strip():
+        issues.append(
+            f"Execution authorization grant {index} has an invalid batch target"
+        )
+        return
     normalized_target = target.replace("\\", "/")
     if (
         normalized_target.startswith("/")

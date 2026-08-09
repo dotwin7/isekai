@@ -16,6 +16,8 @@ from ..project_knowledge import (
 )
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
 from .authorization import _authorization_ledger_digest
+from .artifacts import unit_document_templates
+from .checkpointing import authorization_progress_cursor
 from .common import _write_json
 from .execution import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
@@ -135,15 +137,7 @@ def initialize_unit(
         scope_placeholder = "- 작업 범위를 정의합니다."
         constraint_placeholder = "- 제약사항을 정의합니다."
         acceptance_placeholder = "- [ ] 검증 가능한 인수 조건을 정의합니다."
-        templates = {
-            "requirements.md": "# 요구사항\n\n요구사항과 명시적 비목표를 기록합니다.\n",
-            "architecture.md": "# 아키텍처\n\n승인된 아키텍처와 외부 계약을 기록합니다.\n",
-            "plan.md": "# 계획\n\n구현·검증 계획을 기록합니다.\n",
-            "acceptance.md": "# 인수 조건\n\n- [ ] 검증 가능한 인수 조건을 정의합니다.\n",
-            "release.md": "# 릴리스\n\n릴리스 결정·근거·Rollback 계획을 기록합니다.\n",
-            "operations.md": "# 운영\n\n배포 결과·운영 피드백·후속 작업을 기록합니다.\n",
-            "implementation-guide.md": "# 구현 가이드\n\n이 문서는 코드의 동작 방식·작성 표준·사용 예제·한계를 설명합니다. 시스템 구조와 설계 선택의 근거는 architecture.md에 기록합니다.\n\n## 코드 표준\n\n- 사용하는 언어·프레임워크·테스트 표준을 기록합니다.\n\n## 동작 흐름\n\n- 주요 등록·조회·변경 흐름을 단계별로 설명합니다.\n\n## 오류와 검증\n\n- 실패 조건과 검증 방법을 기록합니다.\n\n## 사용 예제\n\n- 실제 호출·사용 예제를 기록합니다.\n\n## 한계와 확장\n\n- 현재 구현의 한계와 다음 확장 방향을 기록합니다.\n",
-        }
+        templates = unit_document_templates("ko")
         pending = ["Inception 내용 구체화"]
         next_action = "의도와 인수 조건을 구체화합니다."
     else:
@@ -158,15 +152,7 @@ def initialize_unit(
         scope_placeholder = "- Define the work scope."
         constraint_placeholder = "- Define constraints."
         acceptance_placeholder = "- [ ] Define verifiable acceptance criteria."
-        templates = {
-            "requirements.md": "# Requirements\n\nDocument the requirements and explicit non-goals.\n",
-            "architecture.md": "# Architecture\n\nDocument the approved architecture and external contracts.\n",
-            "plan.md": "# Plan\n\nDocument the construction and validation plan.\n",
-            "acceptance.md": "# Acceptance Criteria\n\n- [ ] Define verifiable acceptance criteria.\n",
-            "release.md": "# Release\n\nRecord the release decision, evidence, and rollback plan.\n",
-            "operations.md": "# Operations\n\nRecord deployment, operational feedback, and follow-up work.\n",
-            "implementation-guide.md": "# Implementation Guide\n\nExplain code behavior, coding conventions, usage examples, and limitations. Record system structure and design rationale in architecture.md.\n\n## Coding standard\n\n- Record the language, framework, and test standards.\n\n## Behavior flow\n\n- Explain the main registration, lookup, and change flows.\n\n## Errors and verification\n\n- Record failure conditions and verification methods.\n\n## Usage example\n\n- Record practical invocation and usage examples.\n\n## Limitations and extensions\n\n- Record current limitations and next extension directions.\n",
-        }
+        templates = unit_document_templates("en")
         pending = ["inception elaboration"]
         next_action = "clarify intent and acceptance criteria"
 
@@ -211,6 +197,15 @@ def initialize_unit(
         },
     )
     _write_json(unit_dir / "decisions.json", {"unit_id": unit_id, "decisions": []})
+    _write_json(
+        unit_dir / "amendments.json",
+        {
+            "type": "unit-amendment-ledger",
+            "schema_version": "1.0.0",
+            "unit_id": unit_id,
+            "amendments": [],
+        },
+    )
     envelope_now = datetime.now(timezone.utc)
     initial_envelope = {
         "id": f"ENV-{unit_id}-INITIAL",
@@ -272,6 +267,9 @@ def initialize_unit(
             "pending": pending,
             "blocked_by": [],
             "next_action": next_action,
+            "authorization_cursor": authorization_progress_cursor(
+                unit_dir, initial_authorizations
+            ),
         },
     )
     _write_json(unit_dir / "context-receipt.json", receipt)

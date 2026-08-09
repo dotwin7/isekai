@@ -23,6 +23,12 @@ from .common import (
     _write_json,
     unit_lock,
 )
+from .artifacts import (
+    artifact_snapshot_issues,
+    build_artifact_snapshot,
+    gate_artifact_readiness_issues,
+    latest_decision_artifact_issues,
+)
 
 
 LIFECYCLE_STATUSES = (
@@ -49,12 +55,9 @@ ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "learned": (),
 }
 
-DECISION_GATES = ("inception", "architecture", "release", "operation", "knowledge")
+DECISION_GATES = ("inception", "architecture", "release", "operation", "knowledge", "amendment")
 DECISION_OUTCOMES = ("approved", "rejected")
 DECISION_ALLOWED_STATUSES = {
-    # Inception Decisions are also used to revoke or renew an Execution Envelope
-    # while work is underway. Other gates are only meaningful immediately before
-    # the lifecycle edge they govern, so they cannot be pre-approved.
     "inception": {
         "awaiting-inception-decision",
         "construction",
@@ -64,9 +67,6 @@ DECISION_ALLOWED_STATUSES = {
         "operating",
     },
     "architecture": {"construction"},
-    # Release-stage work can stale the Evidence that the original Release
-    # Decision approved. A fresh Decision in ``releasing`` is the recovery path
-    # before entering Operations; it still has to bind the current Evidence.
     "release": {"awaiting-release-decision", "releasing"},
     "operation": {"operating"},
     "knowledge": {"operating", "learned"},
@@ -270,6 +270,7 @@ def _decision_record_issues(
         "inception": "execution-envelope",
         "release": "verification-evidence",
         "knowledge": "project-knowledge-candidate",
+        "amendment": "unit-amendment",
     }
     expected_subject_type = approval_subject_types.get(str(decision.get("gate")))
     if expected_subject_type is not None and decision.get("outcome") == "approved":
@@ -302,6 +303,11 @@ def _decision_record_issues(
                 issues.append(
                     "knowledge Decision approval_subject requires candidate reference"
                 )
+    artifact_snapshot = decision.get("artifact_snapshot")
+    if artifact_snapshot is not None:
+        issues.extend(
+            artifact_snapshot_issues(artifact_snapshot, str(decision.get("gate")))
+        )
     issues.extend(_decision_packet_issues(decision))
     return issues
 
@@ -431,6 +437,7 @@ def _approved_envelope_decision_issues(
                 "Execution Envelope approval digest does not match the latest "
                 "Inception Decision"
             )
+        issues.extend(latest_decision_artifact_issues(unit_dir, decisions, "inception"))
     return issues
 
 
@@ -522,6 +529,8 @@ def record_decision(
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
     if gate not in DECISION_GATES:
         raise WorkflowError(f"gate must be one of: {', '.join(DECISION_GATES)}")
+    if gate == "amendment":
+        raise WorkflowError("use the amend action to record an Amendment Decision")
     if outcome not in DECISION_OUTCOMES:
         raise WorkflowError(f"outcome must be one of: {', '.join(DECISION_OUTCOMES)}")
     if not isinstance(summary, str) or not summary.strip():
@@ -568,6 +577,13 @@ def record_decision(
                 f"{current_status}; allowed statuses: "
                 + ", ".join(sorted(allowed_statuses))
             )
+        if outcome == "approved":
+            readiness_issues = gate_artifact_readiness_issues(unit_dir, gate)
+            if readiness_issues:
+                raise IntegrityError(
+                    f"approved {gate} Decision requires materialized Unit artifacts: "
+                    + "; ".join(readiness_issues)
+                )
         decisions = _unit_json(unit_dir, "decisions.json")
         entries = decisions.get("decisions")
         if not isinstance(entries, list):
@@ -584,6 +600,17 @@ def record_decision(
                 "existing Decision history is invalid: "
                 + "; ".join(existing_issues)
             )
+        if outcome == "approved":
+            from .amendments import approval_amendment_issues
+
+            amendment_issues = approval_amendment_issues(
+                unit_dir, decisions, gate, references
+            )
+            if amendment_issues:
+                raise IntegrityError(
+                    f"approved {gate} Decision has unresolved amendments: "
+                    + "; ".join(amendment_issues)
+                )
         preceding_ids = [entry.get("id") for entry in entries]
 
         approval_subject: dict[str, str] | None = None
@@ -695,14 +722,19 @@ def record_decision(
         }
         if approval_subject is not None:
             decision["approval_subject"] = approval_subject
+        artifact_snapshot = (
+            build_artifact_snapshot(unit_dir, gate)
+            if outcome == "approved"
+            else None
+        )
+        if artifact_snapshot is not None:
+            decision["artifact_snapshot"] = artifact_snapshot
         decision["decision_digest"] = _decision_record_digest(decision)
         entries.append(decision)
         decisions["unit_id"] = unit.get("id")
         _write_json(unit_dir / "decisions.json", decisions)
         persisted_entries = _unit_json(unit_dir, "decisions.json").get("decisions", [])
         persisted_ids = [entry.get("id") for entry in persisted_entries]
-        # Check that no earlier record was dropped, not merely that this one
-        # landed. A lost update leaves the winner's record last and looks fine.
         if persisted_ids != [*preceding_ids, decision["id"]]:
             raise IntegrityError(
                 "Decision postflight blocked: the Decision ledger changed during the write"

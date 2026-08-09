@@ -22,6 +22,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from isekai.distribution.install import (  # noqa: E402
     _install_from_verified_checkout as install_from_checkout,
 )
+from isekai.distribution.execution_profile import (  # noqa: E402
+    apply_execution_profile,
+)
 from isekai.support.jsonio import write_json_atomic  # noqa: E402
 
 
@@ -452,6 +455,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             cwd=project,
             timeout=args.timeout,
         )
+        execution_guards = {
+            runtime: apply_execution_profile(project, runtime)
+            for runtime in runtimes
+        }
         doctor = _json_command(
             (str(launcher), "doctor", "--path", str(project)),
             cwd=project,
@@ -486,6 +493,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "install": installed,
                     "init": initialized,
                     "doctor": doctor,
+                    "execution_guards": execution_guards,
                     "surfaces": surfaces,
                     "live_hosts": hosts,
                     "evidence": str(evidence_path) if evidence_path else None,

@@ -16,6 +16,7 @@ Required:
 Options:
   --path PROJECT            Target project directory (default: current directory)
   --runtime RUNTIME         all, codex, claude, or kiro; repeatable (default: all)
+                            Also configures the Project-local MCP execution guard
   --adopt-foundation        Replace an existing project Foundation during install
   --init                    Create project.json after installation when absent
   --profile PROFILE_ID      Project profile used with --init; repeatable
@@ -26,7 +27,7 @@ Options:
 Example:
   scripts/install.sh \
     --source https://github.com/dotwin7/isekai.git \
-    --ref v0.2.0 \
+    --ref v0.2.1 \
     --path . \
     --runtime all \
     --init

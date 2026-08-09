@@ -6,5 +6,12 @@
   "pending": [],
   "blocked_by": [],
   "next_action": "Unit을 완료한다.",
+  "authorization_cursor": {
+    "type": "execution-authorization-cursor",
+    "schema_version": "1.0.0",
+    "work_grant_count": 4,
+    "last_work_grant_id": "AUTH-20260809103812718061",
+    "progress_digest": "sha256:9729bc012f16d293dee27cfbb9c0ab920e1f9db7b6bfbcf167ff8c26c8db5d7f"
+  },
   "updated_at": "2026-08-09T10:38:13.401392+00:00"
 }
