@@ -253,18 +253,22 @@ def test_checkpoint_and_resume_restore_authoritative_next_action(tmp_path: Path)
     assert resumed["resume"]["next_action"] == "record inception decision"
 
 
-def test_resume_does_not_advertise_optional_symlink_artifacts(
+def test_resume_does_not_count_optional_symlink_artifacts(
     tmp_path: Path,
 ) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Resume Alias", project.parent / "units")
+    real_count = sum(
+        1 for path in unit.rglob("*")
+        if path.is_file() and not path.is_symlink() and "__pycache__" not in path.parts
+    )
     external = tmp_path / "external-note.md"
     external.write_text("external\n", encoding="utf-8")
     (unit / "optional-note.md").symlink_to(external)
 
     resumed = resume_session(project)
 
-    assert "optional-note.md" not in resumed["resume"]["artifact_references"]
+    assert resumed["resume"]["artifact_count"] == real_count
 
 
 @pytest.mark.parametrize("alias_level", ["root", "child"])
@@ -603,8 +607,6 @@ def test_unit_default_and_relative_outputs_are_project_relative(
     activated = activate_session(project)
     assert activated["activation"] == "project"
     assert activated["unit"] is None
-    assert activated["active_unit"] is None
-    assert activated["unit_candidates"] == [str(default_unit)]
     assert activated["unit_candidate_details"] == [
         {
             "path": str(default_unit),

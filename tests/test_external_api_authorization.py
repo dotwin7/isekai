@@ -224,8 +224,9 @@ def test_external_authorization_can_be_bound_to_verification_evidence(
         notes="secret values were injected and redacted by the host",
     )
 
-    assert evidence["evidence"]["passed"] is True
-    assert evidence["evidence"]["commands"][0]["external_authorization_ids"] == [
+    assert evidence["passed"] is True
+    persisted = json.loads((unit / "evidence/verification.json").read_text(encoding="utf-8"))
+    assert persisted["commands"][0]["external_authorization_ids"] == [
         external["authorization_id"]
     ]
 

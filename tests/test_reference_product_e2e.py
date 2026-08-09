@@ -741,7 +741,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         red_test,
         passed=False,
     )
-    assert failed_evidence["result"]["evidence"]["passed"] is False  # type: ignore[index]
+    assert failed_evidence["result"]["passed"] is False  # type: ignore[index]
 
     source_authorization = _run_isekai(
         project,
@@ -784,7 +784,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         product_test,
         passed=True,
     )
-    assert evidence["result"]["evidence"]["passed"] is True  # type: ignore[index]
+    assert evidence["result"]["passed"] is True  # type: ignore[index]
 
     (unit / "acceptance.md").write_text(
         """# 인수 조건

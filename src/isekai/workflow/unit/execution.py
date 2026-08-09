@@ -439,7 +439,14 @@ def _propose_execution_envelope_locked(
                 f"rollback failed: {archive_cleanup_error}"
             ) from exc
         raise
-    return {"path": str(unit_dir / "execution-envelope.json"), "envelope": envelope}
+    return {
+        "path": str(unit_dir / "execution-envelope.json"),
+        "envelope_id": envelope["id"],
+        "status": envelope["status"],
+        "approval_digest": envelope["approval_digest"],
+        "expires_at": envelope["expires_at"],
+        "max_iterations": envelope["max_iterations"],
+    }
 
 
 def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> None:
@@ -716,7 +723,6 @@ def _authorize_action_locked(
         }
     result = {
         "allowed": True,
-        "reason": "Action is within the approved Execution Envelope",
         "unit_id": unit.get("id"),
         "stage": current_stage,
         "action": action,

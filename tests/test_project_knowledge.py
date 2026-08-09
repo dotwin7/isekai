@@ -92,7 +92,7 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
 ) -> None:
     project = make_project(tmp_path)
     source = _operating_unit(project)
-    assert build_session(project, source)["context"]["project_knowledge"] is None
+    assert build_session(project, source)["project_knowledge"] is None
 
     first_candidate = _propose(source, "service-id-format-v1")
     first_reference = str(first_candidate["reference"])
@@ -125,7 +125,7 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
         "deprecated_entry_count": 0,
     }
     assert "entries" not in project_context
-    assert build_session(project, source)["context"]["project_knowledge"] is None
+    assert build_session(project, source)["project_knowledge"] is None
     first_future = initialize_unit(project, "첫 번째 후속 Unit")
     first_receipt = json.loads(
         (first_future / "context-receipt.json").read_text(encoding="utf-8")
@@ -149,11 +149,11 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
     )["release"]
 
     assert second_release["version"] == "0.1.1"
-    assert build_session(project, first_future)["context"]["project_knowledge"][
+    assert build_session(project, first_future)["project_knowledge"][
         "release_digest"
     ] == first_release["release_digest"]
     second_future = initialize_unit(project, "두 번째 후속 Unit")
-    assert build_session(project, second_future)["context"]["project_knowledge"][
+    assert build_session(project, second_future)["project_knowledge"][
         "release_digest"
     ] == second_release["release_digest"]
     status = project_knowledge_status(project)

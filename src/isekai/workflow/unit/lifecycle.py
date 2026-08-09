@@ -245,11 +245,7 @@ def _human_gate_status(
         ),
         "review_round": review_round,
         "revision_requested": revision_requested,
-        "reconfirmation_required": revision_requested,
-        "blocks_next_transition": gate is not None and not approved,
         "confirmation_required": gate is not None and not approved,
-        "confirmation_channel": "interactive-human-or-authenticated-external-approval",
-        "core_identity_verification": "not-performed-by-core",
     }
 
 
@@ -573,12 +569,15 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         "issues": issues,
         "decision_count": len(decision_entries) if isinstance(decision_entries, list) else 0,
         "project_id": unit.get("project_id"),
-        "foundation_version": unit.get("foundation_version"),
-        "foundation_digest": unit.get("foundation_digest"),
         "pending": checkpoint.get("pending", []) if checkpoint is not None else [],
         "blocked_by": checkpoint.get("blocked_by", []) if checkpoint is not None else [],
         "human_gate": _human_gate_status(unit, decisions),
-        "evidence": evidence,
+        "evidence": {
+            "id": evidence.get("id"),
+            "passed": evidence.get("passed"),
+            "stage": evidence.get("stage"),
+            "command_count": len(evidence.get("commands", [])),
+        } if evidence is not None else None,
     }
 
 

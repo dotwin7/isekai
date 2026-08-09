@@ -23,7 +23,6 @@ def test_direct_question_routes_to_query_without_unit_artifacts() -> None:
         "artifact_mode": "none",
         "plan": {"required": False},
         "human_gate": "none",
-        "steps": ["inspect-as-needed", "answer"],
     }
     assert "without creating a Unit" in result["next_action"]
 
@@ -247,9 +246,6 @@ def test_host_goal_routes_to_unit_and_preserves_outcome_and_scope() -> None:
     assert workflow["plan"]["level"] == "level-1"
     assert workflow["plan"]["approval"] == "explicit-before-unit-write"
     assert workflow["plan"]["suggested_depth"] == "standard"
-    assert workflow["plan"]["stage_decisions"]["release"] == (
-        "agent-proposes-apply-or-skip"
-    )
     assert workflow["question_policy"] == (
         "ask-only-when-answer-materially-changes-plan"
     )

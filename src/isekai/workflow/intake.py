@@ -107,7 +107,6 @@ def _workflow_directive(
             "artifact_mode": "none",
             "plan": {"required": False},
             "human_gate": "none",
-            "steps": ["inspect-as-needed", "answer"],
         }
     if decision.route is WorkRoute.QUICK_CHANGE:
         return {
@@ -121,7 +120,6 @@ def _workflow_directive(
                 "required_sections": ["scope", "change", "verification"],
             },
             "human_gate": "only-if-scope-or-risk-expands",
-            "steps": ["inspect", "change", "verify", "report"],
         }
 
     planning_depth = (
@@ -142,37 +140,9 @@ def _workflow_directive(
             "level": "level-1",
             "approval": "explicit-before-unit-write",
             "suggested_depth": planning_depth,
-            "required_sections": [
-                "goal",
-                "expected_outcome",
-                "scope",
-                "non_goals",
-                "acceptance_criteria",
-                "risks",
-                "stages",
-                "verification",
-            ],
-            "stage_decisions": {
-                "inception": "required",
-                "construction": "required",
-                "validation": "required",
-                "release": "agent-proposes-apply-or-skip",
-                "operations": "agent-proposes-apply-or-skip",
-                "learn": "required",
-            },
-            "depth_options": ["light", "standard", "deep"],
         },
         "question_policy": "ask-only-when-answer-materially-changes-plan",
         "human_gate": "approve-level-1-plan-and-consequential-decisions",
-        "steps": [
-            "inspect-read-only",
-            "propose-level-1-plan",
-            "resolve-material-questions",
-            "obtain-plan-approval",
-            "initialize-unit",
-            "execute-approved-stages",
-            "verify-and-learn",
-        ],
     }
 
 

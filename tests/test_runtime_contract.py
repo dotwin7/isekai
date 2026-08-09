@@ -46,16 +46,10 @@ def test_runtime_on_activates_project_and_resume_restores_unit(
     assert activated_without_unit["action"] == "on"
     assert activated_without_unit["result"]["activation"] == "project"
     assert activated_without_unit["result"]["unit"] is None
-    assert activated_without_unit["result"]["active_unit"] is None
-    assert activated_without_unit["result"]["unit_candidates"] == []
     assert activated_without_unit["result"]["unit_candidate_details"] == []
     assert activated_without_unit["result"]["adapter_mode"] == {
         "state": "on",
-        "default_state": "off",
-        "scope": "conversation",
-        "persistent": False,
         "automatic_routing": True,
-        "next_session_state": "off",
     }
 
     first = initialize_unit(project, "Runtime Mode First", project.parent / "units")
@@ -71,9 +65,7 @@ def test_runtime_on_activates_project_and_resume_restores_unit(
     result = activated_with_multiple_units["result"]
     assert result["activation"] == "project"
     assert result["unit"] is None
-    assert result["active_unit"] is None
     assert "resume" not in result
-    assert set(result["unit_candidates"]) == {str(first), str(second)}
     assert {candidate["title"] for candidate in result["unit_candidate_details"]} == {
         "Runtime Mode First",
         "Runtime Mode Second",
@@ -91,7 +83,6 @@ def test_runtime_on_activates_project_and_resume_restores_unit(
         {"project": str(project), "unit": str(first)},
     )["result"]
     assert resumed["unit"]["unit_id"] == json_unit_id(first)
-    assert resumed["active_unit"]["unit_id"] == json_unit_id(first)
     assert resumed["resume"]["next_action"] == "의도와 인수 조건을 구체화합니다."
 
     deactivated = dispatch("off")
@@ -261,13 +252,8 @@ def test_runtime_decision_and_transition_actions_enforce_gate(
         },
     )
     assert decision["action"] == "decision"
-    assert decision["result"]["decision"]["outcome"] == "approved"
-    assert decision["result"]["decision"]["attestation"] == {
-        "type": "human-decision-attestation",
-        "reported_actor": "human-reviewer",
-        "identity_verification": "not-performed-by-core",
-        "confirmation_source": "caller-attested",
-    }
+    assert decision["result"]["outcome"] == "approved"
+    assert decision["result"]["gate"] == "inception"
 
     transition = dispatch("transition", {"unit": str(unit), "to": "construction"})
     assert transition["result"]["to"] == "construction"
@@ -303,15 +289,8 @@ def test_runtime_evidence_action_records_structured_result(tmp_path: Path) -> No
     )
 
     assert evidence["action"] == "evidence"
-    assert evidence["result"]["evidence"]["type"] == "verification-evidence"
-    assert evidence["result"]["evidence"]["passed"] is True
-    assert evidence["result"]["evidence"]["attestation"] == {
-        "type": "runtime-execution-attestation",
-        "reported_actor": "test-validator",
-        "execution_verification": "not-performed-by-core",
-        "identity_verification": "not-performed-by-core",
-        "output_digest_verification": "caller-supplied",
-    }
+    assert evidence["result"]["passed"] is True
+    assert evidence["result"]["command_count"] == 1
 
 
 def test_runtime_init_creates_project_and_project_relative_unit(tmp_path: Path) -> None:

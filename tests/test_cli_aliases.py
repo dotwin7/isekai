@@ -95,9 +95,8 @@ def test_direct_on_and_off_aliases_expose_adapter_mode(
     assert on_output["action"] == "on"
     assert on_output["result"]["activation"] == "project"
     assert on_output["result"]["unit"] is None
-    assert on_output["result"]["active_unit"] is None
     assert on_output["result"]["adapter_mode"]["state"] == "on"
-    assert on_output["result"]["adapter_mode"]["next_session_state"] == "off"
+    assert on_output["result"]["adapter_mode"]["automatic_routing"] is True
     assert off_exit == 0
     assert off_output["action"] == "off"
     assert off_output["result"]["adapter_mode"]["state"] == "off"

@@ -163,8 +163,6 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
         "document_language": status.get("document_language"),
         "phase": status.get("phase"),
         "status": status.get("status"),
-        "foundation_version": status.get("foundation_version"),
-        "foundation_digest": status.get("foundation_digest"),
         "valid": status.get("valid"),
         "missing": status.get("missing", []),
         "issues": status.get("issues", []),
@@ -202,11 +200,7 @@ def _adapter_mode(state: str) -> dict[str, Any]:
         raise SessionError(f"unsupported adapter mode: {state}")
     return {
         "state": state,
-        "default_state": "off",
-        "scope": "conversation",
-        "persistent": False,
         "automatic_routing": state == "on",
-        "next_session_state": "off",
     }
 
 
@@ -226,8 +220,6 @@ def build_project_session(
         },
         "context": context,
         "unit": None,
-        "active_unit": None,
-        "unit_candidates": [str(path) for path in unit_candidates],
         "unit_candidate_details": [
             _unit_candidate_ref(path) for path in unit_candidates
         ],
@@ -262,6 +254,7 @@ def build_session(
     project_path = Path(session["project"]["manifest"])
     selected_unit = discover_unit(project_path, unit_dir)
     unit = None
+    project_knowledge = session["context"].get("project_knowledge")
     if selected_unit is not None:
         status = unit_status(selected_unit)
         if status.get("project_id") != session["project"]["id"]:
@@ -311,12 +304,12 @@ def build_session(
                 f"Unit source_manifest does not match selected Project: {selected_unit}"
             )
         context = session["context"]
-        if status.get("foundation_version") != context.get("foundation_version"):
+        if receipt.get("foundation_version") != context.get("foundation_version"):
             raise SessionError(
                 "Unit Foundation version does not match the selected Project; "
                 "use a separate reviewed contract migration before resuming it"
             )
-        if status.get("foundation_digest") != context.get("foundation_digest"):
+        if receipt.get("foundation_digest") != context.get("foundation_digest"):
             raise SessionError(
                 "Unit Foundation contract digest does not match the selected Project; "
                 "use a separate reviewed contract migration before resuming it"
@@ -328,16 +321,14 @@ def build_session(
                 + ", ".join(changed_fields)
                 + "; unit-migrate only supports path relocation"
             )
-        # Active work consumes its creation-time knowledge snapshot. The latest
-        # Project release remains visible only when no Unit is selected.
-        session["context"]["project_knowledge"] = copy.deepcopy(
-            receipt.get("project_knowledge")
-        )
+        project_knowledge = copy.deepcopy(receipt.get("project_knowledge"))
         unit = _unit_ref(selected_unit, status)
     return {
-        **session,
+        "project": session["project"],
+        "context_receipt_id": session["context"]["receipt_id"],
+        "project_knowledge": project_knowledge,
         "unit": unit,
-        "active_unit": unit,
+        "unit_candidate_details": session["unit_candidate_details"],
     }
 
 
@@ -358,8 +349,8 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
             "pending": checkpoint.get("pending", []),
             "blocked_by": checkpoint.get("blocked_by", []),
             "next_action": checkpoint.get("next_action"),
-            "artifact_references": sorted(
-                str(path.relative_to(selected))
+            "artifact_count": sum(
+                1
                 for path in selected.rglob("*")
                 if path.is_file()
                 and not path.is_symlink()

@@ -707,4 +707,10 @@ def record_decision(
             raise IntegrityError(
                 "Decision postflight blocked: the Decision ledger changed during the write"
             )
-    return {"path": str(unit_dir / "decisions.json"), "decision": decision}
+    return {
+        "path": str(unit_dir / "decisions.json"),
+        "decision_id": decision["id"],
+        "gate": decision["gate"],
+        "outcome": decision["outcome"],
+        "decision_digest": decision["decision_digest"],
+    }

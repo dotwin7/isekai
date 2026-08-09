@@ -622,6 +622,8 @@ def _record_evidence_locked(
         raise EvidenceError("Evidence postflight blocked: record was not persisted")
     return {
         "path": str(unit_dir / "evidence/verification.json"),
-        "record_path": str(unit_dir / record_relative),
-        "evidence": evidence,
+        "record_path": str(unit_dir / f"evidence/records/{evidence['id']}.json"),
+        "evidence_id": evidence["id"],
+        "passed": evidence["passed"],
+        "command_count": len(evidence.get("commands", [])),
     }

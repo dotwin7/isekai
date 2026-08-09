@@ -153,7 +153,9 @@ def test_envelope_accepts_an_adaptive_stage_plan_with_explicit_skip(
         proposed_by="planner-agent",
     )
 
-    assert result["envelope"]["stages"][1]["disposition"] == "skip"
+    assert result["status"] == "proposed"
+    envelope = json.loads((unit / "execution-envelope.json").read_text(encoding="utf-8"))
+    assert envelope["stages"][1]["disposition"] == "skip"
 
 
 @pytest.mark.parametrize(
@@ -298,7 +300,8 @@ def test_l0_project_rejects_edit_and_test_envelopes(tmp_path: Path) -> None:
         max_iterations=1,
         proposed_by="planner-agent",
     )
-    assert result["envelope"]["allowed_actions"] == ["read"]
+    envelope = json.loads((unit / "execution-envelope.json").read_text(encoding="utf-8"))
+    assert envelope["allowed_actions"] == ["read"]
 
 
 def test_authorize_and_verify_enforce_the_receipt_agent_level(tmp_path: Path) -> None:

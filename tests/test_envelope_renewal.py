@@ -363,7 +363,7 @@ def test_envelope_lifetime_is_bounded_and_configurable(tmp_path: Path) -> None:
     from isekai.workflow import initialize_unit
 
     unit = initialize_unit(project, "Envelope Lifetime", project.parent / "units")
-    proposed = propose_execution_envelope(
+    result = propose_execution_envelope(
         unit,
         scope=["src/**"],
         stages=envelope_stages(),
@@ -372,7 +372,8 @@ def test_envelope_lifetime_is_bounded_and_configurable(tmp_path: Path) -> None:
         max_iterations=2,
         proposed_by="planner-agent",
         expires_in_hours=48,
-    )["envelope"]
+    )
+    proposed = json.loads((unit / "execution-envelope.json").read_text(encoding="utf-8"))
     window = datetime.fromisoformat(proposed["expires_at"]) - datetime.fromisoformat(
         proposed["proposed_at"]
     )

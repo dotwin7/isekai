@@ -277,18 +277,14 @@ def test_status_exposes_the_human_gate_for_the_next_transition(tmp_path: Path) -
         "latest_decision_id": None,
         "review_round": 1,
         "revision_requested": False,
-        "reconfirmation_required": False,
-        "blocks_next_transition": True,
         "confirmation_required": True,
-        "confirmation_channel": "interactive-human-or-authenticated-external-approval",
-        "core_identity_verification": "not-performed-by-core",
     }
 
     approve(unit, "inception")
     approved = verify_unit(unit)["human_gate"]
     assert approved["gate"] == "inception"
     assert approved["decision"] == "approved"
-    assert approved["blocks_next_transition"] is False
+    assert approved["confirmation_required"] is False
 
     transition_unit(unit, "construction")
     architecture = verify_unit(unit)["human_gate"]
@@ -303,7 +299,7 @@ def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
     assert first_review["decision"] == "required"
     assert first_review["review_round"] == 1
 
-    rejected = record_decision(
+    rejected_result = record_decision(
         unit,
         gate="architecture",
         outcome="rejected",
@@ -319,15 +315,13 @@ def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
         risks=["이전 승인을 재사용하면 새 변경이 검수되지 않는다."],
         references=["requirements.md", "architecture.md"],
         decided_by="human-reviewer",
-    )["decision"]
+    )
 
     reopened = verify_unit(unit)["human_gate"]
     assert reopened["decision"] == "rejected"
-    assert reopened["latest_decision_id"] == rejected["id"]
+    assert reopened["latest_decision_id"] == rejected_result["decision_id"]
     assert reopened["review_round"] == 2
     assert reopened["revision_requested"] is True
-    assert reopened["reconfirmation_required"] is True
-    assert reopened["blocks_next_transition"] is True
     assert reopened["confirmation_required"] is True
     with pytest.raises(LifecycleError, match="approved architecture Decision"):
         transition_unit(unit, "validation")
@@ -337,9 +331,8 @@ def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
     assert reapproved["decision"] == "approved"
     assert reapproved["review_round"] == 2
     assert reapproved["revision_requested"] is False
-    assert reapproved["reconfirmation_required"] is False
 
-    second_rejection = record_decision(
+    second_rejection_result = record_decision(
         unit,
         gate="architecture",
         outcome="rejected",
@@ -350,12 +343,12 @@ def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
         risks=["두 번째 변경도 별도 승인 없이 진행하면 안 된다."],
         references=["requirements.md"],
         decided_by="human-reviewer",
-    )["decision"]
+    )
     reopened_again = verify_unit(unit)["human_gate"]
     assert reopened_again["decision"] == "rejected"
-    assert reopened_again["latest_decision_id"] == second_rejection["id"]
+    assert reopened_again["latest_decision_id"] == second_rejection_result["decision_id"]
     assert reopened_again["review_round"] == 3
-    assert reopened_again["reconfirmation_required"] is True
+    assert reopened_again["revision_requested"] is True
 
     approve(unit, "architecture")
     assert verify_unit(unit)["human_gate"]["review_round"] == 3
@@ -630,7 +623,7 @@ def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path
         ],
     )
 
-    assert result["evidence"]["passed"] is False
+    assert result["passed"] is False
     verification = verify_unit(unit)
     assert "verification evidence is not passing" in verification["issues"]
 
@@ -790,8 +783,9 @@ def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
         ],
     )
 
-    assert result["evidence"]["commands"][0]["output_digest"] == command["output_digest"]
-    assert result["evidence"]["attestation"]["output_digest_verification"] == "core-derived"
+    evidence = json.loads((unit / "evidence/verification.json").read_text(encoding="utf-8"))
+    assert evidence["commands"][0]["output_digest"] == command["output_digest"]
+    assert evidence["attestation"]["output_digest_verification"] == "core-derived"
 
 
 def test_operating_transition_rejects_evidence_staled_during_release(
