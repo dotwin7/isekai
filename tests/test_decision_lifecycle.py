@@ -104,32 +104,31 @@ def complete_acceptance(unit: Path) -> None:
     )
 
 
-def test_verify_rejects_english_decision_descriptions_in_korean_unit(
+def test_record_rejects_english_decision_descriptions_in_korean_unit(
     tmp_path: Path,
 ) -> None:
     unit = make_unit(tmp_path)
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")
-    record_decision(
-        unit,
-        gate="inception",
-        outcome="approved",
-        summary="Approve the English Decision Packet.",
-        rationale=["The text is intentionally written only in English."],
-        alternatives=[
-            {"option": "Defer", "reason": "Rejected for the language regression."}
-        ],
-        tradeoffs=["This packet is invalid for a Korean Unit."],
-        risks=["A reviewer cannot rely on the configured document language."],
-        references=["execution-envelope.json"],
-        decided_by="human-reviewer",
-    )
+    ledger_before = (unit / "decisions.json").read_bytes()
 
-    result = verify_unit(unit)
+    with pytest.raises(IntegrityError, match="summary must use Korean"):
+        record_decision(
+            unit,
+            gate="inception",
+            outcome="approved",
+            summary="Approve the English Decision Packet.",
+            rationale=["The text is intentionally written only in English."],
+            alternatives=[
+                {"option": "Defer", "reason": "Rejected for the language regression."}
+            ],
+            tradeoffs=["This packet is invalid for a Korean Unit."],
+            risks=["A reviewer cannot rely on the configured document language."],
+            references=["execution-envelope.json"],
+            decided_by="human-reviewer",
+        )
 
-    assert any(
-        "decision 0 summary must use Korean" in issue for issue in result["issues"]
-    )
+    assert (unit / "decisions.json").read_bytes() == ledger_before
 
 
 def passing_evidence(unit: Path) -> None:
@@ -220,6 +219,14 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     with pytest.raises(LifecycleError, match="required Unit artifacts are missing"):
         transition_unit(unit, "releasing")
     architecture.write_text(architecture_content, encoding="utf-8")
+    criteria_path = unit / "evaluations/criteria.json"
+    criteria = json.loads(criteria_path.read_text(encoding="utf-8"))
+    criteria["visibility"] = "public"
+    write_json_atomic(criteria_path, criteria)
+    with pytest.raises(LifecycleError, match="evaluation criteria must be evaluation-only"):
+        transition_unit(unit, "releasing")
+    criteria["visibility"] = "evaluation-only"
+    write_json_atomic(criteria_path, criteria)
     transition_unit(unit, "releasing")
     transition_unit(unit, "operating")
     with pytest.raises(LifecycleError, match="approved operation Decision"):
@@ -240,6 +247,12 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
         blocked_by=[],
         next_action="Unit complete",
     )
+    criteria["visibility"] = "public"
+    write_json_atomic(criteria_path, criteria)
+    with pytest.raises(LifecycleError, match="evaluation criteria must be evaluation-only"):
+        transition_unit(unit, "learned")
+    criteria["visibility"] = "evaluation-only"
+    write_json_atomic(criteria_path, criteria)
     result = transition_unit(unit, "learned")
 
     assert result["from"] == "operating"
@@ -375,11 +388,13 @@ def test_latest_rejected_decision_blocks_a_previous_approval(tmp_path: Path) -> 
         unit,
         gate="inception",
         outcome="rejected",
-        summary="The scope needs revision before approval.",
-        rationale=["The current scope is too broad for this gate."],
-        alternatives=[{"option": "Approve now", "reason": "Rejected because scope is not bounded."}],
-        tradeoffs=["Deferring approval delays construction."],
-        risks=["Proceeding would leave scope ambiguity."],
+        summary="승인 전에 범위를 수정해야 한다.",
+        rationale=["현재 범위는 이 Gate에 비해 너무 넓다."],
+        alternatives=[
+            {"option": "지금 승인한다.", "reason": "범위가 제한되지 않아 기각했다."}
+        ],
+        tradeoffs=["승인을 연기하면 Construction 진입도 늦어진다."],
+        risks=["그대로 진행하면 범위가 모호하게 남는다."],
         references=["tests/test_decision_lifecycle.py"],
         decided_by="human-reviewer",
     )

@@ -51,11 +51,13 @@ def test_concurrent_decisions_are_never_silently_dropped(tmp_path: Path) -> None
             unit,
             gate="architecture",
             outcome="approved",
-            summary=f"architecture decision {index}",
-            rationale=["bounded change"],
-            alternatives=[{"option": "defer", "reason": "rejected"}],
-            tradeoffs=["scope"],
-            risks=["none"],
+            summary=f"아키텍처 결정 {index}",
+            rationale=["변경 범위를 제한했다."],
+            alternatives=[
+                {"option": "연기한다.", "reason": "동시성 검증을 위해 기각했다."}
+            ],
+            tradeoffs=["범위를 제한한다."],
+            risks=["별도 위험이 없다."],
             references=["architecture.md"],
             decided_by="human-reviewer",
         )
@@ -80,11 +82,13 @@ def test_a_waiting_caller_acquires_the_lock_instead_of_failing(tmp_path: Path) -
             unit,
             gate="architecture",
             outcome="approved",
-            summary=f"waiting writer {index}",
-            rationale=["bounded change"],
-            alternatives=[{"option": "defer", "reason": "rejected"}],
-            tradeoffs=["scope"],
-            risks=["none"],
+            summary=f"대기 중인 기록자 {index}",
+            rationale=["변경 범위를 제한했다."],
+            alternatives=[
+                {"option": "연기한다.", "reason": "동시성 검증을 위해 기각했다."}
+            ],
+            tradeoffs=["범위를 제한한다."],
+            risks=["별도 위험이 없다."],
             references=["architecture.md"],
             decided_by="human-reviewer",
         )

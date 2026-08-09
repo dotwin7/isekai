@@ -200,7 +200,7 @@ Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 act
 
 ### Unit 실행 격리
 
-Execution Envelope는 선택된 Unit 하나에만 속한다. `scope: ["**"]`처럼 넓은 패턴이 승인되어도 그 Envelope로 기본 `units/` collection이나 형제 Unit의 artifact에 대한 `read`, `edit`, `test` authorization을 받을 수 없다. Project 내부의 사용자 지정 Unit 경로도 canonical Unit ID와 디렉터리가 일치하면 같은 경계를 적용한다. 저장된 grant는 `verify`에서 현재 파일시스템 기준으로 다시 검사하므로, 승인 후 symlink가 형제 Unit으로 바뀐 경우에도 원장을 무효화한다.
+Execution Envelope는 선택된 Unit 하나에만 속한다. `scope: ["**"]`처럼 넓은 패턴이 승인되어도 그 Envelope로 기본 `units/` collection이나 형제 Unit의 artifact에 대한 `read`, `edit`, `test` authorization을 받을 수 없다. Project 내부의 사용자 지정 Unit 경로도 유효한 canonical Unit ID를 가진 `unit.json`이 있으면 디렉터리 이름이 바뀐 뒤에도 같은 경계를 적용한다. 활성 Unit으로 선택하려면 canonical Unit ID와 디렉터리 이름이 일치해야 한다. 저장된 grant는 `verify`에서 현재 파일시스템 기준으로 다시 검사하므로, 승인 후 symlink가 형제 Unit으로 바뀐 경우에도 원장을 무효화한다.
 
 이 경계는 filesystem sandbox가 아니다. 현재 Unit의 작업에는 프로젝트 소스와 테스트, 고정 Foundation·Profile·Extension이 필요하므로 이들은 Context Receipt와 승인 Envelope 범위 안에서 계속 접근할 수 있다. 다른 Unit의 작업을 이어갈 때는 현재 Checkpoint를 보존한 뒤 해당 Unit을 명시적으로 `resume --unit PATH`하여 active Unit을 교체한다. 형제 Unit의 결과가 공통 입력으로 필요하면 [Project Knowledge](project-knowledge.md)의 후보→사람 승인→승격 흐름이나 후속 명시적 참조 계약을 사용해야 하며, 현재 Unit이 형제 Unit 원장을 암묵적으로 탐색하지 않는다. `project-knowledge/`는 Core-managed path이므로 Unit Envelope로 직접 읽지 않고 Receipt에 고정된 release만 소비한다.
 

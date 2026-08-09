@@ -25,6 +25,7 @@ from .decisions import (
     REQUIRED_DECISIONS_FOR_TRANSITIONS,
     STATUS_PHASE,
     _approved_envelope_decision_issues,
+    _decision_description_language_issues,
     _decision_ledger_issues,
     _has_approved_decision,
     _latest_decision,
@@ -85,27 +86,13 @@ def _decision_language_issues(
     for index, decision in enumerate(entries):
         if not isinstance(decision, dict):
             continue
-        descriptions: list[tuple[str, Any]] = [("summary", decision.get("summary"))]
-        for field in ("rationale", "tradeoffs", "risks"):
-            values = decision.get(field)
-            if isinstance(values, list):
-                descriptions.extend((field, value) for value in values)
-        alternatives = decision.get("alternatives")
-        if isinstance(alternatives, list):
-            for alternative in alternatives:
-                if isinstance(alternative, dict):
-                    descriptions.extend(
-                        (
-                            ("alternatives.option", alternative.get("option")),
-                            ("alternatives.reason", alternative.get("reason")),
-                        )
-                    )
-        for field, value in descriptions:
-            if isinstance(value, str) and value.strip() and not _HANGUL.search(value):
-                issues.append(
-                    f"decision {index} {field} must use Korean for "
-                    "document_language ko"
-                )
+        issues.extend(
+            f"decision {index} {issue}"
+            for issue in _decision_description_language_issues(
+                decision,
+                document_language,
+            )
+        )
     return issues
 
 
@@ -312,6 +299,21 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
                 f"transition to {target_status} blocked: "
                 + "; ".join(completion_issues)
             )
+
+        if target_status in {"releasing", "learned"}:
+            verification = _verify_unit_locked(unit_dir)
+            if not verification["valid"]:
+                verification_issues = [
+                    *(
+                        "missing required Unit artifact: " + relative
+                        for relative in verification["missing"]
+                    ),
+                    *verification["issues"],
+                ]
+                raise LifecycleError(
+                    f"transition to {target_status} requires a valid Unit: "
+                    + "; ".join(verification_issues)
+                )
 
         unit["status"] = target_status
         unit["phase"] = STATUS_PHASE[target_status]

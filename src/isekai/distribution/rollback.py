@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import uuid
@@ -16,6 +17,62 @@ from .marketplace import (
     _restore_host_slots,
 )
 from .release import LOCK_NAME, MANAGED_ROOT, RUNTIMES, DistributionError
+
+
+def _foundation_identity(lock: dict[str, Any]) -> tuple[object, object]:
+    foundation = lock.get("foundation")
+    if not isinstance(foundation, dict):
+        return None, None
+    return foundation.get("version"), foundation.get("digest")
+
+
+def _rollback_project_manifest(
+    current_bytes: bytes | None,
+    previous_bytes: bytes | None,
+    current_lock: dict[str, Any],
+    previous_lock: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return a minimally rebound Project manifest, or ``None`` for no write.
+
+    Project manifests are user-owned. Rollback must preserve a manifest created
+    or edited after the update and only adjust the Foundation binding when the
+    installed Foundation contract itself moves back.
+    """
+
+    if current_bytes is None or _foundation_identity(current_lock) == _foundation_identity(
+        previous_lock
+    ):
+        return None
+    try:
+        current_manifest = json.loads(current_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DistributionError(f"project manifest is invalid during rollback: {exc}") from exc
+    if not isinstance(current_manifest, dict):
+        raise DistributionError("project manifest must be an object during rollback")
+
+    previous_foundation_path: object = None
+    if previous_bytes is not None:
+        try:
+            previous_manifest = json.loads(previous_bytes)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DistributionError(
+                f"rollback project manifest is invalid: {exc}"
+            ) from exc
+        if not isinstance(previous_manifest, dict):
+            raise DistributionError("rollback project manifest must be an object")
+        previous_foundation_path = previous_manifest.get("foundation_path")
+    if not isinstance(previous_foundation_path, str) or not previous_foundation_path.strip():
+        previous_foundation = previous_lock.get("foundation")
+        if isinstance(previous_foundation, dict):
+            previous_foundation_path = previous_foundation.get("path")
+    if not isinstance(previous_foundation_path, str) or not previous_foundation_path.strip():
+        raise DistributionError(
+            "previous installation has no Foundation path for Project rollback"
+        )
+
+    rebound = dict(current_manifest)
+    rebound["foundation_path"] = previous_foundation_path
+    return rebound
 
 
 def rollback_install(project: str | Path) -> dict[str, Any]:
@@ -178,6 +235,12 @@ def _restore_verified_snapshot(
         if project_manifest.exists() or project_manifest.is_symlink()
         else None
     )
+    rebound_project = _rollback_project_manifest(
+        current_project_bytes,
+        previous_project_bytes,
+        current,
+        previous_lock,
+    )
     lock_path = project_root / LOCK_NAME
     current_lock_bytes = install_module._read_control_bytes(
         lock_path,
@@ -234,10 +297,8 @@ def _restore_verified_snapshot(
                 current_marketplace,
             )
             host_restored = True
-        if previous_project_bytes is None:
-            project_manifest.unlink(missing_ok=True)
-        else:
-            write_bytes_atomic(project_manifest, previous_project_bytes)
+        if rebound_project is not None:
+            install_module._write_json_atomic(project_manifest, rebound_project)
         install_module._write_json_atomic(lock_path, previous_lock)
         postflight = install_module.doctor_install(project_root)
         if not postflight["ready"]:

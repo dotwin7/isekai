@@ -642,6 +642,14 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
     )
     assert doctor_install(project)["ready"] is True
 
+    manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    manifest["version"] = "0.2.0-user-edited"
+    (project / "project.json").write_text(
+        json.dumps(manifest, indent=4) + "\n",
+        encoding="utf-8",
+    )
+    user_manifest = (project / "project.json").read_bytes()
+
     rolled_back = rollback_install(project)
     restored = load_install_lock(project)
 
@@ -654,6 +662,43 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
     assert {
         runtime: tree_digest(path) for runtime, path in adapter_paths.items()
     } == old_adapter_digests
+    assert (project / "project.json").read_bytes() == user_manifest
+    assert doctor_install(project)["ready"] is True
+
+
+def test_rollback_rebinds_only_foundation_path_after_foundation_adoption(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    _install(project)
+    release = _copy_release(tmp_path)
+    _bump_release(release, "0.1.1")
+    install_from_checkout(
+        release,
+        project,
+        source="https://example.invalid/isekai.git",
+        ref="v0.1.1",
+        commit="b" * 40,
+        runtimes=("all",),
+        update=True,
+        include_foundation=True,
+        adopt_foundation=True,
+    )
+    manifest_path = project / "project.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["foundation_path"] == ".isekai/foundations/0.1.1"
+    manifest["version"] = "0.2.0-user-edited"
+    manifest["user_note"] = "preserve this rollback-era change"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    assert doctor_install(project)["ready"] is True
+
+    rollback_install(project)
+
+    restored_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert restored_manifest == {
+        **manifest,
+        "foundation_path": "foundation",
+    }
     assert doctor_install(project)["ready"] is True
 
 
@@ -1572,7 +1617,7 @@ def test_rollback_staging_failure_preserves_current_installation(
     assert doctor_install(project)["ready"] is True
 
 
-def test_rollback_restores_absent_project_manifest(tmp_path: Path) -> None:
+def test_rollback_preserves_project_manifest_created_after_update(tmp_path: Path) -> None:
     project = tmp_path / "product"
     project.mkdir()
     common = {
@@ -1601,12 +1646,13 @@ def test_rollback_restores_absent_project_manifest(tmp_path: Path) -> None:
     )
     assert doctor_install(project)["ready"] is True
 
+    project_manifest_before = (project / "project.json").read_bytes()
     rollback_install(project)
     restored = load_install_lock(project)
 
     assert restored is not None
     assert set(restored["adapters"]) == {"codex"}
-    assert not (project / "project.json").exists()
+    assert (project / "project.json").read_bytes() == project_manifest_before
     assert not (project / ".kiro/skills/isekai").exists()
     assert doctor_install(project)["ready"] is True
 

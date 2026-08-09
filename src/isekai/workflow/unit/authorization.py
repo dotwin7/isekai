@@ -13,6 +13,7 @@ from .common import (
     PROTECTED_UNIT_ARTIFACT_PREFIXES,
     PROTECTED_UNIT_ARTIFACTS,
     UNIT_LOCK_NAME,
+    _is_unit_directory,
     _unit_json,
 )
 from .common import _is_iso_timestamp
@@ -36,9 +37,6 @@ AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
     "envelope_digest",
     "authorized_at",
 }
-
-CANONICAL_UNIT_ID = re.compile(r"UNIT-\d{8}-[A-F0-9]{32}")
-
 
 def _authorization_ledger_digest(ledger: dict[str, Any]) -> str:
     encoded = json.dumps(
@@ -118,33 +116,10 @@ def _filesystem_path_key(value: str, *, case_insensitive: bool) -> str:
     return value.casefold() if case_insensitive else value
 
 
-def _is_canonical_unit_directory(directory: Path) -> bool:
-    """Return whether ``directory`` is an initialized ISEKAI Unit.
-
-    Product repositories can legitimately contain files named ``unit.json``.
-    A cross-Unit boundary must therefore require both the canonical Unit ID and
-    the matching canonical directory name before treating a directory as a
-    Unit.
-    """
-
-    if not directory.name.startswith("unit-"):
-        return False
-    try:
-        unit = _unit_json(directory, "unit.json")
-    except ValueError:
-        return False
-    unit_id = unit.get("id")
-    return (
-        isinstance(unit_id, str)
-        and CANONICAL_UNIT_ID.fullmatch(unit_id) is not None
-        and unit_id.casefold() == directory.name.casefold()
-    )
-
-
 def _containing_unit_directory(candidate: Path, project_root: Path) -> Path | None:
     current = candidate if candidate.is_dir() else candidate.parent
     while current == project_root or project_root in current.parents:
-        if _is_canonical_unit_directory(current):
+        if _is_unit_directory(current):
             return current.resolve()
         if current == project_root:
             break
@@ -157,9 +132,7 @@ def _foreign_unit_child(directory: Path, active_unit: Path) -> Path | None:
         return None
     try:
         for candidate in directory.iterdir():
-            if candidate.resolve() != active_unit and _is_canonical_unit_directory(
-                candidate
-            ):
+            if candidate.resolve() != active_unit and _is_unit_directory(candidate):
                 return candidate.resolve()
     except OSError:
         # The caller will fail closed without exposing a potentially mixed Unit

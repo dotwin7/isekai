@@ -89,13 +89,13 @@ def renew(unit: Path, *, max_iterations: int = 3) -> None:
         unit,
         gate="inception",
         outcome="approved",
-        summary="Renew the construction envelope for the next iteration.",
-        rationale=["The remaining work still needs bounded edit access."],
+        summary="다음 반복을 위해 Construction Envelope를 갱신한다.",
+        rationale=["남은 작업에도 범위가 제한된 편집 권한이 필요하다."],
         alternatives=[
-            {"option": "Close the Unit", "reason": "Rejected because work remains."}
+            {"option": "Unit을 종료한다.", "reason": "남은 작업이 있어 기각했다."}
         ],
-        tradeoffs=["A new approval window restarts the iteration budget."],
-        risks=["A wider scope would need a separate review."],
+        tradeoffs=["새 승인 기간은 반복 예산을 다시 시작한다."],
+        risks=["더 넓은 범위에는 별도 검토가 필요하다."],
         references=["requirements.md", "execution-envelope.json"],
         decided_by="human-reviewer",
     )

@@ -309,3 +309,18 @@ def test_session_rejects_a_unit_from_another_project(tmp_path: Path) -> None:
 
     with pytest.raises(SessionError, match="project_id"):
         build_session(first, foreign_unit)
+
+
+def test_session_rejects_a_renamed_unit_directory(tmp_path: Path) -> None:
+    project = project_root_with_foundation(tmp_path)
+    manifest = initialize_project(
+        project,
+        project_id="renamed-unit-project",
+        profiles=["software-delivery-profile"],
+    )
+    unit = initialize_unit(manifest, "Renamed Unit")
+    renamed = unit.with_name("renamed-unit")
+    unit.rename(renamed)
+
+    with pytest.raises(SessionError, match="canonical Unit id"):
+        build_session(manifest, renamed)

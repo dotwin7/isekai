@@ -19,6 +19,7 @@ from .project import (
 from .routing import WorkRoute
 from .unit.common import (
     UNIT_LOCK_NAME,
+    _is_canonical_unit_directory,
     _unit_json,
     _unit_preflight_issues,
     unit_lock,
@@ -134,13 +135,24 @@ def discover_unit(project_path: Path, unit_dir: str | Path | None = None) -> Pat
         path = Path(unit_dir).expanduser().resolve()
         if not path.is_dir():
             raise SessionError(f"Unit directory does not exist: {path}")
+        if not _is_canonical_unit_directory(path):
+            raise SessionError(
+                "Unit directory name must match its canonical Unit id: "
+                f"{path}"
+            )
         return path
 
     candidates = _unit_candidates(project_path)
     if len(candidates) > 1:
         names = ", ".join(path.name for path in candidates)
         raise SessionError(f"multiple Units found ({names}); pass --unit explicitly")
-    return candidates[0] if candidates else None
+    selected = candidates[0] if candidates else None
+    if selected is not None and not _is_canonical_unit_directory(selected):
+        raise SessionError(
+            "Unit directory name must match its canonical Unit id: "
+            f"{selected}"
+        )
+    return selected
 
 
 def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:

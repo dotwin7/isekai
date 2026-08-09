@@ -54,6 +54,7 @@ PROTECTED_UNIT_ARTIFACT_PREFIXES = (
     "execution-authorization-records/",
 )
 UNIT_LOCK_NAME = ".isekai-unit.lock"
+CANONICAL_UNIT_ID = re.compile(r"UNIT-\d{8}-[A-F0-9]{32}")
 
 
 @contextmanager
@@ -132,6 +133,30 @@ def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise IntegrityError(f"Unit JSON must be an object: {relative}")
     return value
+
+
+def _is_unit_directory(directory: Path) -> bool:
+    """Return whether a directory contains an initialized ISEKAI Unit.
+
+    The directory name is deliberately ignored here. Cross-Unit protection
+    must continue to recognize a Unit after its directory is renamed.
+    """
+
+    try:
+        unit = _unit_json(directory, "unit.json")
+    except ValueError:
+        return False
+    unit_id = unit.get("id")
+    return isinstance(unit_id, str) and CANONICAL_UNIT_ID.fullmatch(unit_id) is not None
+
+
+def _is_canonical_unit_directory(directory: Path) -> bool:
+    """Return whether a Unit's canonical ID matches its directory name."""
+
+    if not _is_unit_directory(directory):
+        return False
+    unit = _unit_json(directory, "unit.json")
+    return str(unit["id"]).casefold() == directory.name.casefold()
 
 
 def _unit_maximum_agent_level(unit_dir: Path) -> str:

@@ -120,6 +120,7 @@ DECISION_PACKET_FIELDS = {
     "risks",
     "references",
 }
+_HANGUL = re.compile(r"[가-힣]")
 
 
 def _decision_record_digest(decision: dict[str, Any]) -> str:
@@ -170,6 +171,33 @@ def _decision_packet_issues(decision: Any) -> list[str]:
                 issues.append(f"Decision Packet alternative {index} needs reason")
     return issues
 
+
+def _decision_description_language_issues(
+    decision: dict[str, Any],
+    document_language: str,
+) -> list[str]:
+    if document_language != "ko":
+        return []
+    descriptions: list[tuple[str, Any]] = [("summary", decision.get("summary"))]
+    for field in ("rationale", "tradeoffs", "risks"):
+        values = decision.get(field)
+        if isinstance(values, list):
+            descriptions.extend((field, value) for value in values)
+    alternatives = decision.get("alternatives")
+    if isinstance(alternatives, list):
+        for alternative in alternatives:
+            if isinstance(alternative, dict):
+                descriptions.extend(
+                    (
+                        ("alternatives.option", alternative.get("option")),
+                        ("alternatives.reason", alternative.get("reason")),
+                    )
+                )
+    return [
+        f"{field} must use Korean for document_language ko"
+        for field, value in descriptions
+        if isinstance(value, str) and value.strip() and not _HANGUL.search(value)
+    ]
 
 
 def _decision_attestation_issues(decision: dict[str, Any]) -> list[str]:
@@ -515,6 +543,20 @@ def record_decision(
 
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
+        language_issues = _decision_description_language_issues(
+            {
+                "summary": summary,
+                "rationale": rationale,
+                "alternatives": alternatives,
+                "tradeoffs": tradeoffs,
+                "risks": risks,
+            },
+            str(unit.get("document_language")),
+        )
+        if language_issues:
+            raise IntegrityError(
+                "Decision Packet rejected: " + "; ".join(language_issues)
+            )
         preflight_issues = _unit_preflight_issues(unit_dir)
         if preflight_issues:
             raise PreflightError("Decision preflight blocked: " + "; ".join(preflight_issues))

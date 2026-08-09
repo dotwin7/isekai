@@ -291,6 +291,28 @@ def test_active_unit_boundary_covers_custom_project_local_unit_roots(
     assert "Unit collection" in collection["reason"]
 
 
+@pytest.mark.parametrize("action", ["read", "edit", "test"])
+def test_active_unit_boundary_survives_a_renamed_custom_sibling(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    project = make_project(tmp_path)
+    custom_root = project.parent / "work-items"
+    active = _wide_open_unit(project, "Custom Active Unit", custom_root)
+    sibling = initialize_unit(project, "Custom Sibling Unit", custom_root)
+    renamed = custom_root / "renamed-sibling"
+    sibling.rename(renamed)
+
+    result = authorize_action(
+        active,
+        action=action,
+        target=str((renamed / "unit.json").relative_to(project.parent)),
+    )
+
+    assert result["allowed"] is False
+    assert "Cross-Unit" in result["reason"]
+
+
 def test_active_unit_boundary_denies_a_different_custom_unit_collection(
     tmp_path: Path,
 ) -> None:

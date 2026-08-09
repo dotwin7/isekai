@@ -246,13 +246,16 @@ def test_runtime_decision_and_transition_actions_enforce_gate(
             "unit": str(unit),
             "gate": "inception",
             "outcome": "approved",
-            "summary": "Scope and acceptance criteria approved.",
-            "rationale": ["The scope is bounded and acceptance criteria are testable."],
-            "alternatives": [
-                {"option": "Defer inception", "reason": "Rejected because the scope is ready."}
-            ],
-            "tradeoffs": ["The approved scope limits the first implementation slice."],
-            "risks": ["Future scope may require a follow-up Unit."],
+                "summary": "범위와 인수 조건을 승인한다.",
+                "rationale": ["범위가 제한되어 있고 인수 조건을 테스트할 수 있다."],
+                "alternatives": [
+                    {
+                        "option": "Inception을 연기한다.",
+                        "reason": "범위가 준비되어 있어 기각했다.",
+                    }
+                ],
+                "tradeoffs": ["승인된 범위는 첫 구현 단계를 제한한다."],
+                "risks": ["후속 범위에는 별도의 Unit이 필요할 수 있다."],
             "references": ["acceptance.md", "requirements.md", "execution-envelope.json"],
             "decided_by": "human-reviewer",
         },
