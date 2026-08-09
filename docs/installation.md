@@ -18,7 +18,8 @@ bash /tmp/isekai-install.sh \
   --path . \
   --runtime all \
   --init \
-  --maximum-agent-level L1
+  --maximum-agent-level L1 \
+  --profile software-delivery-profile
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -35,9 +36,12 @@ Invoke-WebRequest `
   -Path . `
   -Runtime all `
   -Init `
-  -MaximumAgentLevel L1
+  -MaximumAgentLevel L1 `
+  -Profile software-delivery-profile
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
+
+`--profile software-delivery-profile`은 AI-DLC 워크플로에 필요한 Software Delivery Profile(Requirement, Component, Change, Build, ReleaseDecision 도메인 타입)을 활성화한다. Profile 없이도 Core 기계는 동작하지만 도메인 규칙이 없는 빈 규칙 세트로 실행되므로 소프트웨어 개발 프로젝트에서는 기본으로 포함한다. 보안 개발 규칙도 함께 사용할 프로젝트는 `--profile security-profile`을 추가할 수 있다.
 
 bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다. 초기화 시 agent level을 생략하면 read-only인 `L0`이 적용된다. 로컬 편집·테스트에는 `L1`, 승인된 개발·테스트 외부 API에는 `L2`를 `--init`/`-Init`과 함께 명시한다. L2 key 원문은 프로젝트나 명령 인자에 넣지 않고 호스트 secret store에 둔다.
 
