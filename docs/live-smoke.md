@@ -65,7 +65,7 @@ Kiro CLI의 slash command는 interactive session 전용이다. Headless smoke는
 
 Claude Code `2.1.224`에서 source Plugin의 strict validation과 `--plugin-dir` 세션 발견을 다시 확인했다. Plugin은 `isekai-agent-plugin@inline`으로 enable되어 있었고 `isekai` Skill 하나를 노출했다. CLI 인증이 없어서 실제 모델 대화는 실행하지 않았으므로 상태는 계속 `validation-only`다.
 
-Kiro는 로컬 CLI가 없어 source surface만 검증했다. `.kiro/skills/isekai/SKILL.md` 계약, CLI `2.1.0+` 요구사항, interactive slash command와 headless marker를 구현했으며 실제 설치 CLI capability는 CI의 `kiro-runtime-contract` job에서 검사한다. 이 결과는 인증된 모델 live smoke가 아니다.
+Kiro는 로컬 CLI가 없어 source surface만 검증했다. 이후 GitHub Actions가 공식 current-stable installer로 Kiro CLI `2.16.2`를 설치하고 `.kiro/skills/isekai/SKILL.md`, CLI `2.1.0+` 요구사항, `--no-interactive`와 `--trust-tools` capability를 확인했다. 인증된 모델 세션은 실행하지 않았으므로 `validation-only`이며 live baseline은 아니다. 원시 실행 로그는 [Kiro workspace Skill contract job](https://github.com/dotwin7/isekai/actions/runs/31293230838/job/93193979111)에 연결한다.
 
 ## 판정 규칙
 

@@ -38,7 +38,11 @@
       "cli": "kiro-cli",
       "tested_versions": [],
       "legacy_versions": ["2.14.2"],
-      "evidence_refs": ["OBS-20260808-KIRO-UNAVAILABLE", "LEGACY-KIRO-2.14.2"],
+      "evidence_refs": [
+        "OBS-20260809-KIRO-2.16.2",
+        "OBS-20260808-KIRO-UNAVAILABLE",
+        "LEGACY-KIRO-2.14.2"
+      ],
       "surface": "workspace-agent-skill",
       "host_checks": [
         "workspace Skill frontmatter and documented path",
@@ -101,6 +105,22 @@
         "plugin was discovered as enabled from an inline session directory",
         "one isekai Skill was discovered in the Plugin",
         "authenticated model session was unavailable"
+      ]
+    },
+    {
+      "id": "OBS-20260809-KIRO-2.16.2",
+      "runtime": "kiro",
+      "version": "2.16.2",
+      "status": "validation-only",
+      "evidence_strength": "github-actions-cli-contract",
+      "observed_on": "2026-08-09",
+      "source_ref": "https://github.com/dotwin7/isekai/actions/runs/31293230838/job/93193979111",
+      "checks": [
+        "official current-stable installer succeeded on Ubuntu",
+        "workspace Skill surface validation succeeded",
+        "CLI version satisfied the 2.1.0 Skill slash-command floor",
+        "CLI exposed no-interactive and selective tool-trust capabilities",
+        "authenticated model session was not run"
       ]
     },
     {

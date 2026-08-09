@@ -269,7 +269,7 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 |---|---:|---|---|
 | Codex | `0.147.0` | legacy `0.146.0` | Plugin package + Repo Skill |
 | Claude Code | 없음 | validation-only `2.1.224`, legacy `2.1.220` | Plugin package + Project Skill |
-| Kiro | 없음 | unavailable, legacy `2.14.2` | Workspace Agent Skill |
+| Kiro | 없음 | validation-only `2.16.2`, legacy `2.14.2` | Workspace Agent Skill |
 
 ## 저장소 구조
 
