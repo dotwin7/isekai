@@ -7,7 +7,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..errors import (
+    AuthorizationError,
+    EvidenceError,
+    IntegrityError,
+    LifecycleError,
+    PreflightError,
+)
 from .common import (
+    _parse_iso_timestamp,
     _unit_json,
     _unit_maximum_agent_level,
     _unit_path_without_symlinks,
@@ -15,7 +23,6 @@ from .common import (
     _write_json,
     unit_lock,
 )
-from .decisions import _parse_iso_timestamp
 
 
 EVIDENCE_REQUIRED_FIELDS = {
@@ -280,14 +287,14 @@ def _current_authorization_context(
         _approved_envelope_decision_issues(unit_dir, envelope, unit)
     )
     if envelope_issues:
-        raise ValueError(
+        raise AuthorizationError(
             "Execution Envelope blocks Evidence: " + "; ".join(envelope_issues)
         )
     ledger_issues = _authorization_ledger_issues(
         ledger, unit, envelope, unit_dir=unit_dir
     )
     if ledger_issues:
-        raise ValueError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
+        raise AuthorizationError("Action ledger blocks Evidence: " + "; ".join(ledger_issues))
     grants = {
         str(grant.get("id")): grant
         for grant in ledger["grants"]
@@ -319,13 +326,13 @@ def build_command_evidence(
     observed_at: str,
 ) -> dict[str, Any]:
     if not isinstance(command, str) or not command.strip():
-        raise ValueError("command must be a non-empty string")
+        raise EvidenceError("command must be a non-empty string")
     if not isinstance(exit_code, int) or isinstance(exit_code, bool):
-        raise ValueError("exit_code must be an integer")
+        raise EvidenceError("exit_code must be an integer")
     if not isinstance(output, str):
-        raise ValueError("output must be a string")
+        raise EvidenceError("output must be a string")
     if not isinstance(observed_at, str) or not observed_at.strip():
-        raise ValueError("observed_at must be a non-empty string")
+        raise EvidenceError("observed_at must be a non-empty string")
     return {
         "command": command.strip(),
         "exit_code": exit_code,
@@ -347,7 +354,7 @@ def _verification_evidence_digest(evidence: dict[str, Any]) -> str:
 def _evidence_record_relative(evidence_id: str) -> str:
     """Return the immutable record path for one generated Evidence ID."""
     if not EVIDENCE_ID_PATTERN.fullmatch(evidence_id):
-        raise ValueError(f"verification evidence has an invalid id: {evidence_id}")
+        raise EvidenceError(f"verification evidence has an invalid id: {evidence_id}")
     return f"evidence/records/{evidence_id}.json"
 
 
@@ -362,14 +369,14 @@ def _persist_evidence_record(
     if target.exists() or target.is_symlink():
         existing = _unit_json(unit_dir, relative)
         if _verification_evidence_digest(existing) != expected_digest:
-            raise ValueError(
+            raise EvidenceError(
                 "verification Evidence record conflicts with an existing Evidence ID"
             )
         return relative
     _write_json(target, evidence)
     persisted = _unit_json(unit_dir, relative)
     if _verification_evidence_digest(persisted) != expected_digest:
-        raise ValueError("verification Evidence record postflight failed")
+        raise EvidenceError("verification Evidence record postflight failed")
     return relative
 
 
@@ -395,15 +402,15 @@ def record_evidence(
 ) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
-        raise ValueError(f"Unit directory does not exist: {unit_dir}")
+        raise EvidenceError(f"Unit directory does not exist: {unit_dir}")
     if not isinstance(passed, bool):
-        raise ValueError("passed must be boolean")
+        raise EvidenceError("passed must be boolean")
     if not isinstance(commands, list) or not commands:
-        raise ValueError("commands must be a non-empty list")
+        raise EvidenceError("commands must be a non-empty list")
     if not isinstance(scope, str) or not scope.strip():
-        raise ValueError("scope must be a non-empty string")
+        raise EvidenceError("scope must be a non-empty string")
     if not isinstance(recorded_by, str) or not recorded_by.strip():
-        raise ValueError("recorded_by must be a non-empty string")
+        raise EvidenceError("recorded_by must be a non-empty string")
 
     with unit_lock(unit_dir):
         return _record_evidence_locked(
@@ -428,9 +435,9 @@ def _record_evidence_locked(
     unit = _unit_json(unit_dir, "unit.json")
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
-        raise ValueError("Evidence preflight blocked: " + "; ".join(preflight_issues))
+        raise PreflightError("Evidence preflight blocked: " + "; ".join(preflight_issues))
     if unit.get("status") not in EVIDENCE_ALLOWED_STATUSES:
-        raise ValueError(
+        raise LifecycleError(
             "Evidence can only be recorded after Construction begins; current status: "
             + str(unit.get("status"))
         )
@@ -441,14 +448,14 @@ def _record_evidence_locked(
     core_derived_outputs = 0
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
-            raise ValueError(f"command {index} must be an object")
+            raise EvidenceError(f"command {index} must be an object")
         item = dict(command)
         if "output" in item:
             core_derived_outputs += 1
             output = item.pop("output")
             computed = build_command_evidence(
                 str(item.get("command", "")),
-                item.get("exit_code"),
+                int(item.get("exit_code", 0)),
                 output,
                 str(item.get("observed_at", "")),
             )
@@ -457,7 +464,7 @@ def _record_evidence_locked(
                 supplied_digest is not None
                 and supplied_digest != computed["output_digest"]
             ):
-                raise ValueError(f"command {index} output_digest does not match output")
+                raise IntegrityError(f"command {index} output_digest does not match output")
             item.update(computed)
         normalized_commands.append(item)
 
@@ -499,13 +506,13 @@ def _record_evidence_locked(
         authorization_grants=authorization_grants,
     )
     if issues:
-        raise ValueError("; ".join(issues))
+        raise EvidenceError("; ".join(issues))
     _archive_current_evidence(unit_dir)
     record_relative = _persist_evidence_record(unit_dir, evidence)
     _write_json(unit_dir / "evidence/verification.json", evidence)
     persisted_evidence = _unit_json(unit_dir, "evidence/verification.json")
     if persisted_evidence.get("id") != evidence["id"]:
-        raise ValueError("Evidence postflight blocked: record was not persisted")
+        raise EvidenceError("Evidence postflight blocked: record was not persisted")
     return {
         "path": str(unit_dir / "evidence/verification.json"),
         "record_path": str(unit_dir / record_relative),

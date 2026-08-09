@@ -69,12 +69,12 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
         if condition.get("commands_required"):
             commands = value.get("commands")
             passed = passed and isinstance(commands, list) and bool(commands)
-        return passed
+        return bool(passed)
     if kind == "context-scope":
         return all(field in value for field in condition["required_fields"]) and (not condition.get("allowed_routes") or value.get("route") in condition["allowed_routes"])
     if kind == "extension-cannot-weaken-must":
         levels = {"MAY": 0, "SHOULD": 1, "MUST": 2}
-        return levels.get(value.get("extension_level"), -1) >= levels["MUST"] and value.get("parent_level") == condition["parent_level"]
+        return levels.get(str(value.get("extension_level", "")), -1) >= levels["MUST"] and value.get("parent_level") == condition["parent_level"]
     if kind == "required-decision":
         decisions = value.get("decisions")
         if not isinstance(decisions, list):
@@ -222,7 +222,8 @@ def _evaluation_condition(foundation: FoundationRelease, asset: dict[str, Any]) 
     if evaluator not in EVALUATOR_TYPES:
         raise FoundationError(f"{asset['id']} has no supported evaluator")
     for reference in asset.get("extends", []):
-        parent = foundation.assets.get(reference.get("id") if isinstance(reference, dict) else None)
+        _ref_id = reference.get("id") if isinstance(reference, dict) else None
+        parent = foundation.assets.get(str(_ref_id)) if isinstance(_ref_id, str) else None
         if parent is None:
             continue
         for rule in parent.get("content", {}).get("rules", []):

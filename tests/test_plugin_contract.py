@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from isekai.plugin_contract import PluginError, dispatch
+from isekai.workflow.errors import AuthorizationError
 
 from test_core_workflow import make_project
 from test_execution_envelope import approve_inception, make_enveloped_unit
@@ -146,7 +147,7 @@ def test_plugin_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> No
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Zero Envelope Lifetime", project.parent / "units")
 
-    with pytest.raises(ValueError, match="expires_in_hours"):
+    with pytest.raises(AuthorizationError, match="expires_in_hours"):
         dispatch(
             "envelope-propose",
             {

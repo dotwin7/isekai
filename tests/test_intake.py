@@ -7,6 +7,7 @@ import pytest
 
 from isekai.intake import intake, normalize_intent
 from isekai.workflow import initialize_unit
+from isekai.workflow.errors import WorkflowError
 
 from test_core_workflow import make_project
 
@@ -219,7 +220,7 @@ def test_structured_intent_fields_contribute_safety_signals(
 
 @pytest.mark.parametrize("field", ["ambiguous", "multi_party", "remote", "sensitive"])
 def test_intake_rejects_non_boolean_context_flags(field: str) -> None:
-    with pytest.raises(ValueError, match=field):
+    with pytest.raises(WorkflowError, match=field):
         normalize_intent({"goal": "Inspect the project", field: "false"})
 
 
@@ -312,9 +313,9 @@ def test_read_only_request_with_risk_signal_is_escalated_to_unit(
 
 
 def test_intake_rejects_missing_goal_and_unknown_source() -> None:
-    with pytest.raises(ValueError, match="goal"):
+    with pytest.raises(WorkflowError, match="goal"):
         normalize_intent({"source": "direct-request"})
-    with pytest.raises(ValueError, match="source"):
+    with pytest.raises(WorkflowError, match="source"):
         normalize_intent({"source": "unknown", "goal": "build"})
 
 
@@ -362,13 +363,13 @@ def test_unit_init_persists_normalized_intent_metadata(tmp_path: Path) -> None:
 def test_unit_init_rejects_non_normalized_intent_fields(tmp_path: Path) -> None:
     project = make_project(tmp_path)
 
-    with pytest.raises(ValueError, match="source must be one of"):
+    with pytest.raises(WorkflowError, match="source must be one of"):
         initialize_unit(
             project,
             "Invalid source",
             intent={"source": "not-a-source", "goal": "Build it"},
         )
-    with pytest.raises(ValueError, match="scope"):
+    with pytest.raises(WorkflowError, match="scope"):
         initialize_unit(
             project,
             "Invalid scope",

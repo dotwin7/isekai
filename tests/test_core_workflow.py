@@ -9,6 +9,7 @@ import pytest
 
 from isekai.foundation import FoundationError, load_foundation
 from isekai.session import SessionError, migrate_unit_context, resume_session
+from isekai.workflow.errors import PreflightError, WorkflowError
 from isekai.workflow import (
     UNIT_REQUIRED_FILES,
     RouteRequest,
@@ -468,7 +469,7 @@ def test_lifecycle_preflight_blocks_missing_full_rule_context(tmp_path: Path) ->
     receipt.pop("rules")
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Unit preflight blocked"):
+    with pytest.raises(PreflightError, match="Unit preflight blocked"):
         transition_unit(unit, "inception")
 
     result = verify_unit(unit)
@@ -483,7 +484,7 @@ def test_lifecycle_preflight_blocks_ambiguous_scope(tmp_path: Path) -> None:
     unit_value["scope"] = ""
     unit_path.write_text(json.dumps(unit_value, indent=2) + "\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Unit preflight blocked"):
+    with pytest.raises(PreflightError, match="Unit preflight blocked"):
         transition_unit(unit, "inception")
 
 
@@ -635,14 +636,14 @@ def test_unit_default_and_relative_outputs_are_project_relative(
     )
     assert absolute_unit.parent == absolute_root
 
-    with pytest.raises(ValueError, match="escapes project root"):
+    with pytest.raises(WorkflowError, match="escapes project root"):
         initialize_unit(project, "Traversal Escape", Path("../outside-units"))
 
     symlink_target = tmp_path / "symlink-target"
     symlink_target.mkdir()
     symlink_output = project.parent / "linked-units"
     symlink_output.symlink_to(symlink_target, target_is_directory=True)
-    with pytest.raises(ValueError, match="escapes project root"):
+    with pytest.raises(WorkflowError, match="escapes project root"):
         initialize_unit(project, "Symlink Escape", Path("linked-units"))
 
 
@@ -652,7 +653,7 @@ def test_unit_default_output_rejects_a_symlink_escape(tmp_path: Path) -> None:
     outside.mkdir()
     (project.parent / "units").symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(ValueError, match="escapes project root"):
+    with pytest.raises(WorkflowError, match="escapes project root"):
         initialize_unit(project, "Default Symlink Escape")
 
     assert list(outside.iterdir()) == []

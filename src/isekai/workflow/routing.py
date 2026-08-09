@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from .errors import WorkflowError
+
 
 class WorkRoute(str, Enum):
     QUERY = "query"
@@ -49,9 +51,9 @@ class RouteDecision:
 
 def classify_work(request: RouteRequest) -> RouteDecision:
     if request.change not in {"none", "local", "persistent"}:
-        raise ValueError("change must be one of: none, local, persistent")
+        raise WorkflowError("change must be one of: none, local, persistent")
     if request.risk not in {"low", "high"}:
-        raise ValueError("risk must be one of: low, high")
+        raise WorkflowError("risk must be one of: low, high")
     reasons: list[str] = []
     if request.change == "persistent":
         reasons.append("persistent change")

@@ -15,7 +15,7 @@
     "package": "isekai-agent-plugin",
     "version": "0.1.0",
     "path": "src/isekai",
-    "digest": "sha256:11251bad7a19c1c2a0537bf9ebfdfe1bd1094f9ea954e6d1a791b5fa0c145fa7"
+    "digest": "sha256:53ddf08a5c80a74f4aca4caa5a9cc3387b4e52c71d814b13d9a73a8bcadf8f20"
   },
   "bootstrap": {
     "id": "bootstrap",

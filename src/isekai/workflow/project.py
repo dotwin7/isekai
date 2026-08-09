@@ -17,6 +17,7 @@ from ..foundation import (
     validate_rule_definition,
 )
 from ..support.files import UnsafeControlFile, read_control_file
+from .errors import WorkflowError
 from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
@@ -128,7 +129,7 @@ def _receipt_source_manifest_path(
 
     source_manifest = receipt.get("source_manifest")
     if not isinstance(source_manifest, str) or not source_manifest.strip():
-        raise ValueError("Context Receipt has no source_manifest")
+        raise WorkflowError("Context Receipt has no source_manifest")
     portable_source = source_manifest.replace("\\", "/")
     source_path = Path(portable_source).expanduser()
     base = receipt.get("source_manifest_base")
@@ -137,7 +138,7 @@ def _receipt_source_manifest_path(
     if base == "unit":
         return (unit_dir / source_path).resolve()
     if base is not None:
-        raise ValueError("Context Receipt has an unsupported source_manifest_base")
+        raise WorkflowError("Context Receipt has an unsupported source_manifest_base")
     # Legacy relative locators were normalized against the selected Project (or
     # the caller's working directory when no Project was available). Prefer an
     # explicitly selected Project. Authorization and verification only have the
@@ -155,7 +156,7 @@ def _receipt_source_manifest_path(
             continue
         if not _context_contract_changed_fields(receipt, candidate_context):
             return candidate
-    raise ValueError(
+    raise WorkflowError(
         "legacy relative source_manifest cannot resolve the bound Project; "
         "run unit-migrate with an explicit Project"
     )
@@ -248,7 +249,7 @@ def _load_project_extension(
         if not isinstance(condition, dict) or condition.get("type") != "extension-cannot-weaken-must":
             raise FoundationError(f"project extension {asset_id} rules require extension integrity condition")
         validate_condition_definition(condition, rule.get("id", "extension-rule"))
-        parent_asset = foundation.assets.get(condition.get("parent_asset"))
+        parent_asset = foundation.assets.get(str(condition.get("parent_asset", "")))
         if parent_asset is None or condition.get("parent_level") != "MUST":
             raise FoundationError(f"project extension {asset_id} has an invalid parent MUST reference")
         parent_rules = parent_asset.get("content", {}).get("rules", [])
@@ -442,7 +443,7 @@ def initialize_project(
 ) -> Path:
     project_root = Path(path).expanduser().resolve()
     if not project_root.is_dir():
-        raise ValueError(f"project root does not exist or is not a directory: {project_root}")
+        raise WorkflowError(f"project root does not exist or is not a directory: {project_root}")
 
     manifest_path = project_root / "project.json"
     if manifest_path.exists():
@@ -450,7 +451,7 @@ def initialize_project(
 
     resolved_id = str(project_id or project_root.name).strip()
     if not resolved_id:
-        raise ValueError("project id must be a non-empty string")
+        raise WorkflowError("project id must be a non-empty string")
     if foundation_path is None:
         from ..distribution import load_install_lock
 
@@ -458,18 +459,18 @@ def initialize_project(
         pinned_path = lock.get("foundation", {}).get("path") if lock else None
         foundation_path = str(pinned_path or "foundation")
     if not isinstance(foundation_path, str) or not foundation_path.strip():
-        raise ValueError("foundation_path must be a non-empty string")
+        raise WorkflowError("foundation_path must be a non-empty string")
     if document_language not in {"ko", "en"}:
-        raise ValueError("document_language must be ko or en")
+        raise WorkflowError("document_language must be ko or en")
     if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
-        raise ValueError(
+        raise WorkflowError(
             "maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
         )
 
     selected_profiles = list(profiles or [])
     if any(not isinstance(item, str) or not item.strip() for item in selected_profiles):
-        raise ValueError("profiles must contain non-empty strings")
+        raise WorkflowError("profiles must contain non-empty strings")
     foundation = load_foundation(project_root / foundation_path)
     for profile_id in selected_profiles:
         asset = foundation.assets.get(profile_id)

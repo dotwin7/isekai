@@ -10,6 +10,7 @@ import pytest
 import isekai.workflow.unit.execution as execution_module
 import isekai.workflow.unit.lifecycle as lifecycle_module
 from isekai.jsonio import write_json_atomic
+from isekai.workflow.errors import AuthorizationError, IntegrityError
 from isekai.workflow import (
     authorize_action,
     initialize_unit,
@@ -164,7 +165,7 @@ def test_envelope_rejects_invalid_adaptive_stage_contract(
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Invalid Adaptive Plan", project.parent / "units")
 
-    with pytest.raises(ValueError, match=issue):
+    with pytest.raises(AuthorizationError, match=issue):
         propose_execution_envelope(
             unit,
             scope=["src/**"],
@@ -231,7 +232,7 @@ def test_l0_project_rejects_edit_and_test_envelopes(tmp_path: Path) -> None:
     project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     unit = initialize_unit(project, "Read-only Agent Level", project.parent / "units")
 
-    with pytest.raises(ValueError, match="maximum_agent_level L0"):
+    with pytest.raises(AuthorizationError, match="maximum_agent_level L0"):
         propose_execution_envelope(
             unit,
             scope=["src/**"],
@@ -392,7 +393,7 @@ def test_envelope_proposal_rejects_empty_scope_and_actions(tmp_path: Path) -> No
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Invalid Envelope", project.parent / "units")
 
-    with pytest.raises(ValueError, match="Execution Envelope rejected"):
+    with pytest.raises(AuthorizationError, match="Execution Envelope rejected"):
         propose_execution_envelope(
             unit,
             scope=[],
@@ -410,7 +411,7 @@ def test_envelope_rejects_actions_outside_the_local_agent_contract(
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Unsafe Envelope", project.parent / "units")
 
-    with pytest.raises(ValueError, match="unsupported|prohibited"):
+    with pytest.raises(AuthorizationError, match="unsupported|prohibited"):
         propose_execution_envelope(
             unit,
             scope=["src/**"],
@@ -561,7 +562,7 @@ def test_replaced_envelope_cannot_reuse_an_earlier_inception_approval(
         proposed_by="planner-agent",
     )
 
-    with pytest.raises(ValueError, match="replaced|changed"):
+    with pytest.raises(IntegrityError, match="replaced|changed"):
         transition_unit(unit, "construction")
 
 

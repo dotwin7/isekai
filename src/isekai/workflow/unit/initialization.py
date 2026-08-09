@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ..errors import WorkflowError
 from ..intake import normalize_intent
 from ..project import _portable_context_receipt, resolve_context
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
@@ -21,7 +22,7 @@ from .execution import (
 def _validated_title(value: str) -> str:
     title = value.strip()
     if not title or not re.search(r"\w", title, flags=re.UNICODE):
-        raise ValueError("title must contain at least one letter or number")
+        raise WorkflowError("title must contain at least one letter or number")
     return title
 
 def initialize_unit(
@@ -51,7 +52,7 @@ def initialize_unit(
         try:
             resolved_output_root.relative_to(project_root)
         except ValueError as exc:
-            raise ValueError(
+            raise WorkflowError(
                 f"relative Unit output escapes project root: {output_label}"
             ) from exc
     intent_values = dict(intent or {})

@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ...support.jsonio import write_bytes_atomic
 from .authorization import _authorization_ledger_issues
 from .common import (
     UNIT_LOCK_NAME,
     UNIT_REQUIRED_FILES,
+    _restore_snapshots,
     _unit_bytes,
     _unit_json,
     _unit_maximum_agent_level,
@@ -30,6 +30,7 @@ from .decisions import (
     _latest_decision,
     _release_decision_evidence_issues,
 )
+from ..errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
 from .evidence import (
     _current_authorization_context,
     _evidence_issues,
@@ -120,7 +121,7 @@ def _human_document_language_issues(
     for relative, heading in headings.items():
         try:
             content = _unit_text(unit_dir, relative)
-        except ValueError as exc:
+        except IntegrityError as exc:
             issues.append(str(exc))
             continue
         if not content.startswith(heading):
@@ -136,13 +137,13 @@ def _human_document_language_issues(
 def _acceptance_criteria_issues(unit_dir: Path) -> list[str]:
     try:
         path = _unit_path_without_symlinks(unit_dir, "acceptance.md")
-    except ValueError as exc:
+    except IntegrityError as exc:
         return [str(exc)]
     if not path.is_file():
         return []
     try:
         content = _unit_text(unit_dir, "acceptance.md")
-    except ValueError as exc:
+    except IntegrityError as exc:
         return [str(exc)]
     criteria = list(_ACCEPTANCE_ITEM.finditer(content))
     if not criteria:
@@ -175,7 +176,7 @@ def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[st
     issues.extend(_acceptance_criteria_issues(unit_dir))
     try:
         checkpoint = _unit_json(unit_dir, "checkpoint.json")
-    except ValueError as exc:
+    except IntegrityError as exc:
         issues.append(str(exc))
         return issues
     if checkpoint.get("blocked_by"):
@@ -233,7 +234,7 @@ def _human_gate_status(
 def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
-        raise ValueError(f"Unit directory does not exist: {unit_dir}")
+        raise LifecycleError(f"Unit directory does not exist: {unit_dir}")
     with unit_lock(unit_dir):
         return _transition_unit_locked(unit_dir, target_status)
 
@@ -241,18 +242,18 @@ def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
 def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any]:
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
-        raise ValueError("Unit preflight blocked: " + "; ".join(preflight_issues))
+        raise PreflightError("Unit preflight blocked: " + "; ".join(preflight_issues))
     if target_status not in LIFECYCLE_STATUSES:
-        raise ValueError(
+        raise LifecycleError(
             f"target_status must be one of: {', '.join(LIFECYCLE_STATUSES)}"
         )
 
     unit = _unit_json(unit_dir, "unit.json")
     current_status = unit.get("status")
     if current_status not in LIFECYCLE_STATUSES:
-        raise ValueError(f"Unit has an invalid lifecycle status: {current_status}")
+        raise LifecycleError(f"Unit has an invalid lifecycle status: {current_status}")
     if target_status not in ALLOWED_TRANSITIONS[current_status]:
-        raise ValueError(
+        raise LifecycleError(
             f"invalid lifecycle transition: {current_status} -> {target_status}"
         )
 
@@ -265,7 +266,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             unit_id=str(unit.get("id")),
             scope=str(unit.get("scope")),
         ):
-            raise ValueError(
+            raise LifecycleError(
                 f"transition to {target_status} requires an approved "
                 f"{required_gate} Decision"
             )
@@ -280,13 +281,13 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             decisions = _unit_json(unit_dir, "decisions.json")
             inception_decision = _latest_decision(decisions, "inception")
             if inception_decision is None or inception_decision.get("outcome") != "approved":
-                raise ValueError("Execution Envelope needs an approved inception Decision")
+                raise LifecycleError("Execution Envelope needs an approved inception Decision")
             envelope_before = _unit_bytes(unit_dir, "execution-envelope.json")
             mutation_started = True
             _approve_execution_envelope(unit_dir, inception_decision)
 
         if target_status in {"releasing", "operating"} and not _passing_evidence(unit_dir):
-            raise ValueError(
+            raise LifecycleError(
                 f"transition to {target_status} requires passing verification Evidence"
             )
         if target_status in {"releasing", "operating"}:
@@ -295,18 +296,18 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
                 unit_dir, decisions, unit
             )
             if release_binding_issues:
-                raise ValueError(
+                raise IntegrityError(
                     f"transition to {target_status} blocked: "
                     + "; ".join(release_binding_issues)
                 )
         if target_status == "learned" and not _passing_evidence(unit_dir):
-            raise ValueError(
+            raise LifecycleError(
                 "transition to learned requires current passing verification Evidence"
             )
 
         completion_issues = _transition_completion_issues(unit_dir, target_status)
         if completion_issues:
-            raise ValueError(
+            raise LifecycleError(
                 f"transition to {target_status} blocked: "
                 + "; ".join(completion_issues)
             )
@@ -318,24 +319,14 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
         _write_json(unit_path, unit)
         persisted = _unit_json(unit_dir, "unit.json")
         if persisted.get("status") != target_status:
-            raise ValueError("Unit postflight blocked: lifecycle status was not persisted")
+            raise IntegrityError("Unit postflight blocked: lifecycle status was not persisted")
     except Exception as exc:
         if not mutation_started:
             raise
-        restore_errors: list[str] = []
-        restore_files = [(unit_path, unit_before)]
+        snapshots = [(unit_path, unit_before)]
         if envelope_before is not None:
-            restore_files.append((envelope_path, envelope_before))
-        for restore_path, content in restore_files:
-            try:
-                write_bytes_atomic(restore_path, content)
-            except Exception as restore_exc:  # pragma: no cover - secondary filesystem failure
-                restore_errors.append(f"{restore_path}: {restore_exc}")
-        if restore_errors:
-            raise ValueError(
-                "Unit transition failed and could not be restored: "
-                + "; ".join(restore_errors)
-            ) from exc
+            snapshots.append((envelope_path, envelope_before))
+        _restore_snapshots(snapshots, "Unit transition", exc)
         raise
     return {
         "unit_id": unit.get("id"),
@@ -349,7 +340,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
 def verify_unit(path: str | Path) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
-        raise ValueError(f"Unit directory does not exist: {unit_dir}")
+        raise LifecycleError(f"Unit directory does not exist: {unit_dir}")
     with unit_lock(unit_dir):
         return _verify_unit_locked(unit_dir)
 
@@ -369,7 +360,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     def read_artifact(relative: str) -> dict[str, Any] | None:
         try:
             return _unit_json(unit_dir, relative)
-        except ValueError as exc:
+        except IntegrityError as exc:
             issues.append(str(exc))
             return None
 
@@ -381,7 +372,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     envelope: dict[str, Any] | None = None
     try:
         maximum_agent_level = _unit_maximum_agent_level(unit_dir)
-    except ValueError as exc:
+    except IntegrityError as exc:
         issues.append(str(exc))
         maximum_agent_level = None
     if envelope_path.is_file():
@@ -422,25 +413,26 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     if isinstance(decision_entries, list) and not decision_entries:
         issues.append("at least one recorded decision is required")
     elif isinstance(decision_entries, list):
-        if unit.get("status") in {"awaiting-release-decision", "releasing"}:
-            issues.extend(
-                _release_decision_evidence_issues(
-                    unit_dir, decisions, unit, require_current=True
+        if decisions is not None:
+            if unit.get("status") in {"awaiting-release-decision", "releasing"}:
+                issues.extend(
+                    _release_decision_evidence_issues(
+                        unit_dir, decisions, unit, require_current=True
+                    )
                 )
-            )
-        elif unit.get("status") in {"operating", "learned"}:
-            issues.extend(
-                _release_decision_evidence_issues(
-                    unit_dir, decisions, unit, require_current=False
+            elif unit.get("status") in {"operating", "learned"}:
+                issues.extend(
+                    _release_decision_evidence_issues(
+                        unit_dir, decisions, unit, require_current=False
+                    )
                 )
-            )
 
     status = unit.get("status")
     if status not in LIFECYCLE_STATUSES:
         issues.append(f"invalid lifecycle status: {status}")
-    required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(status)
+    required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(str(status) if status is not None else "")
     if required_gate and isinstance(decision_entries, list):
-        if not _has_approved_decision(decisions, required_gate):
+        if decisions is not None and not _has_approved_decision(decisions, required_gate):
             issues.append(
                 f"status {status} requires an approved {required_gate} Decision"
             )
@@ -471,7 +463,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                 binding, grants = _current_authorization_context(
                     unit_dir, unit, check_expiry=False
                 )
-            except ValueError as exc:
+            except WorkflowError as exc:
                 issues.append(str(exc))
                 binding = None
                 grants = None

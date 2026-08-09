@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from .errors import WorkflowError
 from .routing import RouteDecision, RouteRequest, WorkRoute, classify_work
 
 
@@ -178,11 +179,11 @@ def _workflow_directive(
 def _text(value: Any, field: str, *, required: bool = False) -> str:
     if value is None:
         if required:
-            raise ValueError(f"intake field must be non-empty: {field}")
+            raise WorkflowError(f"intake field must be non-empty: {field}")
         return ""
     if not isinstance(value, str) or not value.strip():
         if required:
-            raise ValueError(f"intake field must be non-empty: {field}")
+            raise WorkflowError(f"intake field must be non-empty: {field}")
         return ""
     return value.strip()
 
@@ -193,7 +194,7 @@ def _strings(value: Any, field: str) -> list[str]:
     if not isinstance(value, list) or any(
         not isinstance(item, str) or not item.strip() for item in value
     ):
-        raise ValueError(f"intake field must be a list of non-empty strings: {field}")
+        raise WorkflowError(f"intake field must be a list of non-empty strings: {field}")
     return [item.strip() for item in value]
 
 
@@ -225,7 +226,7 @@ def _boolean(value: Any, field: str) -> bool:
     if value is None:
         return False
     if not isinstance(value, bool):
-        raise ValueError(f"intake field must be boolean: {field}")
+        raise WorkflowError(f"intake field must be boolean: {field}")
     return value
 
 
@@ -393,7 +394,7 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
     values = dict(payload)
     source = str(values.get("source", "direct-request"))
     if source not in INTAKE_SOURCES:
-        raise ValueError(f"intake source must be one of: {', '.join(sorted(INTAKE_SOURCES))}")
+        raise WorkflowError(f"intake source must be one of: {', '.join(sorted(INTAKE_SOURCES))}")
     goal = _text(
         values.get("goal", values.get("text", values.get("request"))),
         "goal",
@@ -408,7 +409,7 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
     inferred_change = _infer_change(goal, source)
     change = str(values.get("change") or inferred_change)
     if change not in CHANGE_VALUES:
-        raise ValueError(f"intake change must be one of: {', '.join(sorted(CHANGE_VALUES))}")
+        raise WorkflowError(f"intake change must be one of: {', '.join(sorted(CHANGE_VALUES))}")
     # Structured callers often keep the short action in ``goal`` and place the
     # consequential system or data in the remaining intent fields.  Scan the
     # complete normalized context so a direct Core call cannot hide an obvious
@@ -425,7 +426,7 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
     signals = _infer_context_signals(signal_context)
     risk = str(values.get("risk", "low"))
     if risk not in RISK_VALUES:
-        raise ValueError(f"intake risk must be one of: {', '.join(sorted(RISK_VALUES))}")
+        raise WorkflowError(f"intake risk must be one of: {', '.join(sorted(RISK_VALUES))}")
     if signals["high_risk"]:
         risk = "high"
     ambiguous = _boolean(values.get("ambiguous"), "ambiguous")

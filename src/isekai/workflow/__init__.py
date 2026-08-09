@@ -32,6 +32,15 @@ from .unit.common import (
     _unit_preflight_issues,
     unit_lock,
 )
+from .errors import (
+    AuthorizationError,
+    EvidenceError,
+    IntegrityError,
+    LifecycleError,
+    PreflightError,
+    WorkflowError,
+)
+from .unit.common import _is_iso_timestamp
 from .unit.decisions import (
     ALLOWED_TRANSITIONS,
     DECISION_GATES,
@@ -46,7 +55,6 @@ from .unit.decisions import (
     _decision_record_digest,
     _decision_record_issues,
     _has_approved_decision,
-    _is_iso_timestamp,
     _latest_decision,
     record_decision,
 )
@@ -95,9 +103,15 @@ def initialize_project(
 
 __all__ = [
     "AGENT_LEVEL_ALLOWED_ACTIONS",
+    "AuthorizationError",
+    "EvidenceError",
+    "IntegrityError",
+    "LifecycleError",
+    "PreflightError",
     "RouteDecision",
     "RouteRequest",
     "WorkRoute",
+    "WorkflowError",
     "approve_execution_envelope",
     "authorize_action",
     "build_command_evidence",

@@ -7,6 +7,12 @@ from pathlib import Path
 import pytest
 
 from isekai.jsonio import write_json_atomic
+from isekai.workflow.errors import (
+    AuthorizationError,
+    EvidenceError,
+    IntegrityError,
+    LifecycleError,
+)
 from isekai.workflow import (
     DECISION_REQUIRED_FIELDS,
     authorize_action,
@@ -155,7 +161,7 @@ def test_evidence_record_rejects_symlinked_records_directory(
     external.mkdir()
     (unit / "evidence/records").symlink_to(external, target_is_directory=True)
 
-    with pytest.raises(ValueError, match="path contains a symlink"):
+    with pytest.raises(IntegrityError, match="path contains a symlink"):
         record_evidence(
             unit,
             passed=True,
@@ -180,43 +186,43 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
 
     transition_unit(unit, "inception")
     transition_unit(unit, "awaiting-inception-decision")
-    with pytest.raises(ValueError, match="approved inception Decision"):
+    with pytest.raises(LifecycleError, match="approved inception Decision"):
         transition_unit(unit, "construction")
 
     approve(unit, "inception")
     transition_unit(unit, "construction")
-    with pytest.raises(ValueError, match="approved architecture Decision"):
+    with pytest.raises(LifecycleError, match="approved architecture Decision"):
         transition_unit(unit, "validation")
 
     approve(unit, "architecture")
     transition_unit(unit, "validation")
     transition_unit(unit, "awaiting-release-decision")
-    with pytest.raises(ValueError, match="approved release Decision"):
+    with pytest.raises(LifecycleError, match="approved release Decision"):
         transition_unit(unit, "releasing")
 
     passing_evidence(unit)
     approve(unit, "release")
-    with pytest.raises(ValueError, match="acceptance criteria remain unchecked"):
+    with pytest.raises(LifecycleError, match="acceptance criteria remain unchecked"):
         transition_unit(unit, "releasing")
     (unit / "acceptance.md").write_text(
         "# Acceptance Criteria\n\n* [ ] Alternate Markdown bullet remains open.\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="acceptance criteria remain unchecked"):
+    with pytest.raises(LifecycleError, match="acceptance criteria remain unchecked"):
         transition_unit(unit, "releasing")
     (unit / "acceptance.md").write_text("# Acceptance Criteria\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="acceptance criteria are missing"):
+    with pytest.raises(LifecycleError, match="acceptance criteria are missing"):
         transition_unit(unit, "releasing")
     complete_acceptance(unit)
     architecture = unit / "architecture.md"
     architecture_content = architecture.read_text(encoding="utf-8")
     architecture.unlink()
-    with pytest.raises(ValueError, match="required Unit artifacts are missing"):
+    with pytest.raises(LifecycleError, match="required Unit artifacts are missing"):
         transition_unit(unit, "releasing")
     architecture.write_text(architecture_content, encoding="utf-8")
     transition_unit(unit, "releasing")
     transition_unit(unit, "operating")
-    with pytest.raises(ValueError, match="approved operation Decision"):
+    with pytest.raises(LifecycleError, match="approved operation Decision"):
         transition_unit(unit, "learned")
 
     # Operations may add new authorized work and replace the current Evidence.
@@ -225,7 +231,7 @@ def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) ->
     passing_evidence(unit)
     assert verify_unit(unit)["valid"] is True
     approve(unit, "operation")
-    with pytest.raises(ValueError, match="pending work"):
+    with pytest.raises(LifecycleError, match="pending work"):
         transition_unit(unit, "learned")
     update_checkpoint(
         unit,
@@ -347,12 +353,12 @@ def test_release_rejects_evidence_made_stale_by_a_later_authorization(
     )
 
     assert authorization["allowed"] is True
-    with pytest.raises(ValueError, match="passing verification Evidence"):
+    with pytest.raises(LifecycleError, match="passing verification Evidence"):
         transition_unit(unit, "releasing")
     assert any("stale" in issue for issue in verify_unit(unit)["issues"])
 
     passing_evidence(unit)
-    with pytest.raises(ValueError, match="Release Decision"):
+    with pytest.raises(IntegrityError, match="Release Decision"):
         transition_unit(unit, "releasing")
     approve(unit, "release")
     complete_acceptance(unit)
@@ -378,7 +384,7 @@ def test_latest_rejected_decision_blocks_a_previous_approval(tmp_path: Path) -> 
         decided_by="human-reviewer",
     )
 
-    with pytest.raises(ValueError, match="approved inception Decision"):
+    with pytest.raises(LifecycleError, match="approved inception Decision"):
         transition_unit(unit, "construction")
 
     approve(unit, "inception")
@@ -388,7 +394,7 @@ def test_latest_rejected_decision_blocks_a_previous_approval(tmp_path: Path) -> 
 def test_invalid_skip_transition_is_rejected(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
 
-    with pytest.raises(ValueError, match="invalid lifecycle transition"):
+    with pytest.raises(LifecycleError, match="invalid lifecycle transition"):
         transition_unit(unit, "construction")
 
 
@@ -399,13 +405,13 @@ def test_decisions_cannot_be_preapproved_before_their_gate(
 ) -> None:
     unit = make_unit(tmp_path)
 
-    with pytest.raises(ValueError, match=f"{gate} Decision cannot be recorded"):
+    with pytest.raises(LifecycleError, match=f"{gate} Decision cannot be recorded"):
         approve(unit, gate)
 
 
 def test_evidence_requires_a_current_test_authorization(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
-    with pytest.raises(ValueError, match="after Construction"):
+    with pytest.raises(LifecycleError, match="after Construction"):
         record_evidence(
             unit,
             passed=True,
@@ -425,7 +431,7 @@ def test_evidence_requires_a_current_test_authorization(tmp_path: Path) -> None:
     read_authorization = authorize_action(unit, action="read", target="src/main.py")
     assert read_authorization["allowed"] is True
 
-    with pytest.raises(ValueError, match="current test authorization"):
+    with pytest.raises(EvidenceError, match="current test authorization"):
         record_evidence(
             unit,
             passed=True,
@@ -467,7 +473,7 @@ def test_evidence_rejects_a_forged_out_of_scope_authorization_grant(
     )
     write_json_atomic(ledger_path, ledger)
 
-    with pytest.raises(ValueError, match="Action ledger blocks Evidence") as error:
+    with pytest.raises(AuthorizationError, match="Action ledger blocks Evidence") as error:
         record_evidence(
             unit,
             passed=True,
@@ -509,7 +515,7 @@ def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) 
     edit = authorize_action(unit, action="edit", target="src/after-test.py")
     assert edit["allowed"] is True
 
-    with pytest.raises(ValueError, match="latest authorized test actions"):
+    with pytest.raises(EvidenceError, match="latest authorized test actions"):
         record_evidence(
             unit,
             passed=True,
@@ -549,7 +555,7 @@ def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> No
     start_construction(unit)
     authorization_id = authorize_test(unit)
 
-    with pytest.raises(ValueError, match="output_digest"):
+    with pytest.raises(EvidenceError, match="output_digest"):
         record_evidence(
             unit,
             passed=True,
@@ -572,7 +578,7 @@ def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
     start_construction(unit)
     authorization_id = authorize_test(unit)
 
-    with pytest.raises(ValueError, match="observed_at"):
+    with pytest.raises(EvidenceError, match="observed_at"):
         record_evidence(
             unit,
             passed=True,
@@ -606,7 +612,7 @@ def test_evidence_rejects_observations_outside_the_authorized_time_window(
     start_construction(unit)
     authorization_id = authorize_test(unit)
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(EvidenceError, match=message):
         record_evidence(
             unit,
             passed=True,
@@ -702,14 +708,14 @@ def test_operating_transition_rejects_evidence_staled_during_release(
 
     assert authorization["allowed"] is True
     assert any("stale" in issue for issue in verify_unit(unit)["issues"])
-    with pytest.raises(ValueError, match="passing verification Evidence"):
+    with pytest.raises(LifecycleError, match="passing verification Evidence"):
         transition_unit(unit, "operating")
     assert json.loads((unit / "unit.json").read_text(encoding="utf-8"))["status"] == "releasing"
 
 
 def test_decision_packet_requires_rationale_and_explained_alternatives(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
-    with pytest.raises(ValueError, match="Decision Packet rejected"):
+    with pytest.raises(IntegrityError, match="Decision Packet rejected"):
         record_decision(
             unit,
             gate="architecture",
@@ -723,7 +729,7 @@ def test_decision_packet_requires_rationale_and_explained_alternatives(tmp_path:
             decided_by="human-reviewer",
         )
 
-    with pytest.raises(ValueError, match="needs reason"):
+    with pytest.raises(IntegrityError, match="needs reason"):
         record_decision(
             unit,
             gate="architecture",
@@ -767,5 +773,5 @@ def test_foreign_unit_decision_cannot_satisfy_a_gate(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="approved inception Decision"):
+    with pytest.raises(LifecycleError, match="approved inception Decision"):
         transition_unit(second, "construction")

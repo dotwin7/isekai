@@ -13,6 +13,7 @@ from isekai.foundation import load_foundation
 from isekai.jsonio import write_json_atomic
 from isekai.session import _descendant_project_candidates, update_checkpoint
 from isekai.workflow import authorize_action, initialize_unit, verify_unit
+from isekai.workflow.errors import IntegrityError
 
 from test_core_workflow import ROOT, make_project
 from test_execution_envelope import approve_inception, envelope_stages
@@ -461,7 +462,7 @@ def test_control_readers_normalize_platform_os_errors(
         project_module._load_json(tmp_path / "project.json")
 
     monkeypatch.setattr(unit_common, "read_control_file", deny)
-    with pytest.raises(ValueError, match="cannot safely read"):
+    with pytest.raises(IntegrityError, match="cannot safely read"):
         unit_common._unit_json(tmp_path, "unit.json")
 
     monkeypatch.setattr(plugin_module, "read_control_file", deny)

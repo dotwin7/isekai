@@ -7,7 +7,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ..errors import (
+    EvidenceError,
+    IntegrityError,
+    LifecycleError,
+    PreflightError,
+    WorkflowError,
+)
 from .common import (
+    _is_iso_timestamp,
+    _parse_iso_timestamp,
     _unit_json,
     _unit_maximum_agent_level,
     _unit_preflight_issues,
@@ -161,21 +170,6 @@ def _decision_packet_issues(decision: Any) -> list[str]:
                 issues.append(f"Decision Packet alternative {index} needs reason")
     return issues
 
-
-def _parse_iso_timestamp(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _is_iso_timestamp(value: Any) -> bool:
-    return _parse_iso_timestamp(value) is not None
 
 
 def _decision_attestation_issues(decision: dict[str, Any]) -> list[str]:
@@ -489,15 +483,15 @@ def record_decision(
 ) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
-        raise ValueError(f"Unit directory does not exist: {unit_dir}")
+        raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
     if gate not in DECISION_GATES:
-        raise ValueError(f"gate must be one of: {', '.join(DECISION_GATES)}")
+        raise WorkflowError(f"gate must be one of: {', '.join(DECISION_GATES)}")
     if outcome not in DECISION_OUTCOMES:
-        raise ValueError(f"outcome must be one of: {', '.join(DECISION_OUTCOMES)}")
+        raise WorkflowError(f"outcome must be one of: {', '.join(DECISION_OUTCOMES)}")
     if not isinstance(summary, str) or not summary.strip():
-        raise ValueError("summary must be a non-empty string")
+        raise WorkflowError("summary must be a non-empty string")
     if not isinstance(decided_by, str) or not decided_by.strip():
-        raise ValueError("decided_by must be a non-empty string")
+        raise WorkflowError("decided_by must be a non-empty string")
     packet_issues = _decision_packet_issues(
         {
             "decision_packet_version": DECISION_PACKET_VERSION,
@@ -509,17 +503,17 @@ def record_decision(
         }
     )
     if packet_issues:
-        raise ValueError("Decision Packet rejected: " + "; ".join(packet_issues))
+        raise IntegrityError("Decision Packet rejected: " + "; ".join(packet_issues))
 
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
         preflight_issues = _unit_preflight_issues(unit_dir)
         if preflight_issues:
-            raise ValueError("Decision preflight blocked: " + "; ".join(preflight_issues))
+            raise PreflightError("Decision preflight blocked: " + "; ".join(preflight_issues))
         current_status = unit.get("status")
         allowed_statuses = DECISION_ALLOWED_STATUSES[gate]
         if current_status not in allowed_statuses:
-            raise ValueError(
+            raise LifecycleError(
                 f"{gate} Decision cannot be recorded while Unit status is "
                 f"{current_status}; allowed statuses: "
                 + ", ".join(sorted(allowed_statuses))
@@ -527,16 +521,16 @@ def record_decision(
         decisions = _unit_json(unit_dir, "decisions.json")
         entries = decisions.get("decisions")
         if not isinstance(entries, list):
-            raise ValueError("decisions.json decisions must be a list")
+            raise IntegrityError("decisions.json decisions must be a list")
         if decisions.get("unit_id") != unit.get("id"):
-            raise ValueError("decisions.json unit_id does not match Unit")
+            raise IntegrityError("decisions.json unit_id does not match Unit")
         existing_issues = _decision_ledger_issues(
             decisions,
             unit_id=str(unit.get("id")),
             scope=str(unit.get("scope")),
         )
         if existing_issues:
-            raise ValueError(
+            raise IntegrityError(
                 "existing Decision history is invalid: "
                 + "; ".join(existing_issues)
             )
@@ -547,7 +541,7 @@ def record_decision(
             from .execution import _execution_envelope_issues
 
             if "execution-envelope.json" not in references:
-                raise ValueError(
+                raise IntegrityError(
                     "approved Inception Decision must reference execution-envelope.json"
                 )
             envelope = _unit_json(unit_dir, "execution-envelope.json")
@@ -557,7 +551,7 @@ def record_decision(
                 maximum_agent_level=_unit_maximum_agent_level(unit_dir),
             )
             if envelope_issues:
-                raise ValueError(
+                raise IntegrityError(
                     "Inception Decision cannot bind an invalid Execution Envelope: "
                     + "; ".join(envelope_issues)
                 )
@@ -574,11 +568,11 @@ def record_decision(
             )
 
             if "evidence/verification.json" not in references:
-                raise ValueError(
+                raise EvidenceError(
                     "approved Release Decision must reference evidence/verification.json"
                 )
             if not _passing_evidence(unit_dir):
-                raise ValueError(
+                raise EvidenceError(
                     "approved Release Decision requires current passing verification Evidence"
                 )
             evidence = _unit_json(unit_dir, "evidence/verification.json")
@@ -633,7 +627,7 @@ def record_decision(
         # Check that no earlier record was dropped, not merely that this one
         # landed. A lost update leaves the winner's record last and looks fine.
         if persisted_ids != [*preceding_ids, decision["id"]]:
-            raise ValueError(
+            raise IntegrityError(
                 "Decision postflight blocked: the Decision ledger changed during the write"
             )
     return {"path": str(unit_dir / "decisions.json"), "decision": decision}

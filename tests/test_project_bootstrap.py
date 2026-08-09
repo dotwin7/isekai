@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError
+from isekai.workflow.errors import WorkflowError
 from isekai.session import (
     SessionError,
     build_session,
@@ -284,7 +285,7 @@ def test_context_and_unit_init_accept_project_root_or_nested_directory(
 def test_unknown_agent_level_is_rejected_fail_closed(tmp_path: Path) -> None:
     project_root = project_root_with_foundation(tmp_path)
 
-    with pytest.raises(ValueError, match="maximum_agent_level"):
+    with pytest.raises(WorkflowError, match="maximum_agent_level"):
         initialize_project(project_root, maximum_agent_level="L2")
 
     assert not (project_root / "project.json").exists()

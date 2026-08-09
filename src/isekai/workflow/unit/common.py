@@ -3,18 +3,40 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from typing import Sequence
+
 from ...support.files import UnsafeControlFile, read_control_file
-from ...support.jsonio import write_json_atomic
+from ...support.jsonio import write_bytes_atomic, write_json_atomic
 from ...support.locking import file_lock
+from ..errors import IntegrityError
 from ..project import _context_receipt_id
 from ..routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
 def _write_json(path: Path, value: Any) -> None:
     write_json_atomic(path, value)
+
+
+def _restore_snapshots(
+    snapshots: Sequence[tuple[Path, bytes]],
+    label: str,
+    cause: Exception,
+) -> None:
+    """Restore pre-mutation file contents; raise IntegrityError if any restore fails."""
+    errors: list[str] = []
+    for path, content in snapshots:
+        try:
+            write_bytes_atomic(path, content)
+        except Exception as exc:  # pragma: no cover - secondary filesystem failure
+            errors.append(f"{path}: {exc}")
+    if errors:
+        raise IntegrityError(
+            f"{label} failed and could not be restored: " + "; ".join(errors)
+        ) from cause
 
 
 PROTECTED_UNIT_ARTIFACTS = {
@@ -67,12 +89,12 @@ UNIT_REQUIRED_FILES = {
 def _unit_path_without_symlinks(unit_dir: Path, relative: str) -> Path:
     relative_path = Path(relative)
     if relative_path.is_absolute() or ".." in relative_path.parts:
-        raise ValueError(f"Unit artifact path must stay inside the Unit: {relative}")
+        raise IntegrityError(f"Unit artifact path must stay inside the Unit: {relative}")
     candidate = unit_dir
     for part in relative_path.parts:
         candidate /= part
         if candidate.is_symlink():
-            raise ValueError(f"Unit artifact path contains a symlink: {relative}")
+            raise IntegrityError(f"Unit artifact path contains a symlink: {relative}")
     return candidate
 
 
@@ -85,27 +107,27 @@ def _unit_bytes(unit_dir: Path, relative: str) -> bytes:
             label=f"Unit artifact {relative}",
         )
     except FileNotFoundError as exc:
-        raise ValueError(f"missing Unit file: {relative}") from exc
+        raise IntegrityError(f"missing Unit file: {relative}") from exc
     except UnsafeControlFile as exc:
-        raise ValueError(str(exc)) from exc
+        raise IntegrityError(str(exc)) from exc
     except OSError as exc:
-        raise ValueError(f"cannot safely read Unit file {relative}: {exc}") from exc
+        raise IntegrityError(f"cannot safely read Unit file {relative}: {exc}") from exc
 
 
 def _unit_text(unit_dir: Path, relative: str) -> str:
     try:
         return _unit_bytes(unit_dir, relative).decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise ValueError(f"invalid UTF-8 in Unit file {relative}") from exc
+        raise IntegrityError(f"invalid UTF-8 in Unit file {relative}") from exc
 
 
 def _unit_json(unit_dir: Path, relative: str) -> dict[str, Any]:
     try:
         value = json.loads(_unit_text(unit_dir, relative))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid Unit JSON in {relative}: {exc}") from exc
+        raise IntegrityError(f"invalid Unit JSON in {relative}: {exc}") from exc
     if not isinstance(value, dict):
-        raise ValueError(f"Unit JSON must be an object: {relative}")
+        raise IntegrityError(f"Unit JSON must be an object: {relative}")
     return value
 
 
@@ -113,7 +135,7 @@ def _unit_maximum_agent_level(unit_dir: Path) -> str:
     receipt = _unit_json(unit_dir, "context-receipt.json")
     level = receipt.get("maximum_agent_level")
     if level not in ALLOWED_AGENT_LEVELS:
-        raise ValueError(
+        raise IntegrityError(
             "Context Receipt maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
         )
@@ -127,20 +149,20 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
             path = _unit_path_without_symlinks(unit_dir, relative)
             if path.exists() or path.is_symlink():
                 _unit_bytes(unit_dir, relative)
-        except ValueError as exc:
+        except IntegrityError as exc:
             issues.append(str(exc))
     if issues:
         return issues
     try:
         unit = _unit_json(unit_dir, "unit.json")
-    except ValueError as exc:
+    except IntegrityError as exc:
         return [str(exc)]
     scope = unit.get("scope")
     if not isinstance(scope, str) or not scope.strip():
         issues.append("Unit scope is missing or ambiguous")
     try:
         receipt = _unit_json(unit_dir, "context-receipt.json")
-    except ValueError as exc:
+    except IntegrityError as exc:
         return issues + [str(exc)]
     required_context = {
         "project_id",
@@ -207,3 +229,19 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
             if rule.get("level") == "MUST" and not isinstance(rule.get("condition"), dict):
                 issues.append(f"Context MUST rule {index} has no machine condition")
     return issues
+
+
+def _parse_iso_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_iso_timestamp(value: Any) -> bool:
+    return _parse_iso_timestamp(value) is not None

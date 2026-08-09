@@ -15,7 +15,7 @@ from .common import (
     UNIT_LOCK_NAME,
     _unit_json,
 )
-from .decisions import _is_iso_timestamp
+from .common import _is_iso_timestamp
 
 
 AUTHORIZATION_LEDGER_REQUIRED_FIELDS = {

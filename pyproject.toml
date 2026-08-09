@@ -29,11 +29,21 @@ Issues = "https://github.com/dotwin7/isekai/issues"
 isekai = "isekai.cli:main"
 
 [project.optional-dependencies]
-test = ["pytest==9.0.2"]
+test = ["pytest==9.0.2", "mypy==1.16.0"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/isekai"]
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
 
 [tool.setuptools.package-data]
 isekai = ["data/*.json"]

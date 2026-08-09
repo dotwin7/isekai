@@ -111,7 +111,7 @@ def _reference_id(reference: Any, label: str) -> str:
     _require_fields(reference, {"id", "version"}, label)
     if not all(isinstance(reference[key], str) and reference[key].strip() for key in ("id", "version")):
         raise FoundationError(f"{label} id and version must be non-empty strings")
-    return reference["id"]
+    return str(reference["id"])
 
 
 def _parse_timestamp(value: Any, label: str) -> datetime:

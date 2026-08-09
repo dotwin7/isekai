@@ -17,6 +17,7 @@ from isekai.workflow import (
     transition_unit,
     verify_unit,
 )
+from isekai.workflow.errors import AuthorizationError, IntegrityError
 from isekai.session import update_checkpoint
 
 from test_core_workflow import make_project
@@ -308,7 +309,7 @@ def test_renewed_envelope_is_inert_until_the_new_decision_approves_it(
     assert "not approved" in replaced["reason"]
     # The previous Decision approved a different Envelope, so it cannot be
     # reused to activate the replacement.
-    with pytest.raises(ValueError, match="replaced after the Inception Decision"):
+    with pytest.raises(IntegrityError, match="replaced after the Inception Decision"):
         approve_execution_envelope(unit)
 
 
@@ -334,7 +335,7 @@ def test_envelope_lifetime_is_bounded_and_configurable(tmp_path: Path) -> None:
     assert window == timedelta(hours=48)
     assert EXECUTION_ENVELOPE_DEFAULT_HOURS == 168
     for invalid in (0, -1, EXECUTION_ENVELOPE_MAX_HOURS + 1, True):
-        with pytest.raises(ValueError, match="expires_in_hours"):
+        with pytest.raises(AuthorizationError, match="expires_in_hours"):
             propose_execution_envelope(
                 unit,
                 scope=["src/**"],

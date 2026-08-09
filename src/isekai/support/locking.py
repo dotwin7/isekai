@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import sys
 import time
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -37,7 +38,7 @@ class _LockClaim:
 
 
 def _try_os_lock(descriptor: int) -> bool:
-    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+    if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI/users
         import msvcrt
 
         os.lseek(descriptor, 0, os.SEEK_SET)
@@ -57,7 +58,7 @@ def _try_os_lock(descriptor: int) -> bool:
 
 
 def _unlock(descriptor: int) -> None:
-    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+    if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI/users
         import msvcrt
 
         os.lseek(descriptor, 0, os.SEEK_SET)
@@ -115,7 +116,7 @@ def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> _LockClaim 
 
 
 def _release(lock_path: Path, claim: _LockClaim) -> None:
-    if os.name == "nt":  # pragma: no cover - exercised by Windows CI/users
+    if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI/users
         # Windows does not allow unlinking an open file. Release and close first;
         # if a waiter acquired it in the meantime, deletion fails and the shared
         # lock path safely remains for that owner.
