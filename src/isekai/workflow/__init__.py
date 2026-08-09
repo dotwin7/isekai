@@ -14,6 +14,8 @@ from .project_knowledge import (
     project_knowledge_status,
     promote_project_knowledge,
     propose_project_knowledge,
+    select_project_knowledge_context,
+    summarize_project_knowledge,
 )
 from .routing import (
     AGENT_ALLOWED_ACTIONS,
@@ -130,6 +132,8 @@ __all__ = [
     "project_knowledge_status",
     "promote_project_knowledge",
     "propose_project_knowledge",
+    "select_project_knowledge_context",
+    "summarize_project_knowledge",
     "record_decision",
     "record_evidence",
     "resolve_context",

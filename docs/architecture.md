@@ -23,6 +23,7 @@ Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`,
 | 영역 | 구현 경계 |
 |---|---|
 | Project와 Unit workflow | `workflow/project.py`, `workflow/routing.py`, `workflow/session.py`, `workflow/unit/` |
+| Project Knowledge | `workflow/project_knowledge.py` service, `project_knowledge_schema.py` 검증·선택, `project_knowledge_storage.py` 안전한 파일 경계 |
 | 배포와 설치 | `distribution/release.py`, `distribution/marketplace.py`, `distribution/install.py`, `distribution/git.py` |
 | Foundation | `foundation/types.py`, `foundation/validation.py`, `foundation/evaluation.py`, `foundation/promotion.py` |
 | Agent Plugin | `plugin/actions.py`가 host-neutral action을 실행하고 `plugin_contract.py`가 protocol envelope를 생성 |

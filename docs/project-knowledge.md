@@ -53,9 +53,11 @@ Git 저장소 안의 이 파일들이 프로젝트 원장이다. 중앙 Knowledg
 
 ## Unit별 버전 고정
 
-새 Unit은 생성 순간의 최신 승인 release 전체를 `context-receipt.json`의 `project_knowledge`에 결박한다. 그 뒤 Project Knowledge가 갱신되어도 진행 중이거나 완료된 Unit의 Receipt는 바뀌지 않는다. 새 Unit만 최신 release를 받는다.
+새 Unit은 생성 순간의 최신 승인 release ID·version·digest와, 그 release에서 Unit `work_scope`와 겹치는 활성 항목만 `context-receipt.json`의 `project_knowledge`에 결박한다. Scope 비교는 의미 추론이 아니라 wildcard 이전의 literal path prefix가 겹치는지 보수적으로 판단한다. 불확실한 wildcard는 포함하는 쪽으로 처리하며 Unit scope가 비어 있으면 활성 항목 전체를 고정한다. `deprecated` 항목은 새 Unit Context에서 제외한다.
 
-선택된 Unit의 `status`와 `resume`은 현재 catalog가 아니라 해당 Receipt의 고정본을 반환한다. Unit Envelope로 `project-knowledge/`를 직접 읽거나 수정하거나 테스트하는 authorization은 거부한다. Project 범위에서 최신 상태를 보려면 Core의 `project-knowledge-status`를 사용한다. 이 경계 덕분에 형제 Unit을 직접 읽지 않고도 승인된 공통 지식만 후속 Unit에 전달된다.
+Receipt의 `selection`은 선택 mode, Unit work scope, 전체 활성 항목 수와 선택된 항목 수를 기록하고 `context_digest`가 결과를 결박한다. Project Knowledge가 갱신되어도 진행 중이거나 완료된 Unit의 Receipt는 바뀌지 않으며 새 Unit만 최신 release에서 다시 선택한다.
+
+선택된 Unit의 `status`와 `resume`은 현재 catalog가 아니라 해당 Receipt의 scope-selected 고정본을 반환한다. Unit을 선택하지 않은 `on`·Project status·`resolve`는 release ID·version·digest와 활성·폐기 항목 수만 반환해 전체 지식을 프롬프트에 주입하지 않는다. Unit Envelope로 `project-knowledge/`를 직접 읽거나 수정하거나 테스트하는 authorization은 거부한다. Project 범위에서 전체 최신 상태를 명시적으로 보려면 Core의 `project-knowledge-status`를 사용한다. 이 응답은 candidate별 ID, 출처 Unit, 항목 ID, digest, `unpromoted|promoted|invalid` 상태, 승격 release와 검증 문제를 함께 보여 준다. 이 경계 덕분에 형제 Unit을 직접 읽지 않고도 승인된 공통 지식만 후속 Unit에 전달된다.
 
 ## CLI 예시
 

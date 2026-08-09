@@ -10,6 +10,10 @@ from typing import Any
 from ..errors import WorkflowError
 from ..intake import normalize_intent
 from ..project import _portable_context_receipt, resolve_context
+from ..project_knowledge import (
+    current_project_knowledge,
+    select_project_knowledge_context,
+)
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
 from .authorization import _authorization_ledger_digest
 from .common import _write_json
@@ -64,6 +68,10 @@ def initialize_unit(
     work_scope = normalized_intent["scope"]
     constraints = normalized_intent["constraints"]
     acceptance_criteria = normalized_intent["acceptance_criteria"]
+    receipt["project_knowledge"] = select_project_knowledge_context(
+        current_project_knowledge(project_root, str(receipt["project_id"])),
+        work_scope,
+    )
     document_language = receipt["document_language"]
     unit_id = (
         f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-"

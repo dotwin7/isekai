@@ -2,231 +2,37 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
-import re
-import stat
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..support.files import UnsafeControlFile, metadata_is_path_alias, read_control_file
+from ..support.files import UnsafeControlFile, read_control_file
 from ..support.jsonio import write_json_atomic
 from ..support.locking import file_lock
 from .errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
+from .project_knowledge_schema import (
+    CANDIDATE_REFERENCE as _CANDIDATE_REFERENCE,
+    PROJECT_KNOWLEDGE_SCHEMA_VERSION,
+    candidate_digest as _candidate_digest,
+    candidate_issues as _candidate_issues,
+    catalog_digest as _catalog_digest,
+    catalog_issues as _catalog_issues,
+    entry_issues as _entry_issues,
+    receipt_issues as project_knowledge_receipt_issues,
+    release_digest as _release_digest,
+    select_release_context,
+    summarize_release,
+)
+from .project_knowledge_storage import (
+    managed_project_directory as _managed_directory,
+    safe_project_json as _safe_json,
+)
 
 
 PROJECT_KNOWLEDGE_ROOT = "project-knowledge"
 PROJECT_KNOWLEDGE_CATALOG = f"{PROJECT_KNOWLEDGE_ROOT}/catalog.json"
 PROJECT_KNOWLEDGE_LOCK = ".isekai-project-knowledge.lock"
-PROJECT_KNOWLEDGE_SCHEMA_VERSION = "1.0.0"
-PROJECT_KNOWLEDGE_KINDS = {"term", "convention", "guidance", "decision"}
-_CANDIDATE_REFERENCE = re.compile(
-    r"project-knowledge/candidates/(PKC-[A-Z0-9-]+)\.json"
-)
-_ENTRY_ID = re.compile(r"[A-Za-z][A-Za-z0-9._-]{1,63}")
-_SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
-
-
-def _canonical_digest(value: dict[str, Any], digest_field: str) -> str:
-    subject = {key: item for key, item in value.items() if key != digest_field}
-    encoded = json.dumps(
-        subject, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _candidate_digest(candidate: dict[str, Any]) -> str:
-    return _canonical_digest(candidate, "candidate_digest")
-
-
-def _release_digest(release: dict[str, Any]) -> str:
-    return _canonical_digest(release, "release_digest")
-
-
-def _catalog_digest(catalog: dict[str, Any]) -> str:
-    return _canonical_digest(catalog, "catalog_digest")
-
-
-def _safe_json(path: Path, *, root: Path, label: str) -> dict[str, Any]:
-    try:
-        value = json.loads(
-            read_control_file(path, root=root, label=label).decode("utf-8")
-        )
-    except FileNotFoundError as exc:
-        raise IntegrityError(f"missing {label}: {path}") from exc
-    except UnsafeControlFile as exc:
-        raise IntegrityError(str(exc)) from exc
-    except OSError as exc:
-        raise IntegrityError(f"cannot safely read {label}: {path}: {exc}") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise IntegrityError(f"invalid {label}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise IntegrityError(f"{label} must be a JSON object")
-    return value
-
-
-def _managed_directory(project_root: Path, relative: str, *, create: bool) -> Path:
-    directory = project_root / relative
-    current = project_root
-    for part in Path(relative).parts:
-        current /= part
-        try:
-            metadata = current.lstat()
-        except FileNotFoundError:
-            if not create:
-                raise IntegrityError(f"missing managed Project Knowledge path: {current}")
-            try:
-                current.mkdir()
-                metadata = current.lstat()
-            except OSError as exc:
-                raise IntegrityError(
-                    f"cannot create managed Project Knowledge path: {current}: {exc}"
-                ) from exc
-        if metadata_is_path_alias(metadata) or not stat.S_ISDIR(metadata.st_mode):
-            raise IntegrityError(
-                f"managed Project Knowledge path must be a real directory: {current}"
-            )
-    return directory
-
-
-def _entry_issues(entry: Any, *, released: bool) -> list[str]:
-    if not isinstance(entry, dict):
-        return ["Project Knowledge entry must be an object"]
-    issues: list[str] = []
-    required = {"id", "kind", "title", "statement", "scope", "owner", "references"}
-    allowed = required | {"replaces"}
-    if released:
-        allowed |= {
-            "status", "source_unit_id", "candidate_id", "decision_id",
-            "promoted_at", "superseded_by",
-        }
-    missing = sorted(required - entry.keys())
-    if missing:
-        issues.append("Project Knowledge entry missing fields: " + ", ".join(missing))
-    unexpected = sorted(set(entry) - allowed)
-    if unexpected:
-        issues.append(
-            "Project Knowledge entry has unsupported fields: " + ", ".join(unexpected)
-        )
-    entry_id = entry.get("id")
-    if not isinstance(entry_id, str) or _ENTRY_ID.fullmatch(entry_id) is None:
-        issues.append("Project Knowledge entry id is invalid")
-    if entry.get("kind") not in PROJECT_KNOWLEDGE_KINDS:
-        issues.append("Project Knowledge entry kind is invalid")
-    for field in ("title", "statement", "owner"):
-        if not isinstance(entry.get(field), str) or not entry.get(field, "").strip():
-            issues.append(f"Project Knowledge entry requires a non-empty {field}")
-    for field in ("scope", "references"):
-        values = entry.get(field)
-        if not isinstance(values, list) or not values or any(
-            not isinstance(value, str) or not value.strip() for value in values
-        ):
-            issues.append(
-                f"Project Knowledge entry {field} must be a non-empty list of strings"
-            )
-        elif len(values) != len(set(values)):
-            issues.append(f"Project Knowledge entry {field} must not contain duplicates")
-    replaces = entry.get("replaces")
-    if replaces is not None and (
-        not isinstance(replaces, str) or _ENTRY_ID.fullmatch(replaces) is None
-    ):
-        issues.append("Project Knowledge entry replaces is invalid")
-    if replaces == entry_id:
-        issues.append("Project Knowledge entry cannot replace itself")
-    if released:
-        if entry.get("status") not in {"approved", "deprecated"}:
-            issues.append("released Project Knowledge entry has an invalid status")
-        for field in ("source_unit_id", "candidate_id", "decision_id", "promoted_at"):
-            if not isinstance(entry.get(field), str) or not entry.get(field, "").strip():
-                issues.append(f"released Project Knowledge entry requires {field}")
-        if entry.get("status") == "deprecated" and not isinstance(
-            entry.get("superseded_by"), str
-        ):
-            issues.append("deprecated Project Knowledge entry requires superseded_by")
-    return issues
-
-
-def _release_issues(release: Any, *, project_id: str) -> list[str]:
-    if not isinstance(release, dict):
-        return ["Project Knowledge release must be an object"]
-    issues: list[str] = []
-    required = {
-        "id", "type", "schema_version", "project_id", "version", "status",
-        "entries", "previous_release_digest", "promoted_at", "promoted_by",
-        "source_candidate_id", "source_decision_id", "release_digest",
-    }
-    missing = sorted(required - release.keys())
-    if missing:
-        issues.append("Project Knowledge release missing fields: " + ", ".join(missing))
-    if release.get("type") != "project-knowledge-release":
-        issues.append("Project Knowledge release has an invalid type")
-    if release.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
-        issues.append("Project Knowledge release has an unsupported schema_version")
-    if release.get("project_id") != project_id:
-        issues.append("Project Knowledge release project_id does not match Project")
-    if release.get("status") != "approved":
-        issues.append("Project Knowledge release status must be approved")
-    entries = release.get("entries")
-    if not isinstance(entries, list):
-        issues.append("Project Knowledge release entries must be a list")
-    else:
-        ids: list[Any] = []
-        for index, entry in enumerate(entries):
-            issues.extend(
-                f"entry {index}: {issue}" for issue in _entry_issues(entry, released=True)
-            )
-            if isinstance(entry, dict):
-                ids.append(entry.get("id"))
-        if len(ids) != len(set(ids)):
-            issues.append("Project Knowledge release contains duplicate entry ids")
-    previous = release.get("previous_release_digest")
-    if previous is not None and not isinstance(previous, str):
-        issues.append("Project Knowledge previous_release_digest is invalid")
-    digest = release.get("release_digest")
-    if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
-        issues.append("Project Knowledge release_digest is invalid")
-    elif digest != _release_digest(release):
-        issues.append("Project Knowledge release digest does not match its record")
-    return issues
-
-
-def _catalog_issues(catalog: Any, *, project_id: str) -> list[str]:
-    if not isinstance(catalog, dict):
-        return ["Project Knowledge catalog must be an object"]
-    issues: list[str] = []
-    if catalog.get("type") != "project-knowledge-catalog":
-        issues.append("Project Knowledge catalog has an invalid type")
-    if catalog.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
-        issues.append("Project Knowledge catalog has an unsupported schema_version")
-    if catalog.get("project_id") != project_id:
-        issues.append("Project Knowledge catalog project_id does not match Project")
-    releases = catalog.get("releases")
-    if not isinstance(releases, list):
-        return issues + ["Project Knowledge catalog releases must be a list"]
-    previous: str | None = None
-    versions: list[Any] = []
-    for index, release in enumerate(releases):
-        issues.extend(
-            f"release {index}: {issue}"
-            for issue in _release_issues(release, project_id=project_id)
-        )
-        if isinstance(release, dict):
-            if release.get("previous_release_digest") != previous:
-                issues.append(f"release {index}: release digest chain is broken")
-            previous = release.get("release_digest")
-            versions.append(release.get("version"))
-    if len(versions) != len(set(versions)):
-        issues.append("Project Knowledge catalog contains duplicate versions")
-    expected_version = releases[-1].get("version") if releases else None
-    if catalog.get("current_version") != expected_version:
-        issues.append("Project Knowledge catalog current_version is invalid")
-    digest = catalog.get("catalog_digest")
-    if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
-        issues.append("Project Knowledge catalog_digest is invalid")
-    elif digest != _catalog_digest(catalog):
-        issues.append("Project Knowledge catalog digest does not match its record")
-    return issues
 
 
 def _load_catalog(project_root: Path, project_id: str) -> dict[str, Any] | None:
@@ -251,13 +57,66 @@ def current_project_knowledge(project_root: Path, project_id: str) -> dict[str, 
     return copy.deepcopy(release)
 
 
-def project_knowledge_receipt_issues(
-    value: Any, *, project_id: str
+def select_project_knowledge_context(
+    release: dict[str, Any] | None,
+    work_scope: list[str],
+) -> dict[str, Any] | None:
+    """Build the compact, release-pinned knowledge view for one new Unit."""
+    return select_release_context(release, work_scope)
+
+
+def summarize_project_knowledge(
+    release: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Return Project-level metadata without injecting every knowledge entry."""
+    return summarize_release(release)
+
+
+def project_knowledge_binding_issues(
+    unit_dir: Path,
+    receipt: dict[str, Any],
 ) -> list[str]:
-    """Validate an optional release embedded in a Unit Context Receipt."""
-    if value is None:
+    """Verify a pinned selection against its immutable catalog release."""
+    pinned = receipt.get("project_knowledge")
+    if pinned is None:
         return []
-    return _release_issues(value, project_id=project_id)
+    from .project import _receipt_source_manifest_path
+
+    try:
+        manifest = _receipt_source_manifest_path(receipt, unit_dir=unit_dir)
+        project_id = str(receipt.get("project_id"))
+        catalog = _load_catalog(manifest.parent, project_id)
+    except (IntegrityError, WorkflowError) as exc:
+        return [str(exc)]
+    if catalog is None:
+        return ["pinned Project Knowledge release is missing from the Project catalog"]
+    pinned_digest = pinned.get("release_digest") if isinstance(pinned, dict) else None
+    release = next(
+        (
+            item
+            for item in catalog.get("releases", [])
+            if isinstance(item, dict) and item.get("release_digest") == pinned_digest
+        ),
+        None,
+    )
+    if release is None:
+        return ["pinned Project Knowledge release digest is not in the Project catalog"]
+    if pinned.get("type") == "project-knowledge-release":
+        return [] if pinned == release else [
+            "legacy pinned Project Knowledge release does not match the catalog"
+        ]
+    selection = pinned.get("selection")
+    work_scope = selection.get("work_scope") if isinstance(selection, dict) else None
+    if not isinstance(work_scope, list) or any(
+        not isinstance(scope, str) for scope in work_scope
+    ):
+        return ["pinned Project Knowledge selection has an invalid work_scope"]
+    expected = select_release_context(release, work_scope)
+    if pinned != expected:
+        return [
+            "pinned Project Knowledge entries do not match deterministic release selection"
+        ]
+    return []
 
 
 def _unit_project(unit_dir: Path) -> tuple[dict[str, Any], Path, str]:
@@ -303,65 +162,6 @@ def _reference_bytes(unit_dir: Path, reference: str) -> bytes:
         raise IntegrityError(
             f"cannot safely read Project Knowledge source artifact {reference}: {exc}"
         ) from exc
-
-
-def _candidate_issues(candidate: Any, *, project_id: str, unit_id: str) -> list[str]:
-    if not isinstance(candidate, dict):
-        return ["Project Knowledge candidate must be an object"]
-    issues: list[str] = []
-    required = {
-        "id", "type", "schema_version", "project_id", "source_unit_id",
-        "base_release_digest", "proposed_by", "proposed_at", "entries",
-        "source_artifacts", "candidate_digest",
-    }
-    missing = sorted(required - candidate.keys())
-    if missing:
-        issues.append("Project Knowledge candidate missing fields: " + ", ".join(missing))
-    if candidate.get("type") != "project-knowledge-candidate":
-        issues.append("Project Knowledge candidate has an invalid type")
-    if candidate.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
-        issues.append("Project Knowledge candidate has an unsupported schema_version")
-    if candidate.get("project_id") != project_id:
-        issues.append("Project Knowledge candidate project_id does not match Project")
-    if candidate.get("source_unit_id") != unit_id:
-        issues.append("Project Knowledge candidate source_unit_id does not match Unit")
-    entries = candidate.get("entries")
-    if not isinstance(entries, list) or not entries:
-        issues.append("Project Knowledge candidate entries must be a non-empty list")
-    else:
-        ids: list[Any] = []
-        for index, entry in enumerate(entries):
-            issues.extend(
-                f"entry {index}: {issue}" for issue in _entry_issues(entry, released=False)
-            )
-            if isinstance(entry, dict):
-                ids.append(entry.get("id"))
-        if len(ids) != len(set(ids)):
-            issues.append("Project Knowledge candidate contains duplicate entry ids")
-    artifacts = candidate.get("source_artifacts")
-    if not isinstance(artifacts, list) or not artifacts:
-        issues.append("Project Knowledge candidate source_artifacts must be non-empty")
-    else:
-        references: list[Any] = []
-        for artifact in artifacts:
-            if not isinstance(artifact, dict):
-                issues.append("Project Knowledge source artifact must be an object")
-                continue
-            references.append(artifact.get("reference"))
-            if not isinstance(artifact.get("reference"), str):
-                issues.append("Project Knowledge source artifact reference is invalid")
-            if not isinstance(artifact.get("digest"), str) or _SHA256.fullmatch(
-                artifact.get("digest", "")
-            ) is None:
-                issues.append("Project Knowledge source artifact digest is invalid")
-        if len(references) != len(set(references)):
-            issues.append("Project Knowledge source artifacts contain duplicates")
-    digest = candidate.get("candidate_digest")
-    if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
-        issues.append("Project Knowledge candidate_digest is invalid")
-    elif digest != _candidate_digest(candidate):
-        issues.append("Project Knowledge candidate digest does not match its record")
-    return issues
 
 
 def _validate_candidate_sources(unit_dir: Path, candidate: dict[str, Any]) -> None:
@@ -652,30 +452,110 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
     return {"promoted": True, "release": release, "catalog": PROJECT_KNOWLEDGE_CATALOG}
 
 
+def _candidate_status_details(
+    project_root: Path,
+    project_id: str,
+    catalog: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    candidates_path = project_root / f"{PROJECT_KNOWLEDGE_ROOT}/candidates"
+    if not candidates_path.exists() and not candidates_path.is_symlink():
+        return []
+    _managed_directory(
+        project_root, f"{PROJECT_KNOWLEDGE_ROOT}/candidates", create=False
+    )
+    promoted = {
+        release.get("source_candidate_id"): {
+            "id": release.get("id"),
+            "version": release.get("version"),
+            "digest": release.get("release_digest"),
+        }
+        for release in (catalog.get("releases", []) if catalog else [])
+        if isinstance(release, dict)
+    }
+    details: list[dict[str, Any]] = []
+    for path in sorted(candidates_path.iterdir()):
+        reference = f"{PROJECT_KNOWLEDGE_ROOT}/candidates/{path.name}"
+        match = _CANDIDATE_REFERENCE.fullmatch(reference)
+        if match is None or not path.is_file() or path.is_symlink():
+            continue
+        try:
+            candidate = _safe_json(
+                path, root=project_root, label="Project Knowledge candidate"
+            )
+        except IntegrityError as exc:
+            details.append(
+                {
+                    "id": match.group(1),
+                    "reference": reference,
+                    "status": "invalid",
+                    "issues": [str(exc)],
+                    "promoted_release": None,
+                }
+            )
+            continue
+        source_unit_id = candidate.get("source_unit_id")
+        candidate_issues = _candidate_issues(
+            candidate,
+            project_id=project_id,
+            unit_id=str(source_unit_id),
+        )
+        if candidate.get("id") != match.group(1):
+            candidate_issues.append(
+                "Project Knowledge candidate id does not match its path"
+            )
+        promoted_release = promoted.get(candidate.get("id"))
+        status = (
+            "invalid"
+            if candidate_issues
+            else "promoted"
+            if promoted_release is not None
+            else "unpromoted"
+        )
+        entries = candidate.get("entries")
+        details.append(
+            {
+                "id": candidate.get("id"),
+                "reference": reference,
+                "source_unit_id": source_unit_id,
+                "proposed_by": candidate.get("proposed_by"),
+                "proposed_at": candidate.get("proposed_at"),
+                "base_release_digest": candidate.get("base_release_digest"),
+                "candidate_digest": candidate.get("candidate_digest"),
+                "entry_ids": [
+                    entry.get("id")
+                    for entry in entries
+                    if isinstance(entry, dict)
+                ]
+                if isinstance(entries, list)
+                else [],
+                "status": status,
+                "issues": candidate_issues,
+                "promoted_release": promoted_release,
+            }
+        )
+    return details
+
+
 def project_knowledge_status(path: str | Path = ".") -> dict[str, Any]:
     from .project import load_project
 
     manifest, project, _foundation, _extensions = load_project(path)
     catalog = _load_catalog(manifest.parent, str(project["id"]))
     current = catalog["releases"][-1] if catalog and catalog["releases"] else None
-    candidates_path = manifest.parent / f"{PROJECT_KNOWLEDGE_ROOT}/candidates"
-    candidate_count = 0
-    if candidates_path.exists() or candidates_path.is_symlink():
-        _managed_directory(
-            manifest.parent, f"{PROJECT_KNOWLEDGE_ROOT}/candidates", create=False
-        )
-        candidate_count = sum(
-            1
-            for item in candidates_path.iterdir()
-            if item.is_file() and not item.is_symlink() and _CANDIDATE_REFERENCE.fullmatch(
-                f"{PROJECT_KNOWLEDGE_ROOT}/candidates/{item.name}"
-            )
-        )
+    candidates = _candidate_status_details(
+        manifest.parent, str(project["id"]), catalog
+    )
+    status_counts = {
+        status: sum(candidate["status"] == status for candidate in candidates)
+        for status in ("unpromoted", "promoted", "invalid")
+    }
     return {
         "project_id": project["id"],
         "catalog": PROJECT_KNOWLEDGE_CATALOG,
         "current_release": copy.deepcopy(current),
-        "candidate_count": candidate_count,
+        "candidate_count": len(candidates),
+        "candidate_status_counts": status_counts,
+        "candidates": candidates,
     }
 
 

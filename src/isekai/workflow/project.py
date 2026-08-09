@@ -398,7 +398,10 @@ def load_project(
 
 def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict[str, Any]:
     manifest_path, project, foundation, project_extensions = load_project(path)
-    from .project_knowledge import current_project_knowledge
+    from .project_knowledge import (
+        current_project_knowledge,
+        summarize_project_knowledge,
+    )
 
     applicable_rules: list[dict[str, Any]] = []
     rule_candidates = list(foundation.rules())
@@ -428,8 +431,8 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
         "rule_ids": sorted(rule["id"] for rule in applicable_rules),
         "rules": sorted(applicable_rules, key=lambda rule: rule["id"]),
         "policy_ids": sorted(foundation.assets_by_kind("policy"), key=lambda item: item["id"]),
-        "project_knowledge": current_project_knowledge(
-            manifest_path.parent, str(project["id"])
+        "project_knowledge": summarize_project_knowledge(
+            current_project_knowledge(manifest_path.parent, str(project["id"]))
         ),
         "source_manifest": str(manifest_path),
     }

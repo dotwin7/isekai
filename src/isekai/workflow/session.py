@@ -264,7 +264,10 @@ def build_session(
             raise SessionError(
                 "Unit Context Receipt fingerprint does not match its bound context"
             )
-        from .project_knowledge import project_knowledge_receipt_issues
+        from .project_knowledge import (
+            project_knowledge_binding_issues,
+            project_knowledge_receipt_issues,
+        )
 
         knowledge_issues = project_knowledge_receipt_issues(
             receipt.get("project_knowledge"),
@@ -274,6 +277,14 @@ def build_session(
             raise SessionError(
                 "Unit Context Receipt has invalid Project Knowledge: "
                 + "; ".join(knowledge_issues)
+            )
+        knowledge_binding_issues = project_knowledge_binding_issues(
+            selected_unit, receipt
+        )
+        if knowledge_binding_issues:
+            raise SessionError(
+                "Unit Context Receipt Project Knowledge binding is invalid: "
+                + "; ".join(knowledge_binding_issues)
             )
         try:
             receipt_manifest = _receipt_source_manifest_path(

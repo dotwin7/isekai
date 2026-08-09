@@ -18,7 +18,7 @@ ISEKAI를 켜면 일반 채팅 요청을 먼저 정규화하고 작업의 지속
 
 Unit 작업에서는 Intent, Decision, Evidence, Receipt와 Checkpoint를 저장해 사람과 에이전트가 다른 세션에서도 같은 맥락을 이어갈 수 있습니다. 중요한 수명주기 전환과 고위험 판단은 사람의 명시적 결정을 요구합니다.
 
-한 Unit에서 발견한 용어·관례·지침·판단이 후속 Unit에도 필요하면 `Project Knowledge` candidate로 제안하고 사람의 Knowledge Decision 뒤 승격합니다. 이는 온톨로지나 정책 계층이 아니라 승인된 프로젝트 공통 지식이며, 새 Unit은 생성 시점의 release를 Context Receipt에 고정합니다. 기존 Unit은 자동으로 최신 지식을 읽지 않습니다.
+한 Unit에서 발견한 용어·관례·지침·판단이 후속 Unit에도 필요하면 `Project Knowledge` candidate로 제안하고 사람의 Knowledge Decision 뒤 승격합니다. 이는 온톨로지나 정책 계층이 아니라 승인된 프로젝트 공통 지식이며, 새 Unit은 생성 시점 release digest와 자기 `work_scope`에 겹치는 활성 항목만 Context Receipt에 고정합니다. 기존 Unit은 자동으로 최신 지식을 읽지 않습니다.
 
 ```text
 사용자 채팅 명령
@@ -249,7 +249,7 @@ Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 De
 
 Envelope는 active Unit 하나에만 속합니다. `scope: ["**"]`가 승인되어도 Core는 기본 `units/` collection과 형제 Unit artifact에 대한 `read`·`edit`·`test` authorization을 거부하며, 사용자 지정 Project-local Unit 경로에도 같은 경계를 적용합니다. 이 경계는 프로젝트 소스·테스트·고정 Foundation·Profile·Extension 접근을 막는 filesystem sandbox가 아니라 Decision·Checkpoint·Evidence가 Unit 사이에서 섞이지 않게 하는 실행 격리입니다.
 
-공통화할 결과는 형제 Unit을 직접 읽게 하지 않고 `project-knowledge-propose → decision --gate knowledge → project-knowledge-promote`로 승격합니다. `project-knowledge/`는 Core-managed path이며 active Unit은 catalog를 직접 읽지 않고 자기 Receipt에 고정된 release만 사용합니다. 자세한 계약은 [Project Knowledge](docs/project-knowledge.md)를 참고하세요.
+공통화할 결과는 형제 Unit을 직접 읽게 하지 않고 `project-knowledge-propose → decision --gate knowledge → project-knowledge-promote`로 승격합니다. `project-knowledge/`는 Core-managed path이며 active Unit은 catalog를 직접 읽지 않고 자기 Receipt에 scope별로 고정된 항목만 사용합니다. Unit이 선택되지 않은 Project context에는 release 요약만 들어가며, `project-knowledge-status`를 명시적으로 호출하면 미승격·승격·무결성 오류 candidate와 연결 release를 볼 수 있습니다. 자세한 계약은 [Project Knowledge](docs/project-knowledge.md)를 참고하세요.
 
 Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다. Evidence는 Runtime host가 제출한 실행 attestation이며, Core는 원본 `output`이 함께 전달된 경우에만 결과 digest를 직접 계산합니다. 새 Evidence의 `attestation.output_digest_verification`은 `core-derived`, `caller-supplied`, `mixed` 중 하나로 이 차이를 보존합니다. 실행 사실 자체를 신뢰 경계로 삼아야 하는 환경에서는 보호된 CI나 서명된 원격 실행 receipt를 함께 사용해야 합니다.
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from isekai.jsonio import write_json_atomic
-from isekai.session import build_session
+from isekai.session import SessionError, build_project_session, build_session
 from isekai.workflow import (
     initialize_unit,
     project_knowledge_status,
@@ -16,6 +16,8 @@ from isekai.workflow import (
     verify_unit,
 )
 from isekai.workflow.errors import IntegrityError, LifecycleError
+from isekai.workflow.project import _context_receipt_id
+from isekai.workflow.project_knowledge_schema import context_digest
 
 from test_core_workflow import make_project
 
@@ -33,13 +35,18 @@ def _operating_unit(project: Path, title: str = "공유 지식 출처") -> Path:
     return unit
 
 
-def _entry(entry_id: str, *, replaces: str | None = None) -> dict[str, object]:
+def _entry(
+    entry_id: str,
+    *,
+    replaces: str | None = None,
+    scope: list[str] | None = None,
+) -> dict[str, object]:
     entry: dict[str, object] = {
         "id": entry_id,
         "kind": "convention",
         "title": "서비스 식별자 표기 규칙",
         "statement": "서비스 식별자는 소문자 kebab-case로 기록한다.",
-        "scope": ["services/**"],
+        "scope": list(scope or ["services/**"]),
         "owner": "platform-team",
         "references": ["architecture.md"],
     }
@@ -91,6 +98,18 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
     )["release"]
 
     assert first_release["version"] == "0.1.0"
+    project_context = build_project_session(project)["context"]["project_knowledge"]
+    assert project_context == {
+        "type": "project-knowledge-summary",
+        "schema_version": "1.0.0",
+        "project_id": "test-project",
+        "release_id": "PKR-0.1.0",
+        "release_version": "0.1.0",
+        "release_digest": first_release["release_digest"],
+        "active_entry_count": 1,
+        "deprecated_entry_count": 0,
+    }
+    assert "entries" not in project_context
     assert build_session(project, source)["context"]["project_knowledge"] is None
     first_future = initialize_unit(project, "첫 번째 후속 Unit")
     first_receipt = json.loads(
@@ -99,6 +118,13 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
     assert first_receipt["project_knowledge"]["release_digest"] == first_release[
         "release_digest"
     ]
+    assert first_receipt["project_knowledge"]["type"] == "project-knowledge-context"
+    assert first_receipt["project_knowledge"]["selection"] == {
+        "mode": "all-active",
+        "work_scope": [],
+        "active_entry_count": 1,
+        "selected_entry_count": 1,
+    }
 
     second_candidate = _propose(source, "api-error-format-v1")
     second_reference = str(second_candidate["reference"])
@@ -115,7 +141,85 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
     assert build_session(project, second_future)["context"]["project_knowledge"][
         "release_digest"
     ] == second_release["release_digest"]
-    assert project_knowledge_status(project)["current_release"]["version"] == "0.1.1"
+    status = project_knowledge_status(project)
+    assert status["current_release"]["version"] == "0.1.1"
+    assert status["candidate_status_counts"] == {
+        "unpromoted": 0,
+        "promoted": 2,
+        "invalid": 0,
+    }
+    assert [item["status"] for item in status["candidates"]] == [
+        "promoted",
+        "promoted",
+    ]
+
+
+def test_new_unit_receives_only_active_knowledge_overlapping_its_scope(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    source = _operating_unit(project)
+    proposed = propose_project_knowledge(
+        source,
+        entries=[
+            _entry("service-convention-v1", scope=["services/**"]),
+            _entry("documentation-convention-v1", scope=["docs/**"]),
+        ],
+        proposed_by="learning-agent",
+    )
+    reference = str(proposed["reference"])
+    _approve(source, reference)
+    promote_project_knowledge(source, candidate=reference)
+
+    scoped = initialize_unit(
+        project,
+        "서비스 범위 Unit",
+        intent={"scope": ["services/api/**"]},
+    )
+    receipt = json.loads(
+        (scoped / "context-receipt.json").read_text(encoding="utf-8")
+    )
+    knowledge = receipt["project_knowledge"]
+
+    assert knowledge["selection"] == {
+        "mode": "literal-prefix-overlap-v1",
+        "work_scope": ["services/api/**"],
+        "active_entry_count": 2,
+        "selected_entry_count": 1,
+    }
+    assert [entry["id"] for entry in knowledge["entries"]] == [
+        "service-convention-v1"
+    ]
+
+
+def test_pinned_scope_selection_is_verified_against_catalog_release(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    source = _operating_unit(project)
+    proposed = _propose(source, "service-convention-v1")
+    reference = str(proposed["reference"])
+    _approve(source, reference)
+    promote_project_knowledge(source, candidate=reference)
+    scoped = initialize_unit(
+        project,
+        "선택 무결성 Unit",
+        intent={"scope": ["services/api/**"]},
+    )
+    receipt_path = scoped / "context-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    knowledge = receipt["project_knowledge"]
+    knowledge["entries"][0]["statement"] = "catalog에 없는 변조된 규칙"
+    knowledge["context_digest"] = context_digest(knowledge)
+    receipt["receipt_id"] = _context_receipt_id(receipt)
+    write_json_atomic(receipt_path, receipt)
+
+    with pytest.raises(SessionError, match="deterministic release selection"):
+        build_session(project, scoped)
+    assert any(
+        "deterministic release selection" in issue
+        for issue in verify_unit(scoped)["issues"]
+    )
 
 
 def test_approved_candidate_and_source_artifact_are_digest_bound(tmp_path: Path) -> None:
@@ -135,6 +239,9 @@ def test_approved_candidate_and_source_artifact_are_digest_bound(tmp_path: Path)
     assert any(
         "candidate digest" in issue for issue in verify_unit(source)["issues"]
     )
+    status = project_knowledge_status(project)
+    assert status["candidate_status_counts"]["invalid"] == 1
+    assert status["candidates"][0]["status"] == "invalid"
 
 
 def test_candidate_becomes_stale_after_another_release_is_promoted(
@@ -172,3 +279,15 @@ def test_rejected_knowledge_decision_cannot_promote_candidate(tmp_path: Path) ->
 
     with pytest.raises(LifecycleError, match="latest knowledge Decision"):
         promote_project_knowledge(source, candidate=reference)
+
+
+def test_candidate_scope_must_be_project_relative(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    source = _operating_unit(project)
+
+    with pytest.raises(IntegrityError, match="project-relative pattern"):
+        propose_project_knowledge(
+            source,
+            entries=[_entry("unsafe-scope-v1", scope=["../other-project/**"])],
+            proposed_by="learning-agent",
+        )
