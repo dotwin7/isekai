@@ -274,6 +274,10 @@ def test_status_exposes_the_human_gate_for_the_next_transition(tmp_path: Path) -
         "next_transition": "construction",
         "gate": "inception",
         "decision": "required",
+        "latest_decision_id": None,
+        "review_round": 1,
+        "revision_requested": False,
+        "reconfirmation_required": False,
         "blocks_next_transition": True,
         "confirmation_required": True,
         "confirmation_channel": "interactive-human-or-authenticated-external-approval",
@@ -290,6 +294,72 @@ def test_status_exposes_the_human_gate_for_the_next_transition(tmp_path: Path) -
     architecture = verify_unit(unit)["human_gate"]
     assert architecture["gate"] == "architecture"
     assert architecture["confirmation_required"] is True
+
+
+def test_human_gate_reopens_after_revision_feedback(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    first_review = verify_unit(unit)["human_gate"]
+    assert first_review["decision"] == "required"
+    assert first_review["review_round"] == 1
+
+    rejected = record_decision(
+        unit,
+        gate="architecture",
+        outcome="rejected",
+        summary="추가 요구사항을 반영한 뒤 다시 검수한다.",
+        rationale=["사용자가 현재 결과에 수정 사항을 요청했다."],
+        alternatives=[
+            {
+                "option": "기존 승인을 유지한다.",
+                "reason": "수정된 결과를 포함하지 않아 기각했다.",
+            }
+        ],
+        tradeoffs=["수정과 재검증으로 완료 시점이 늦어진다."],
+        risks=["이전 승인을 재사용하면 새 변경이 검수되지 않는다."],
+        references=["requirements.md", "architecture.md"],
+        decided_by="human-reviewer",
+    )["decision"]
+
+    reopened = verify_unit(unit)["human_gate"]
+    assert reopened["decision"] == "rejected"
+    assert reopened["latest_decision_id"] == rejected["id"]
+    assert reopened["review_round"] == 2
+    assert reopened["revision_requested"] is True
+    assert reopened["reconfirmation_required"] is True
+    assert reopened["blocks_next_transition"] is True
+    assert reopened["confirmation_required"] is True
+    with pytest.raises(LifecycleError, match="approved architecture Decision"):
+        transition_unit(unit, "validation")
+
+    approve(unit, "architecture")
+    reapproved = verify_unit(unit)["human_gate"]
+    assert reapproved["decision"] == "approved"
+    assert reapproved["review_round"] == 2
+    assert reapproved["revision_requested"] is False
+    assert reapproved["reconfirmation_required"] is False
+
+    second_rejection = record_decision(
+        unit,
+        gate="architecture",
+        outcome="rejected",
+        summary="두 번째 보완 요청도 반영한 뒤 다시 검수한다.",
+        rationale=["사용자가 승인 뒤 추가 변경을 요청했다."],
+        alternatives=[],
+        tradeoffs=["검수 라운드가 한 번 더 필요하다."],
+        risks=["두 번째 변경도 별도 승인 없이 진행하면 안 된다."],
+        references=["requirements.md"],
+        decided_by="human-reviewer",
+    )["decision"]
+    reopened_again = verify_unit(unit)["human_gate"]
+    assert reopened_again["decision"] == "rejected"
+    assert reopened_again["latest_decision_id"] == second_rejection["id"]
+    assert reopened_again["review_round"] == 3
+    assert reopened_again["reconfirmation_required"] is True
+
+    approve(unit, "architecture")
+    assert verify_unit(unit)["human_gate"]["review_round"] == 3
+    assert transition_unit(unit, "validation")["to"] == "validation"
 
 
 def test_operating_verify_rejects_a_tampered_release_evidence_binding(

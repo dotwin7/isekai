@@ -177,7 +177,7 @@ $isekai off
 
 Runtime Adapter는 `intake`를 호출할 때 전체 대화 맥락에서 변경 크기와 `risk`·`ambiguous`·`multi_party`·`remote`·`sensitive` 신호를 판정해 전달합니다. Core도 직접 호출이나 누락에 대비해 요청 문장의 명백한 운영 환경·자격증명·고객 데이터·고위험 실행 신호를 보수적으로 추론합니다. Core가 감지한 신호는 명시적인 저위험 값으로 낮출 수 없으며 `intent.classification.inferred_signals`에 남습니다. 이 텍스트 추론은 Adapter 판단의 대체물이 아니라 방어 계층입니다.
 
-`intake`는 Route와 함께 `direct-response`, `bounded-change`, `adaptive-unit` 중 하나의 Workflow Directive를 반환합니다. Unit이면 Agent가 프로젝트를 먼저 읽기 전용으로 탐색하고 단계별 적용 여부와 깊이가 포함된 Level-1 plan을 제안합니다. 사용자가 전체 계획을 승인한 뒤 Unit을 만들며, 승인 범위의 로컬 기록과 기계적 상태 전이마다 확인을 반복하지 않습니다. `status`와 `resume`의 `human_gate`가 다음에 필요한 Inception·Architecture·Release·Operation Decision과 차단 여부를 알려 줍니다. 중요한 Decision이나 범위·위험·외부 효과의 확대에는 다시 사람의 판단이 필요합니다.
+`intake`는 Route와 함께 `direct-response`, `bounded-change`, `adaptive-unit` 중 하나의 Workflow Directive를 반환합니다. Unit이면 Agent가 프로젝트를 먼저 읽기 전용으로 탐색하고 단계별 적용 여부와 깊이가 포함된 Level-1 plan을 제안합니다. 사용자가 전체 계획을 승인한 뒤 Unit을 만들며, 승인 범위의 로컬 기록과 기계적 상태 전이마다 확인을 반복하지 않습니다. `status`와 `resume`의 `human_gate`가 다음에 필요한 Inception·Architecture·Release·Operation Decision과 차단 여부를 알려 줍니다. Gate 검수 중 수정·추가 요청은 현재 결과의 거부와 새 검수 라운드로 처리하며, Agent는 수정·재검증 후 새 packet으로 승인을 다시 요청해야 합니다. 중요한 Decision이나 범위·위험·외부 효과의 확대에도 다시 사람의 판단이 필요합니다.
 
 Project 경로를 생략하면 Core는 현재 디렉터리, 가장 가까운 상위 디렉터리, 단일 하위 workspace 순서로 `project.json`을 찾습니다. 후보가 여러 개면 자동 선택하지 않고 사용자에게 경로 선택을 요구합니다.
 

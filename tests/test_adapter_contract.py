@@ -310,6 +310,11 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
         "[--ambiguous] [--multi-party] [--remote] [--sensitive]",
         "## Human confirmation boundary",
         "Read `status` or `resume` field `human_gate`",
+        "Human Gates are repeatable review loops, not one-shot acknowledgements.",
+        "corrections, additional requirements",
+        "Never reuse an earlier approval for the revised result.",
+        "reject → revise → verify → re-request",
+        "Do not silently finish after implementing review feedback.",
         "An unattended, headless, `dontAsk`, bypass-permission, or pre-trusted tool session cannot originate a new human Decision.",
     ]
     for path in skill_paths:

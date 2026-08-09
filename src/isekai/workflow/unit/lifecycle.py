@@ -195,6 +195,7 @@ def _human_gate_status(
         else None
     )
     approved = False
+    gate_decisions: list[dict[str, Any]] = []
     if gate is not None and decisions is not None:
         approved = _has_approved_decision(
             decisions,
@@ -202,16 +203,49 @@ def _human_gate_status(
             unit_id=str(unit.get("id")),
             scope=str(unit.get("scope")),
         )
+        entries = decisions.get("decisions")
+        if isinstance(entries, list):
+            gate_decisions = [
+                decision
+                for decision in entries
+                if isinstance(decision, dict) and decision.get("gate") == gate
+            ]
+    latest_decision = gate_decisions[-1] if gate_decisions else None
+    latest_outcome = (
+        latest_decision.get("outcome")
+        if latest_decision is not None
+        else None
+    )
+    revision_requested = latest_outcome == "rejected"
+    review_round = (
+        1
+        + sum(
+            decision.get("outcome") == "rejected"
+            for decision in gate_decisions
+        )
+        if gate is not None
+        else 0
+    )
     return {
         "next_transition": next_status,
         "gate": gate,
         "decision": (
             "approved"
             if approved
+            else "rejected"
+            if revision_requested
             else "required"
             if gate is not None
             else "not-applicable"
         ),
+        "latest_decision_id": (
+            latest_decision.get("id")
+            if latest_decision is not None
+            else None
+        ),
+        "review_round": review_round,
+        "revision_requested": revision_requested,
+        "reconfirmation_required": revision_requested,
         "blocks_next_transition": gate is not None and not approved,
         "confirmation_required": gate is not None and not approved,
         "confirmation_channel": "interactive-human-or-authenticated-external-approval",
