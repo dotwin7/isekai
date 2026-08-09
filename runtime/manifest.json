@@ -1,13 +1,13 @@
 {
   "id": "isekai-project-runtime",
   "kind": "project-local-runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Version-pinned project-local ISEKAI AI-DLC runtime for existing agent hosts",
   "core": {
     "package": "isekai-ai-dlc-runtime",
     "interface": "isekai runtime",
     "user_interface": "isekai <action>",
-    "protocol_version": "1.0.0"
+    "protocol_version": "1.1.0"
   },
   "compatibility": {
     "matrix": "compatibility.json",
@@ -18,10 +18,12 @@
     "action_execution": "runtime-host-outside-core",
     "human_identity": "caller-attested-not-core-verified",
     "evidence_execution": "runtime-attested-not-core-executed",
+    "secret_resolution": "runtime-host-outside-core",
     "external_controls_required": [
       "runtime sandbox and permission policy",
       "authenticated human confirmation channel",
-      "CI or host execution provenance"
+      "CI or host execution provenance",
+      "host secret broker and output redaction"
     ]
   },
   "adapters": [
@@ -88,6 +90,10 @@
     "project-knowledge-promote"
   ],
   "high_risk_actions": [],
+  "external_agent_actions": [
+    "external-api"
+  ],
+  "credential_handling": "opaque-reference-resolved-by-host",
   "human_decision_actions": [
     "decision",
     "foundation-decision",

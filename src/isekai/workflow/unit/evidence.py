@@ -156,9 +156,20 @@ def _evidence_issues(
 
     commands = evidence.get("commands")
     used_authorizations: set[str] = set()
+    used_external_authorizations: set[str] = set()
     if not isinstance(commands, list) or not commands:
         issues.append("verification evidence has no commands")
     else:
+        latest_test_authorization_ids: list[str] = []
+        if authorization_grants is not None:
+            latest_test_authorization_ids = [
+                grant_id
+                for grant_id, grant in sorted(
+                    authorization_grants.items(),
+                    key=lambda item: item[1].get("iteration", 0),
+                )
+                if grant.get("action") == "test"
+            ][-len(commands) :]
         for index, command in enumerate(commands):
             if not isinstance(command, dict):
                 issues.append(f"evidence command {index} must be an object")
@@ -218,13 +229,12 @@ def _evidence_issues(
                             issues.append(
                                 f"evidence command {index} observed_at precedes its authorization"
                             )
-                        if isinstance(authorization_count, int) and not isinstance(
-                            authorization_count, bool
-                        ):
-                            expected_iteration = (
-                                authorization_count - len(commands) + index + 1
-                            )
-                            if grant.get("iteration") != expected_iteration:
+                        if latest_test_authorization_ids:
+                            if (
+                                index >= len(latest_test_authorization_ids)
+                                or authorization_id
+                                != latest_test_authorization_ids[index]
+                            ):
                                 issues.append(
                                     f"evidence command {index} must use the latest authorized test actions"
                                 )
@@ -232,9 +242,97 @@ def _evidence_issues(
                             issues.append(
                                 f"evidence command {index} authorization stage does not match Evidence stage"
                             )
+            external_authorization_ids = command.get(
+                "external_authorization_ids", []
+            )
+            if not isinstance(external_authorization_ids, list) or any(
+                not isinstance(item, str) or not item.strip()
+                for item in external_authorization_ids
+            ):
+                issues.append(
+                    f"evidence command {index} external_authorization_ids must be a list of strings"
+                )
+            else:
+                for external_id in external_authorization_ids:
+                    if external_id in used_external_authorizations:
+                        issues.append(
+                            f"evidence command {index} reuses external authorization_id: "
+                            f"{external_id}"
+                        )
+                        continue
+                    used_external_authorizations.add(external_id)
+                    if authorization_grants is None:
+                        continue
+                    external_grant = authorization_grants.get(external_id)
+                    test_grant = (
+                        authorization_grants.get(authorization_id)
+                        if isinstance(authorization_id, str)
+                        else None
+                    )
+                    if (
+                        external_grant is None
+                        or external_grant.get("action") != "external-api"
+                    ):
+                        issues.append(
+                            f"evidence command {index} is not bound to a current external-api authorization: "
+                            f"{external_id}"
+                        )
+                        continue
+                    external_authorized_at = _parse_iso_timestamp(
+                        external_grant.get("authorized_at")
+                    )
+                    if (
+                        observed_at is not None
+                        and external_authorized_at is not None
+                        and observed_at < external_authorized_at
+                    ):
+                        issues.append(
+                            f"evidence command {index} observed_at precedes external authorization: "
+                            f"{external_id}"
+                        )
+                    if external_grant.get("stage") != evidence.get("stage"):
+                        issues.append(
+                            f"evidence command {index} external authorization stage does not match Evidence stage"
+                        )
+                    if (
+                        isinstance(test_grant, dict)
+                        and isinstance(external_grant.get("iteration"), int)
+                        and isinstance(test_grant.get("iteration"), int)
+                        and external_grant["iteration"] >= test_grant["iteration"]
+                    ):
+                        issues.append(
+                            f"evidence command {index} external authorization must precede its test authorization"
+                        )
             if evidence.get("passed") is True and exit_code != 0:
                 issues.append(
                     f"passing verification evidence has non-zero command {index} exit_code"
+                )
+        if authorization_grants is not None and commands:
+            last_command = commands[-1]
+            last_authorization_id = (
+                last_command.get("authorization_id")
+                if isinstance(last_command, dict)
+                else None
+            )
+            last_test_grant = (
+                authorization_grants.get(last_authorization_id)
+                if isinstance(last_authorization_id, str)
+                else None
+            )
+            latest_iteration = max(
+                (
+                    grant.get("iteration", 0)
+                    for grant in authorization_grants.values()
+                    if isinstance(grant.get("iteration"), int)
+                ),
+                default=0,
+            )
+            if (
+                isinstance(last_test_grant, dict)
+                and last_test_grant.get("iteration") != latest_iteration
+            ):
+                issues.append(
+                    "evidence commands must use the latest authorized test actions"
                 )
     if require_passing and evidence.get("passed") is not True:
         issues.append("verification evidence is not passing")

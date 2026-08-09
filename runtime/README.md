@@ -15,8 +15,8 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 Install the project-local launcher and adapters from an immutable Git tag first:
 
 ```bash
-curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.sh
-bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.1.0 --path . --runtime all --init
+curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.2.0/scripts/install.sh
+bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.2.0 --path . --runtime all --init
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -36,7 +36,7 @@ Run the Agent CLI from a Project root containing `project.json`; Core also searc
 
 The Adapter is discoverable by the host but conversation mode is off by default. Discovery, installation, cache presence, repository contents, and command text quoted in prose are not invocations. While mode is off, only an intentional runtime command invokes one explicit action. `on` alone activates later automatic routing for one conversation at Project scope and lists Unit candidates without selecting them. `resume` separately selects and restores a Unit. `off` stops automatic routing without changing artifacts or checkpoints. Other explicit actions remain available as one-shot calls while mode is off. Installation writes only repo/project/workspace Skills and the Project-local Core; it does not create marketplace registrations or modify user-global host settings.
 
-The selected host agent is the adaptive workflow driver. The Runtime Skill tells it to interpret Core's machine-readable `workflow` directive, inspect the project, and propose a Level-1 plan. ISEKAI does not add a second agent brain, required hook, or resident harness.
+The selected host agent is the adaptive workflow driver. The Runtime Skill tells it to interpret Core's machine-readable `workflow` directive, inspect the project, and propose a plan bounded by `maximum_agent_level`. ISEKAI does not add a second agent brain, required hook, or resident harness.
 
 `<PROJECT_ROOT>/.isekai/bin/isekai runtime <action>` is the internal Runtime Adapter contract. Adapters must resolve it from the selected Project and never use a global executable fallback.
 
@@ -73,7 +73,7 @@ One resumed Unit is active for persistent work. Even a `**` Envelope cannot auth
 
 Reusable learning does not cross that boundary by reading another Unit. An operating or learned Unit proposes a digest-bound Project Knowledge candidate, a real human records the `knowledge` Decision, and `project-knowledge-promote` appends the approved release. Future Units pin the release digest and only active entries conservatively overlapping their `work_scope`; an empty scope retains all active entries. Existing Units keep their creation-time snapshot. Project-level activation exposes only release metadata and counts, not every entry. `project-knowledge/` is Core-managed and an active Unit consumes only `context.project_knowledge` rather than reading the catalog directly. `project-knowledge-status` joins candidates to source Decision ledgers and reports pending-decision, approved, rejected, stale, promoted, or invalid, plus schema compatibility. Concurrent promotions from one base serialize to one winner; a failed catalog write restores the previous snapshot.
 
-Human confirmation occurs when the complete Decision subject exists: after the Level-1 plan and exact Envelope are presented, after Architecture is ready and before Validation, after passing Evidence and before Releasing, and after Operations review and before Learned. `status` and `resume` expose the next boundary as `human_gate`. A host tool permission, `dontAsk`, bypass mode, trust-all setting, or headless run is not a lifecycle Decision and cannot originate one. If an approved scope, stage, risk, external effect, Envelope, or Evidence changes, the Adapter must ask again.
+Human confirmation occurs when the complete Decision subject exists: after the autonomy-bounded plan and exact Envelope are presented, after Architecture is ready and before Validation, after passing Evidence and before Releasing, and after Operations review and before Learned. `status` and `resume` expose the next boundary as `human_gate`. A host tool permission, `dontAsk`, bypass mode, trust-all setting, or headless run is not a lifecycle Decision and cannot originate one. If an approved scope, stage, risk, external effect, Envelope, or Evidence changes, the Adapter must ask again.
 
 The adapters invoke the installed local launcher, which calls the shared Core dispatch contract internally:
 

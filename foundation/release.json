@@ -1,12 +1,12 @@
 {
   "id": "isekai-foundation",
   "kind": "foundation-release",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "schema_version": "1.0.0",
   "status": "approved",
   "owner": "foundation-owner",
   "provenance": {
-    "source": "foundation-v0.1-architecture-a",
+    "source": "foundation-v0.2-l2-external-api",
     "recorded_by": "foundation-owner",
     "recorded_at": "2026-08-05T00:00:00Z"
   },
@@ -70,7 +70,7 @@
     {
       "id": "agent-execution-contract",
       "kind": "agent-execution-contract",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "path": "governance/contracts/agent-execution.json"
     },
     {

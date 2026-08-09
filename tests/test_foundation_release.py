@@ -616,13 +616,20 @@ def test_promotion_plan_is_deterministic_and_contains_release_plus_21_assets(tmp
         "id": "isekai-foundation",
         "kind": "foundation-release",
         "path": "release.json",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "from_status": "draft",
         "to_status": "approved",
     }
     assert {target["from_status"] for target in first["targets"]} == {"draft"}
     assert {target["to_status"] for target in first["targets"]} == {"approved"}
-    assert all(target["version"] == "0.1.0" for target in first["targets"])
+    versions = {target["id"]: target["version"] for target in first["targets"]}
+    assert versions["isekai-foundation"] == "0.2.0"
+    assert versions["agent-execution-contract"] == "0.2.0"
+    assert {
+        version
+        for target_id, version in versions.items()
+        if target_id not in {"isekai-foundation", "agent-execution-contract"}
+    } == {"0.1.0"}
 
 
 def test_dry_run_reports_plan_and_does_not_mutate_foundation(tmp_path: Path) -> None:

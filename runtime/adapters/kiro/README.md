@@ -40,9 +40,9 @@ Start Kiro from a repository containing `project.json` and invoke `/isekai on` w
 
 - Read-only: `on`, `off`, `status`, `intake`, `route`, `inception`, `resume`, `verify`, `release-check`
 - Explicit writes: `init`, `unit-init`, `checkpoint`, `envelope-propose`, `authorize`, `evidence`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
-- The initial explicit request covers only a bounded Quick Change. Unit writes require Level-1 plan approval, and `human_gate` identifies the Inception, Architecture, Release, or Operation Decision that blocks the next transition.
+- The initial explicit request covers only a bounded Quick Change. Unit writes require autonomy-bounded plan approval, and `human_gate` identifies the Inception, Architecture, Release, or Operation Decision that blocks the next transition.
 
-The runtime adapter does not own Unit state. Before a governed read, edit, or test, `authorize` supplies a Project target and records a bounded grant in the Unit authorization ledger. Kiro `read`, `write`, or `shell` permission prompts are tool permissions and do not replace a lifecycle Decision; do not use `/tools trust-all` or `--trust-all-tools` as approval evidence. Unit artifacts and ISEKAI Core remain authoritative.
+The runtime adapter does not own Unit state. Before a governed read, edit, test, or L2 development/test API call, `authorize` records a bounded grant in the Unit authorization ledger. L2 uses only an opaque `secret://provider/name` reference resolved by the host; raw credentials, production, deployment, and arbitrary high-risk remote actions remain prohibited. Kiro `read`, `write`, or `shell` permission prompts are tool permissions and do not replace a lifecycle Decision; do not use `/tools trust-all` or `--trust-all-tools` as approval evidence. Unit artifacts and ISEKAI Core remain authoritative.
 
 ## Compatibility
 

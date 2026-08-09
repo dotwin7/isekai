@@ -110,6 +110,7 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "stages": json.loads(args.stages_json),
             "allowed_actions": args.allowed_action,
             "forbidden_actions": args.forbidden_action,
+            "external_access": json.loads(args.external_access_json),
             "max_iterations": args.max_iterations,
             "proposed_by": args.proposed_by,
             "expires_in_hours": args.expires_in_hours,
@@ -122,6 +123,8 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "requested_action": args.requested_action,
             "target": args.target,
             "stage": args.stage,
+            "method": args.method,
+            "credential_ref": args.credential_ref,
         }
     elif action == "evidence":
         payload = {

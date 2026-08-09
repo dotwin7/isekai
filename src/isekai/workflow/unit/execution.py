@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from ...support.locking import LockUnavailable
-from ...support.scope import scope_pattern_matches
 from ..errors import AuthorizationError, IntegrityError, LifecycleError, PreflightError
 from ..routing import (
     AGENT_ALLOWED_ACTIONS,
@@ -17,12 +14,20 @@ from ..routing import (
 )
 from .authorization import (
     _authorization_ledger_issues,
-    _authorization_target_protection_issue,
-    _normalize_authorization_target,
+)
+from .authorization_request import (
+    external_grant_metadata,
+    external_request_count,
+    resolve_authorization_request,
 )
 from .execution_history import (
     _execution_authorization_record_relative,
     _persist_execution_authorization_record,
+)
+from .execution_schema import (
+    _execution_envelope_approval_digest,
+    _scope_pattern_issue,
+    _scope_pattern_matches,
 )
 from .common import (
     _restore_snapshots,
@@ -39,6 +44,10 @@ from .decisions import (
     _decision_ledger_issues,
     _decision_record_issues,
     _latest_decision,
+)
+from .external_access import (
+    EXTERNAL_API_ACTION,
+    external_access_policy_issues,
 )
 
 
@@ -78,59 +87,6 @@ EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
     "releasing",
     "operating",
 }
-EXECUTION_ENVELOPE_APPROVAL_FIELDS = {
-    "id",
-    "type",
-    "schema_version",
-    "unit_id",
-    "scope",
-    "stages",
-    "allowed_actions",
-    "forbidden_actions",
-    "max_iterations",
-    "proposed_by",
-    "proposed_at",
-    "expires_at",
-}
-
-
-def _execution_envelope_approval_digest(envelope: dict[str, Any]) -> str:
-    subject = {
-        field: envelope.get(field)
-        for field in sorted(EXECUTION_ENVELOPE_APPROVAL_FIELDS)
-    }
-    encoded = json.dumps(
-        subject,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
-def _scope_pattern_issue(pattern: str) -> str | None:
-    normalized = pattern.replace("\\", "/")
-    if (
-        not normalized.strip()
-        or normalized.startswith("/")
-        or re.match(r"^[A-Za-z]:", normalized)
-        or ".." in normalized.split("/")
-    ):
-        return f"Execution Envelope scope must be a project-relative pattern: {pattern}"
-    return None
-
-
-def _scope_pattern_matches(pattern: str, target: str) -> bool:
-    """Match a scope pattern against a project-relative target path.
-
-    An approved scope is an authorization boundary, so wildcards must not be
-    wider than they read: ``*`` and ``?`` stay within one path segment, and only
-    a whole ``**`` segment spans directories. Bare ``fnmatch`` would let
-    ``src/*.py`` reach arbitrarily deep paths.
-    """
-    return scope_pattern_matches(pattern, target)
-
-
 def _execution_envelope_issues(
     envelope: Any,
     unit_id: str | None = None,
@@ -203,6 +159,8 @@ def _execution_envelope_issues(
             )
     allowed_actions = envelope.get("allowed_actions")
     forbidden_actions = envelope.get("forbidden_actions")
+    external_access = envelope.get("external_access", [])
+    issues.extend(external_access_policy_issues(external_access))
     if isinstance(allowed_actions, list) and all(
         isinstance(item, str) for item in allowed_actions
     ):
@@ -242,6 +200,15 @@ def _execution_envelope_issues(
                     "Execution Envelope actions cannot be both allowed and forbidden: "
                     + ", ".join(overlap)
                 )
+        if EXTERNAL_API_ACTION in allowed_actions:
+            if not isinstance(external_access, list) or not external_access:
+                issues.append(
+                    "Execution Envelope external-api action requires external_access"
+                )
+        elif isinstance(external_access, list) and external_access:
+            issues.append(
+                "Execution Envelope external_access requires external-api in allowed_actions"
+            )
     max_iterations = envelope.get("max_iterations")
     if not isinstance(max_iterations, int) or isinstance(max_iterations, bool) or max_iterations <= 0:
         issues.append("Execution Envelope max_iterations must be a positive integer")
@@ -324,6 +291,7 @@ def propose_execution_envelope(
     forbidden_actions: list[str],
     max_iterations: int,
     proposed_by: str,
+    external_access: list[dict[str, Any]] | None = None,
     expires_in_hours: int = EXECUTION_ENVELOPE_DEFAULT_HOURS,
 ) -> dict[str, Any]:
     """Propose an Execution Envelope, replacing any Envelope the Unit already has.
@@ -344,6 +312,7 @@ def propose_execution_envelope(
             forbidden_actions=forbidden_actions,
             max_iterations=max_iterations,
             proposed_by=proposed_by,
+            external_access=external_access or [],
             expires_in_hours=expires_in_hours,
         )
 
@@ -357,6 +326,7 @@ def _propose_execution_envelope_locked(
     forbidden_actions: list[str],
     max_iterations: int,
     proposed_by: str,
+    external_access: list[dict[str, Any]],
     expires_in_hours: int,
 ) -> dict[str, Any]:
     preflight_issues = _unit_preflight_issues(unit_dir)
@@ -392,6 +362,7 @@ def _propose_execution_envelope_locked(
         "stages": stages,
         "allowed_actions": allowed_actions,
         "forbidden_actions": forbidden_actions,
+        "external_access": external_access,
         "max_iterations": max_iterations,
         "proposed_by": proposed_by.strip(),
         "proposed_at": now.isoformat(),
@@ -560,6 +531,8 @@ def authorize_action(
     action: str,
     target: str | None = None,
     stage: str | None = None,
+    method: str | None = None,
+    credential_ref: str | None = None,
 ) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
@@ -577,7 +550,12 @@ def authorize_action(
     try:
         with unit_lock(unit_dir):
             return _authorize_action_locked(
-                unit_dir, action=action, target=target, stage=stage
+                unit_dir,
+                action=action,
+                target=target,
+                stage=stage,
+                method=method,
+                credential_ref=credential_ref,
             )
     except LockUnavailable as exc:
         return {"allowed": False, "reason": str(exc)}
@@ -589,6 +567,8 @@ def _authorize_action_locked(
     action: str,
     target: str | None,
     stage: str | None,
+    method: str | None,
+    credential_ref: str | None,
 ) -> dict[str, Any]:
     try:
         unit = _unit_json(unit_dir, "unit.json")
@@ -657,28 +637,19 @@ def _authorize_action_locked(
                 f"Action is not allowed in stage {current_stage}: {action}"
             ),
         }
-    normalized_target, target_issue = _normalize_authorization_target(
-        unit_dir, str(target) if target is not None else ""
+    normalized_target, external_policy, external_request, target_issue = (
+        resolve_authorization_request(
+            unit_dir,
+            action=action,
+            target=target,
+            method=method,
+            credential_ref=credential_ref,
+            envelope=envelope,
+        )
     )
     if target_issue is not None:
         return {"allowed": False, "reason": target_issue}
     assert normalized_target is not None
-    protection_issue = _authorization_target_protection_issue(
-        unit_dir, action, normalized_target
-    )
-    if protection_issue is not None:
-        return {"allowed": False, "reason": protection_issue}
-    if not any(
-        _scope_pattern_matches(pattern, normalized_target)
-        for pattern in envelope["scope"]
-    ):
-        return {
-            "allowed": False,
-            "reason": (
-                "Target is outside the approved Envelope scope: "
-                f"{normalized_target}"
-            ),
-        }
     ledger_issues = _authorization_ledger_issues(
         ledger, unit, envelope, unit_dir=unit_dir
     )
@@ -693,6 +664,16 @@ def _authorize_action_locked(
             "allowed": False,
             "reason": "Execution Envelope max_iterations budget is exhausted",
         }
+    if external_policy is not None:
+        policy_request_count = external_request_count(grants, external_policy)
+        if policy_request_count >= external_policy["max_requests"]:
+            return {
+                "allowed": False,
+                "reason": (
+                    "External API request budget is exhausted for policy: "
+                    f"{external_policy['id']}"
+                ),
+            }
     now = datetime.now(timezone.utc)
     iteration = len(grants) + 1
     grant = {
@@ -705,6 +686,8 @@ def _authorize_action_locked(
         "envelope_digest": envelope.get("approval_digest"),
         "authorized_at": now.isoformat(),
     }
+    if external_policy is not None and external_request is not None:
+        grant.update(external_grant_metadata(external_policy, external_request))
     candidate_ledger = {
         **ledger,
         "grants": [*grants, grant],
@@ -731,7 +714,7 @@ def _authorize_action_locked(
             "allowed": False,
             "reason": "Authorization receipt postflight failed",
         }
-    return {
+    result = {
         "allowed": True,
         "reason": "Action is within the approved Execution Envelope",
         "unit_id": unit.get("id"),
@@ -742,3 +725,16 @@ def _authorize_action_locked(
         "remaining_iterations": envelope["max_iterations"] - iteration,
         "authorization_id": grant["id"],
     }
+    if external_policy is not None and external_request is not None:
+        result.update(
+            {
+                "external_access_id": external_policy["id"],
+                "environment": external_policy["environment"],
+                "method": external_request["method"],
+                "credential_ref": external_request["credential_ref"],
+                "remaining_requests": external_policy["max_requests"]
+                - policy_request_count
+                - 1,
+            }
+        )
+    return result

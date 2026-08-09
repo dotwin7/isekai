@@ -178,7 +178,7 @@ def test_root_and_reference_product_use_same_contract_graph() -> None:
     root_context = resolve_context(ROOT / "project.json", WorkRoute.UNIT)
     reference_context = resolve_context(ROOT / "examples/reference-product/project.json", WorkRoute.UNIT)
     assert root_context["foundation_id"] == reference_context["foundation_id"] == "isekai-foundation"
-    assert root_context["foundation_version"] == reference_context["foundation_version"] == "0.1.0"
+    assert root_context["foundation_version"] == reference_context["foundation_version"] == "0.2.0"
     assert reference_context["extension_assets"][0]["extends"][0]["version"] == "0.1.0"
 
 
@@ -192,6 +192,20 @@ def test_release_and_assets_are_approved_with_decision_and_evidence() -> None:
     assert readiness["ready"] is True
     assert readiness["evaluations"]["passed"] is True
     assert readiness["blockers"] == []
+
+
+def test_agent_execution_contract_defines_l2_without_credential_access() -> None:
+    foundation = load_foundation(ROOT / "foundation")
+    contract = foundation.assets["agent-execution-contract"]["content"]
+
+    assert contract["autonomy"]["levels"] == ["L0", "L1", "L2"]
+    assert "external-api" in contract["autonomy"]["allowed_actions"]
+    assert "credential-access" in contract["autonomy"]["forbidden_actions"]
+    external = contract["envelope"]["external_access"]
+    assert external["minimum_level"] == "L2"
+    assert external["environments"] == ["development", "test"]
+    assert external["raw_secret_persistence"] == "forbidden"
+    assert external["production_access"] == "forbidden"
 
 
 def test_non_routing_evaluators_ignore_valid_flag_and_use_subject_contracts(tmp_path: Path) -> None:

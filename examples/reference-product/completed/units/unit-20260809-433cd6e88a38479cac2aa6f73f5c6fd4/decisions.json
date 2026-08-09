@@ -1,11 +1,11 @@
 {
-  "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+  "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
   "decisions": [
     {
-      "id": "DEC-20260808055444169537",
+      "id": "DEC-20260809103812261621",
       "type": "human-decision",
       "schema_version": "1.0.0",
-      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
       "gate": "inception",
       "outcome": "approved",
       "summary": "범위가 제한된 Level-1 계획과 Execution Envelope를 승인한다.",
@@ -32,20 +32,26 @@
         "execution-envelope.json"
       ],
       "decided_by": "reference-product-owner",
-      "decided_at": "2026-08-08T05:54:44.169537+00:00",
+      "decided_at": "2026-08-09T10:38:12.261621+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
       "previous_decision_digest": null,
       "approval_subject": {
         "type": "execution-envelope",
-        "id": "ENV-UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025-20260808055443931338",
-        "digest": "sha256:cf30c328cfee9e15d3608fc9ab9bd642f2fa55b5c3550566f31464baa26465ce"
+        "id": "ENV-UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4-20260809103811981021",
+        "digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc"
       },
-      "decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04"
+      "decision_digest": "sha256:6480e81abd0f7adf6df29689b2ad6f1b6ea30e6dfc171de415696ea6dd3e0659"
     },
     {
-      "id": "DEC-20260808055444699887",
+      "id": "DEC-20260809103812887104",
       "type": "human-decision",
       "schema_version": "1.0.0",
-      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
       "gate": "architecture",
       "outcome": "approved",
       "summary": "순수 도메인 함수 구현을 승인한다.",
@@ -71,15 +77,21 @@
         "implementation-guide.md"
       ],
       "decided_by": "reference-product-owner",
-      "decided_at": "2026-08-08T05:54:44.699887+00:00",
-      "previous_decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04",
-      "decision_digest": "sha256:16c2eb614f02ae929fc120f833c49425cb6fa0077db0e0f498fc6111d50805c5"
+      "decided_at": "2026-08-09T10:38:12.887104+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:6480e81abd0f7adf6df29689b2ad6f1b6ea30e6dfc171de415696ea6dd3e0659",
+      "decision_digest": "sha256:47a88dc1ee9813a7133f74cae658a57b2e6fc5c27c94d2e85758f88c793d6dec"
     },
     {
-      "id": "DEC-20260808055444820076",
+      "id": "DEC-20260809103813106270",
       "type": "human-decision",
       "schema_version": "1.0.0",
-      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
       "gate": "release",
       "outcome": "approved",
       "summary": "현재 Evidence를 승인하고 Release disposition을 skip으로 유지한다.",
@@ -106,21 +118,27 @@
         "plan.md"
       ],
       "decided_by": "reference-product-owner",
-      "decided_at": "2026-08-08T05:54:44.820076+00:00",
-      "previous_decision_digest": "sha256:16c2eb614f02ae929fc120f833c49425cb6fa0077db0e0f498fc6111d50805c5",
+      "decided_at": "2026-08-09T10:38:13.106270+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:47a88dc1ee9813a7133f74cae658a57b2e6fc5c27c94d2e85758f88c793d6dec",
       "approval_subject": {
         "type": "verification-evidence",
-        "id": "EVD-20260808055444640058",
-        "digest": "sha256:d529f80d8a11dfc2bb98b62c7502a976cbf56cfbe4228bbab2ea7e526bdc4707",
-        "reference": "evidence/records/EVD-20260808055444640058.json"
+        "id": "EVD-20260809103812816457",
+        "digest": "sha256:aa870e15ea4cf65769f39766df0fb3688da794383af003a752dd44d0752e1477",
+        "reference": "evidence/records/EVD-20260809103812816457.json"
       },
-      "decision_digest": "sha256:77cfa64a257ff26111395728ecbff366b1bd05bd4218696966acfa87e0501e8d"
+      "decision_digest": "sha256:576da438096441b3785165bb80eb20987646454901f5cc33fb2688ddc286d13f"
     },
     {
-      "id": "DEC-20260808055445000732",
+      "id": "DEC-20260809103813331075",
       "type": "human-decision",
       "schema_version": "1.0.0",
-      "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+      "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
       "gate": "operation",
       "outcome": "approved",
       "summary": "이 로컬 Unit에서 Operations를 의도적으로 건너뛰었음을 확인한다.",
@@ -146,9 +164,15 @@
         "plan.md"
       ],
       "decided_by": "reference-product-owner",
-      "decided_at": "2026-08-08T05:54:45.000732+00:00",
-      "previous_decision_digest": "sha256:77cfa64a257ff26111395728ecbff366b1bd05bd4218696966acfa87e0501e8d",
-      "decision_digest": "sha256:e97520ffcf8866825e0c856b52d21bb1b45f0f3685702a8b0a1fd83799300a6f"
+      "decided_at": "2026-08-09T10:38:13.331075+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:576da438096441b3785165bb80eb20987646454901f5cc33fb2688ddc286d13f",
+      "decision_digest": "sha256:497902b2404109506a2b03ebed6238fe483695d3daedb7cd60903c474ae6abbf"
     }
   ]
 }

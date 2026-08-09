@@ -117,7 +117,7 @@ def test_context_receipt_resolves_project_profiles_rules_and_policies(
     receipt = resolve_context(project, WorkRoute.UNIT)
 
     assert receipt["project_id"] == "test-project"
-    assert receipt["foundation_version"] == "0.1.0"
+    assert receipt["foundation_version"] == "0.2.0"
     assert receipt["profiles"] == ["security-profile", "software-delivery-profile"]
     assert "FOUNDATION-001" in receipt["rule_ids"]
     evidence_rule = next(rule for rule in receipt["rules"] if rule["id"] == "EVIDENCE-001")

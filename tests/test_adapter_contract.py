@@ -76,6 +76,8 @@ def test_packaged_and_runtime_compatibility_matrices_cannot_drift() -> None:
     assert packaged["runtime_contract"] == {
         "high_risk_actions": manifest["high_risk_actions"],
         "human_decision_actions": manifest["human_decision_actions"],
+        "external_agent_actions": manifest["external_agent_actions"],
+        "credential_handling": manifest["credential_handling"],
     }
 
 
@@ -164,10 +166,12 @@ def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
         "action_execution": "runtime-host-outside-core",
         "human_identity": "caller-attested-not-core-verified",
         "evidence_execution": "runtime-attested-not-core-executed",
+        "secret_resolution": "runtime-host-outside-core",
         "external_controls_required": [
             "runtime sandbox and permission policy",
             "authenticated human confirmation channel",
             "CI or host execution provenance",
+            "host secret broker and output redaction",
         ],
     }
 
@@ -295,10 +299,10 @@ def test_runtime_skills_share_adaptive_driver_contract() -> None:
         "For `direct-response`",
         "For `bounded-change`",
         "For `adaptive-unit`",
-        "Level-1 plan",
+        "autonomy-bounded plan",
         "every lifecycle stage with `apply` or `skip`",
         "Ask only questions whose answers would materially change the plan.",
-        "one explicit user approval for the complete Level-1 plan",
+        "one explicit user approval for the complete autonomy-bounded plan",
         "Do not ask again for every file, checkpoint, `envelope-approve`, or `transition`.",
         "human_decision_actions",
         "Read `document_language` from the selected Project and Unit",

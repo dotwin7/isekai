@@ -1,12 +1,12 @@
 {
   "id": "agent-execution-contract",
   "kind": "agent-execution-contract",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "schema_version": "1.0.0",
   "status": "approved",
   "owner": "foundation-agent-owner",
   "provenance": {
-    "source": "foundation-architecture-review",
+    "source": "foundation-v0.2-l2-external-api-review",
     "recorded_by": "foundation-owner",
     "recorded_at": "2026-08-05T00:00:00Z"
   },
@@ -19,7 +19,7 @@
     }
   ],
   "content": {
-    "contract_version": "0.1.0",
+    "contract_version": "0.2.0",
     "references": [
       "core-rules",
       "high-risk-policy"
@@ -28,12 +28,14 @@
       "default_level": "L0",
       "levels": [
         "L0",
-        "L1"
+        "L1",
+        "L2"
       ],
       "allowed_actions": [
         "read",
         "edit",
-        "test"
+        "test",
+        "external-api"
       ],
       "forbidden_actions": [
         "remote",
@@ -50,6 +52,7 @@
         "allowed_actions",
         "forbidden_actions",
         "max_iterations",
+        "external_access",
         "proposed_by",
         "approval_digest"
       ],
@@ -65,6 +68,29 @@
         "path": "execution-authorizations.json",
         "budget_semantics": "successful-authorization-grants",
         "fail_closed_on_mismatch": true
+      },
+      "external_access": {
+        "minimum_level": "L2",
+        "action": "external-api",
+        "environments": [
+          "development",
+          "test"
+        ],
+        "scheme": "https",
+        "required_policy_fields": [
+          "id",
+          "credential_ref",
+          "environment",
+          "scheme",
+          "host",
+          "path",
+          "methods",
+          "max_requests"
+        ],
+        "credential_semantics": "opaque-secret-reference-resolved-by-host",
+        "raw_secret_persistence": "forbidden",
+        "production_access": "forbidden",
+        "request_authorization": "exact-destination-method-reference-and-budget"
       }
     },
     "rules": [
@@ -108,6 +134,29 @@
           "outcome": "approved",
           "decided_by": "human",
           "scope": "remote-or-high-risk"
+        }
+      },
+      {
+        "id": "AGENT-003",
+        "level": "MUST",
+        "owner": "foundation-agent-owner",
+        "provenance": {
+          "source": "agent-execution-contract",
+          "recorded_by": "foundation-owner",
+          "recorded_at": "2026-08-09T00:00:00Z"
+        },
+        "applies_to": [
+          "foundation"
+        ],
+        "condition": {
+          "type": "required-external-authorization",
+          "minimum_agent_level": "L2",
+          "action": "external-api",
+          "credential_access": "forbidden",
+          "environment": "development-or-test",
+          "target": "approved-exact-https-policy",
+          "budget": "max_requests",
+          "secret_resolution": "host-only"
         }
       }
     ]

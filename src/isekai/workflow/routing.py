@@ -18,6 +18,9 @@ AGENT_LEVEL_ALLOWED_ACTIONS = {
     "L0": frozenset({"read"}),
     # L1 permits bounded local delivery after an approved Execution Envelope.
     "L1": frozenset({"read", "edit", "test"}),
+    # L2 adds narrowly allowlisted development/test API calls. Credentials stay
+    # in the host secret broker and are never exposed to the Agent or Core.
+    "L2": frozenset({"read", "edit", "test", "external-api"}),
 }
 ALLOWED_AGENT_LEVELS = set(AGENT_LEVEL_ALLOWED_ACTIONS)
 AGENT_ALLOWED_ACTIONS = set().union(*AGENT_LEVEL_ALLOWED_ACTIONS.values())

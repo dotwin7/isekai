@@ -59,7 +59,7 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     if value.get("schema_version") != "1.0.0":
         issues.append("compatibility matrix has an unsupported schema_version")
-    if value.get("protocol_version") != "1.0.0":
+    if value.get("protocol_version") != "1.1.0":
         issues.append("compatibility matrix has an unsupported protocol_version")
     runtime_contract = value.get("runtime_contract")
     if not isinstance(runtime_contract, dict):
@@ -75,16 +75,28 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
             issues.append(
                 "compatibility runtime_contract has invalid human_decision_actions"
             )
+        if runtime_contract.get("external_agent_actions") != ["external-api"]:
+            issues.append(
+                "compatibility runtime_contract has invalid external_agent_actions"
+            )
+        if runtime_contract.get("credential_handling") != (
+            "opaque-reference-resolved-by-host"
+        ):
+            issues.append(
+                "compatibility runtime_contract has invalid credential_handling"
+            )
     trust_model = value.get("trust_model")
     expected_trust_model = {
         "core_enforcement": "record-consistency-and-tamper-detection",
         "action_execution": "runtime-host-outside-core",
         "human_identity": "caller-attested-not-core-verified",
         "evidence_execution": "runtime-attested-not-core-executed",
+        "secret_resolution": "runtime-host-outside-core",
         "external_controls_required": [
             "runtime sandbox and permission policy",
             "authenticated human confirmation channel",
             "CI or host execution provenance",
+            "host secret broker and output redaction",
         ],
     }
     if trust_model != expected_trust_model:
@@ -454,6 +466,7 @@ def _envelope_propose(values: Mapping[str, Any]) -> dict[str, Any]:
         stages=_list_field(values, "stages"),
         allowed_actions=_list_field(values, "allowed_actions"),
         forbidden_actions=_list_field(values, "forbidden_actions"),
+        external_access=_list_field(values, "external_access"),
         max_iterations=values.get("max_iterations", 0),
         proposed_by=str(_required(values, "proposed_by")),
         expires_in_hours=values.get(
@@ -468,6 +481,8 @@ def _authorize(values: Mapping[str, Any]) -> dict[str, Any]:
         action=str(_required(values, "requested_action")),
         target=values.get("target"),
         stage=values.get("stage"),
+        method=values.get("method"),
+        credential_ref=values.get("credential_ref"),
     )
 
 

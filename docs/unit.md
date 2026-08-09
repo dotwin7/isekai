@@ -187,6 +187,7 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
   ],
   "allowed_actions": ["read", "edit", "test"],
   "forbidden_actions": ["remote", "deploy", "credential-access"],
+  "external_access": [],
   "max_iterations": 5,
   "approval_digest": "sha256:...",
   "approval_decision_id": "DEC-...",
@@ -196,7 +197,9 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
 
 Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. `authorize`는 Project 내부의 정규화된 target과 실제 Unit phase만 사용하고, 허용된 grant를 `execution-authorizations.json`에 기록하면서 `max_iterations` 예산을 소모한다. grant가 있는 Envelope를 교체하면 Core는 이전 Envelope와 authorization ledger를 `execution-authorization-records/ENV-*.json`에 digest-bound 불변 레코드로 보존해 과거 Evidence의 `authorization_ledger_digest`와 독립적으로 대조할 수 있게 한다. 저장된 현재 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 `project.json`, `isekai.lock.json`, `.git`, `.isekai` 같은 내부 control path로 바뀌면 즉시 원장을 거부한다. 기존 파일은 regular file이고 link count가 1일 때만 허용해 hardlink를 통한 Project 외부 읽기·수정을 차단한다. Unit 필수 artifact와 authorization archive 경로의 symlink도 읽기 전에 거부한다.
 
-Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 action의 상한이다. `L0`은 `read`만 허용하고 `L1`은 `read`, `edit`, `test`를 허용한다. Core는 Envelope 제안·승인·authorization·Unit 검증에서 이 상한을 다시 확인하므로, 낮은 level의 Project에서 더 넓은 action을 적어 넣어도 권한이 생기지 않는다.
+Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 action의 상한이다. `L0`은 `read`, `L1`은 `read`, `edit`, `test`, `L2`는 여기에 `external-api`를 추가한다. Core는 Envelope 제안·승인·authorization·Unit 검증에서 이 상한을 다시 확인하므로, 낮은 level의 Project에서 더 넓은 action을 적어 넣어도 권한이 생기지 않는다.
+
+L2 Envelope는 `external-api`와 함께 비어 있지 않은 `external_access`를 가져야 한다. 각 항목은 `id`, `credential_ref`, `environment`, `scheme`, `host`, `path`, `methods`, `max_requests`만 허용하며, `credential_ref`는 `secret://provider/name`, 환경은 `development|test`, scheme은 `https`로 제한된다. 실제 key 값이나 token 필드는 거부한다. 외부 authorization grant는 정책 ID·환경·method·reference를 원장에 기록하고 정책별 요청 예산도 별도로 소모한다. Evidence command가 외부 통합을 검증했다면 선행 grant ID를 `external_authorization_ids`에 기록한다.
 
 `scope` 패턴은 디렉토리 경계를 존중한다. `*`와 `?`는 한 경로 세그먼트 안에서만 매칭하고, 세그먼트 전체가 `**`일 때만 0개 이상의 세그먼트를 가로지른다. 예를 들어 `src/*.py`는 `src/main.py`만 허용하고 `src/vendor/deep.py`는 스코프 밖이다. 하위 트리 전체를 허용하려면 `src/**`처럼 명시해야 한다.
 

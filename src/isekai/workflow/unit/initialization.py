@@ -222,6 +222,7 @@ def initialize_unit(
         "stages": [],
         "allowed_actions": [],
         "forbidden_actions": sorted(AGENT_PROHIBITED_ACTIONS),
+        "external_access": [],
         "max_iterations": 0,
         "proposed_by": owner,
         "proposed_at": envelope_now.isoformat(),

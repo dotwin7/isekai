@@ -1,13 +1,13 @@
 {
-  "receipt_id": "CTX-98087c143b926f43",
-  "generated_at": "2026-08-08T05:54:43.868496+00:00",
+  "receipt_id": "CTX-abbfe818df806d1f",
+  "generated_at": "2026-08-09T10:38:11.890983+00:00",
   "project_id": "reference-product",
-  "project_version": "0.1.0",
+  "project_version": "0.2.0",
   "project_schema_version": "1.0.0",
   "document_language": "ko",
   "foundation_id": "isekai-foundation",
-  "foundation_version": "0.1.0",
-  "foundation_digest": "sha256:8562d5601ab80c45865207b19a50f4eaa121dd0244efcf412ee8a7da7de280b0",
+  "foundation_version": "0.2.0",
+  "foundation_digest": "sha256:d65ba553fad0c541c13ddf5fcf7a5517b3edfc6f8c22c8a2d2327f1b1bd45937",
   "profiles": [
     "software-delivery-profile"
   ],
@@ -144,5 +144,7 @@
   "policy_ids": [
     "high-risk-policy"
   ],
-  "source_manifest": "project.json"
+  "project_knowledge": null,
+  "source_manifest": "../../project.json",
+  "source_manifest_base": "unit"
 }

@@ -11,10 +11,10 @@ Distribution, Core, Foundation과 각 Adapter version은 독립적으로 진화�
 
 ```bash
 curl -fsSLo /tmp/isekai-install.sh \
-  https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.sh
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.2.0/scripts/install.sh
 bash /tmp/isekai-install.sh \
   --source https://github.com/dotwin7/isekai.git \
-  --ref v0.1.0 \
+  --ref v0.2.0 \
   --path . \
   --runtime all \
   --init \
@@ -25,13 +25,13 @@ bash /tmp/isekai-install.sh \
 Windows PowerShell에서는 같은 tag의 스크립트를 사용한다.
 
 ```powershell
-$installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-v0.1.0.ps1"
+$installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-v0.2.0.ps1"
 Invoke-WebRequest `
-  https://raw.githubusercontent.com/dotwin7/isekai/v0.1.0/scripts/install.ps1 `
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.2.0/scripts/install.ps1 `
   -OutFile $installer
 & $installer `
   -Source https://github.com/dotwin7/isekai.git `
-  -Ref v0.1.0 `
+  -Ref v0.2.0 `
   -Path . `
   -Runtime all `
   -Init `
@@ -39,7 +39,7 @@ Invoke-WebRequest `
 py -3 .\.isekai\bin\isekai.py doctor --path .
 ```
 
-bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다. 초기화 시 agent level을 생략하면 read-only인 `L0`이 적용된다. 로컬 편집·테스트가 필요하면 POSIX의 `--maximum-agent-level L1` 또는 PowerShell의 `-MaximumAgentLevel L1`을 `--init`/`-Init`과 함께 명시한다.
+bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다. 초기화 시 agent level을 생략하면 read-only인 `L0`이 적용된다. 로컬 편집·테스트에는 `L1`, 승인된 개발·테스트 외부 API에는 `L2`를 `--init`/`-Init`과 함께 명시한다. L2 key 원문은 프로젝트나 명령 인자에 넣지 않고 호스트 secret store에 둔다.
 
 설치는 `.isekai/runtime/isekai`, `.isekai/foundations/<version>/`와 선택한 Runtime의 프로젝트 Skill을 준비하고 `isekai.lock.json`에 Git source·tag·resolved commit과 설치된 component digest를 기록한다. Codex는 `.agents/skills/isekai`, Claude Code는 `.claude/skills/isekai`, Kiro는 `.kiro/skills/isekai`에서 프로젝트 Adapter를 직접 발견한다. 각 프로젝트가 자기 lock으로 Core와 Skill 버전을 고정하므로 동일한 호스트에서도 저장소별 ISEKAI 버전을 사용할 수 있다.
 
@@ -49,13 +49,41 @@ bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11
 
 ## Update와 rollback
 
+### 0.1.x에서 0.2.0으로 업그레이드
+
+업그레이드는 대상 Project 루트에서 그 Project에 설치된 launcher로 실행한다. 시작 전에 사용자 작업과 project-local ISEKAI 파일의 변경을 커밋하거나 백업한다. `doctor`가 현재 lock, 설치 파일과 Foundation pin의 무결성을 확인하고, `update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 둘 중 하나가 실패하면 실제 update를 진행하기 전에 현재 설치나 source/ref 문제를 해결한다.
+
 ```bash
+./.isekai/bin/isekai doctor --path .
 ./.isekai/bin/isekai update --check --ref v0.2.0 --path .
 ./.isekai/bin/isekai update --ref v0.2.0 --path .
-./.isekai/bin/isekai rollback --path .
+./.isekai/bin/isekai doctor --path .
 ```
 
-`update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지한다. Foundation 변경은 diff와 사람 승인을 거쳐 `--include-foundation`을 명시해야 하며, 기존 외부 Foundation과 다르면 `--adopt-foundation`도 요구한다. update는 이전 managed install, lock, workspace Adapter, host 설정과 Project manifest snapshot 전체의 digest를 새 lock의 `rollback` 항목에 결박한다. rollback은 현재 설치와 이 snapshot digest를 모두 확인한 뒤에만 복원하고, 복원 과정에서 만드는 redo snapshot도 복원된 lock에 새 digest로 결박한다. 이때 사용자 소유 `project.json`은 update 이후의 생성·수정 내용을 보존하며, Foundation 계약이 이전 버전으로 바뀌는 경우에만 snapshot의 `foundation_path`를 다시 연결한다. digest가 없거나 달라진 legacy·변조 snapshot은 복원하지 않는다. 진행 중 Unit은 생성 당시 Foundation version과 contract digest를 유지하고, 현재 Project 계약과 다르면 별도로 검토된 contract migration 전까지 resume을 차단한다.
+Windows에서는 같은 Project에서 launcher만 `py -3 .\.isekai\bin\isekai.py`로 바꾸고 동일한 인자를 사용한다. 정상 완료 후 `isekai.lock.json`, `.isekai/`, 선택한 Runtime Skill과 host 설정 diff를 검토해 함께 커밋한다. 새 Adapter가 설치되면 Codex·Claude·Kiro가 새 Skill 계약을 다시 읽도록 새 대화를 시작한다. 이전 marketplace 기반 0.1.0 설치는 lock이 ISEKAI 소유권을 증명하는 legacy 선언만 제거하며 다른 host 설정은 보존한다.
+
+기본 update는 Core와 Adapter만 교체하고 Project가 고정한 Foundation을 유지한다. 0.2.0 Foundation의 L2 외부 API 계약까지 채택하려면 진행 중 Unit이 이전 Foundation version·digest에 고정되어 있지 않은지 먼저 확인하고, Foundation diff에 대한 사람 승인을 받은 다음 두 opt-in을 함께 사용한다.
+
+```bash
+./.isekai/bin/isekai update --check --ref v0.2.0 --path . \
+  --include-foundation --adopt-foundation
+./.isekai/bin/isekai update --ref v0.2.0 --path . \
+  --include-foundation --adopt-foundation
+./.isekai/bin/isekai doctor --path .
+```
+
+`--include-foundation`은 target release의 Foundation을 설치 대상으로 포함하고, `--adopt-foundation`은 현재 Project 계약과 다른 version·digest를 채택한다는 명시적 확인이다. Foundation을 바꾸면 이전 계약으로 생성된 진행 중 Unit은 별도로 검토된 contract migration 전까지 resume할 수 없으므로 완료·정리하거나 기존 Foundation을 유지한다.
+
+Core·Adapter·Foundation 업그레이드는 `project.json.maximum_agent_level`을 자동으로 높이지 않는다. L2가 실제로 필요한 Project만 별도 계약 검수 후 값을 `L2`로 변경한다. 기존 Unit은 Context Receipt에 고정된 level을 유지하며 새 Unit부터 변경된 상한을 사용한다. secret 원문은 `project.json`, Unit artifact 또는 명령 인자에 넣지 않는다.
+
+문제가 생기면 update가 만든 무결성 결박 snapshot으로 직전 설치를 복원하고 다시 검사한다.
+
+```bash
+./.isekai/bin/isekai rollback --path .
+./.isekai/bin/isekai doctor --path .
+```
+
+update는 이전 managed install, lock, workspace Adapter, host 설정과 Project manifest snapshot 전체의 digest를 새 lock의 `rollback` 항목에 결박한다. rollback은 현재 설치와 이 snapshot digest를 모두 확인한 뒤에만 복원하고, 복원 과정에서 만드는 redo snapshot도 복원된 lock에 새 digest로 결박한다. 이때 사용자 소유 `project.json`은 update 이후의 생성·수정 내용을 보존하며, Foundation 계약이 이전 버전으로 바뀌는 경우에만 snapshot의 `foundation_path`를 다시 연결한다. digest가 없거나 달라진 legacy·변조 snapshot은 복원하지 않는다.
 
 새 Unit의 Context Receipt는 Unit 디렉터리 기준의 portable Project manifest locator와 Project 상대 Extension locator를 사용하므로 Project 디렉터리를 함께 이동하거나 clone해도 그대로 resume할 수 있다. 이전 버전의 절대 경로 Receipt나 Project와 별도로 이동한 외부 Unit은 계약 내용이 동일한 경우에만 다음 path-only migration으로 다시 결박한다.
 

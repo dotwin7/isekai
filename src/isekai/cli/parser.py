@@ -276,6 +276,11 @@ def _parser() -> argparse.ArgumentParser:
     runtime_envelope_propose.add_argument("--stages-json", required=True)
     runtime_envelope_propose.add_argument("--allowed-action", action="append", required=True)
     runtime_envelope_propose.add_argument("--forbidden-action", action="append", default=[])
+    runtime_envelope_propose.add_argument(
+        "--external-access-json",
+        default="[]",
+        help="JSON list of L2 development/test external API policies",
+    )
     runtime_envelope_propose.add_argument("--max-iterations", type=int, required=True)
     runtime_envelope_propose.add_argument("--proposed-by", required=True)
     runtime_envelope_propose.add_argument(
@@ -303,6 +308,8 @@ def _parser() -> argparse.ArgumentParser:
     runtime_authorize.add_argument("--action", dest="requested_action", required=True)
     runtime_authorize.add_argument("--target", required=True)
     runtime_authorize.add_argument("--stage")
+    runtime_authorize.add_argument("--method")
+    runtime_authorize.add_argument("--credential-ref")
 
     runtime_evidence = runtime_commands.add_parser("evidence", help="record structured verification Evidence")
     runtime_evidence.add_argument("--unit", required=True)

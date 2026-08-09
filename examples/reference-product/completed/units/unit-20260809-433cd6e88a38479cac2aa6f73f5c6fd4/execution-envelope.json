@@ -1,8 +1,8 @@
 {
-  "id": "ENV-UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025-20260808055443931338",
+  "id": "ENV-UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4-20260809103811981021",
   "type": "execution-envelope",
   "schema_version": "1.0.0",
-  "unit_id": "UNIT-20260808-2FB9FD0AB8C9418FB4A6DEEBAA65E025",
+  "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
   "status": "approved",
   "scope": [
     "src/**",
@@ -70,12 +70,13 @@
     "deploy",
     "credential-access"
   ],
+  "external_access": [],
   "max_iterations": 4,
   "proposed_by": "codex-reference-agent",
-  "proposed_at": "2026-08-08T05:54:43.931338+00:00",
-  "expires_at": "2026-08-15T05:54:43.931338+00:00",
-  "approval_digest": "sha256:cf30c328cfee9e15d3608fc9ab9bd642f2fa55b5c3550566f31464baa26465ce",
-  "approval_decision_id": "DEC-20260808055444169537",
-  "approval_decision_digest": "sha256:7d59b89ce93f96c09d509989c94646c59b5c0a57649a54c1042d84622ef62d04",
-  "approved_at": "2026-08-08T05:54:44.229252+00:00"
+  "proposed_at": "2026-08-09T10:38:11.981021+00:00",
+  "expires_at": "2026-08-16T10:38:11.981021+00:00",
+  "approval_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+  "approval_decision_id": "DEC-20260809103812261621",
+  "approval_decision_digest": "sha256:6480e81abd0f7adf6df29689b2ad6f1b6ea30e6dfc171de415696ea6dd3e0659",
+  "approved_at": "2026-08-09T10:38:12.331280+00:00"
 }

@@ -59,7 +59,7 @@ def _install(project: Path, checkout: Path = ROOT, *, commit: str = "a" * 40):
         checkout,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.0",
+        ref="v0.2.0",
         commit=commit,
         runtimes=("all",),
     )
@@ -86,7 +86,7 @@ def _bump_release(release: Path, version: str) -> None:
     ]
     replacements.extend(path for path in (release / "foundation").rglob("*.json"))
     for path in replacements:
-        content = path.read_text(encoding="utf-8").replace("0.1.0", version)
+        content = path.read_text(encoding="utf-8").replace("0.2.0", version)
         path.write_text(content, encoding="utf-8")
     write_distribution_manifest(release)
 
@@ -175,7 +175,7 @@ def test_checked_in_distribution_manifest_matches_release_components() -> None:
     result = verify_distribution(ROOT)
 
     assert result["valid"] is True
-    assert result["release"] == "0.1.0"
+    assert result["release"] == "0.2.0"
     assert build_distribution_manifest(ROOT) == json.loads(
         (ROOT / "distribution/release.json").read_text(encoding="utf-8")
     )
@@ -315,7 +315,7 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert second["unchanged"] is True
     assert (project / "isekai.lock.json").read_bytes() == before
     assert lock is not None
-    assert lock["source"]["ref"] == "v0.1.0"
+    assert lock["source"]["ref"] == "v0.2.0"
     assert lock["source"]["commit"] == "a" * 40
     assert set(lock["adapters"]) == {"kiro", "claude", "codex"}
     assert lock["adapters"]["codex"]["path"] == ".agents/skills/isekai"
@@ -331,10 +331,10 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert "registration_commands" not in first
     assert first["host_registration_required"] is False
     assert doctor_install(project)["ready"] is True
-    assert verify_adapter_handshake("codex", "0.1.0", "1.0.0", project)["locked"] is True
+    assert verify_adapter_handshake("codex", "0.2.0", "1.1.0", project)["locked"] is True
 
     with pytest.raises(DistributionError, match="adapter version does not match project lock"):
-        verify_adapter_handshake("codex", "0.2.0", "1.0.0", project)
+        verify_adapter_handshake("codex", "0.3.0", "1.1.0", project)
 
     completed = subprocess.run(
         [str(project / ".isekai/bin/isekai"), "runtime", "compatibility"],
@@ -344,14 +344,14 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout)["core_version"] == "0.1.0"
+    assert json.loads(completed.stdout)["core_version"] == "0.2.0"
 
 
 def test_handshake_rejects_a_project_without_an_install_lock(tmp_path: Path) -> None:
     project = _project_with_foundation(tmp_path)
 
     with pytest.raises(DistributionError, match="installation lock is missing"):
-        verify_adapter_handshake("codex", "0.1.0", "1.0.0", project)
+        verify_adapter_handshake("codex", "0.2.0", "1.1.0", project)
 
 
 def test_installed_launcher_initializes_project_from_locked_foundation(
@@ -372,7 +372,7 @@ def test_installed_launcher_initializes_project_from_locked_foundation(
 
     assert "next_action" in result
     assert completed.returncode == 0, completed.stderr
-    assert manifest["foundation_path"] == ".isekai/foundations/0.1.0"
+    assert manifest["foundation_path"] == ".isekai/foundations/0.2.0"
     assert doctor_install(project)["ready"] is True
 
 
@@ -393,7 +393,7 @@ def test_doctor_and_update_fail_closed_after_managed_file_tampering(
             ROOT,
             project,
             source="https://example.invalid/isekai.git",
-            ref="v0.1.1",
+            ref="v0.2.1",
             commit="b" * 40,
             runtimes=("codex",),
             update=True,
@@ -619,12 +619,12 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
     }
 
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     updated = install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -633,9 +633,9 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
 
     assert updated["updated"] is True
     assert updated_lock is not None
-    assert updated_lock["release"] == "0.1.1"
-    assert updated_lock["core"]["version"] == "0.1.1"
-    assert updated_lock["foundation"]["version"] == "0.1.0"
+    assert updated_lock["release"] == "0.2.1"
+    assert updated_lock["core"]["version"] == "0.2.1"
+    assert updated_lock["foundation"]["version"] == "0.2.0"
     assert updated_lock["rollback"]["digest"] == tree_digest(
         project / ".isekai/rollback",
         include_transients=True,
@@ -672,12 +672,12 @@ def test_rollback_rebinds_only_foundation_path_after_foundation_adoption(
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -686,7 +686,7 @@ def test_rollback_rebinds_only_foundation_path_after_foundation_adoption(
     )
     manifest_path = project / "project.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["foundation_path"] == ".isekai/foundations/0.1.1"
+    assert manifest["foundation_path"] == ".isekai/foundations/0.2.1"
     manifest["version"] = "0.2.0-user-edited"
     manifest["user_note"] = "preserve this rollback-era change"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -708,12 +708,12 @@ def test_rollback_rejects_a_modified_integrity_bound_snapshot(
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -765,7 +765,7 @@ def test_malformed_install_lock_fails_closed_without_raw_cli_exception(
         load_install_lock(project)
     health = doctor_install(project)
     exit_code = cli_main(
-        ["update", "--check", "--ref", "v0.1.1", "--path", str(project)]
+        ["update", "--check", "--ref", "v0.2.1", "--path", str(project)]
     )
     captured = capsys.readouterr()
 
@@ -841,12 +841,12 @@ def test_rollback_rejects_an_unbound_legacy_snapshot(tmp_path: Path) -> None:
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -1290,12 +1290,12 @@ def test_rollback_failure_restores_current_project_lock_and_adapters(
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -1309,7 +1309,7 @@ def test_rollback_failure_restores_current_project_lock_and_adapters(
     original_write = distribution_module._write_json_atomic
 
     def fail_previous_lock(path: Path, value: dict[str, object]) -> None:
-        if path == project / "isekai.lock.json" and value.get("release") == "0.1.0":
+        if path == project / "isekai.lock.json" and value.get("release") == "0.2.0":
             raise OSError("forced rollback lock failure")
         original_write(path, value)
 
@@ -1506,7 +1506,7 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
     assert current is not None
 
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     subprocess.run(["git", "init", "-q"], cwd=release, check=True)
     subprocess.run(["git", "add", "."], cwd=release, check=True)
     subprocess.run(
@@ -1523,14 +1523,14 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
         cwd=release,
         check=True,
     )
-    subprocess.run(["git", "tag", "v0.1.1"], cwd=release, check=True)
+    subprocess.run(["git", "tag", "v0.2.1"], cwd=release, check=True)
     target_manifest = json.loads(
         (release / "distribution/release.json").read_text(encoding="utf-8")
     )
 
     plan = plan_git_update(
         str(release),
-        "v0.1.1",
+        "v0.2.1",
         project,
         runtimes=("codex",),
     )
@@ -1538,8 +1538,8 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
 
     assert changes["core"] == {
         "component": "core",
-        "from": "0.1.0",
-        "to": "0.1.1",
+        "from": "0.2.0",
+        "to": "0.2.1",
         "from_digest": current["core"]["source_digest"],
         "to_digest": target_manifest["core"]["digest"],
         "changed": True,
@@ -1560,7 +1560,7 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
 
     explicit_plan = plan_git_update(
         str(release),
-        "v0.1.1",
+        "v0.2.1",
         project,
         runtimes=("codex",),
         include_foundation=True,
@@ -1568,8 +1568,8 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
     explicit_foundation = next(
         item for item in explicit_plan["changes"] if item["component"] == "foundation"
     )
-    assert explicit_foundation["from"] == "0.1.0"
-    assert explicit_foundation["to"] == "0.1.1"
+    assert explicit_foundation["from"] == "0.2.0"
+    assert explicit_foundation["to"] == "0.2.1"
     assert explicit_foundation["from_digest"] == current["foundation"]["digest"]
     assert explicit_foundation["to_digest"] == target_manifest["foundation"]["digest"]
     assert explicit_foundation["changed"] is True
@@ -1584,12 +1584,12 @@ def test_rollback_staging_failure_preserves_current_installation(
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,
@@ -1622,7 +1622,7 @@ def test_rollback_preserves_project_manifest_created_after_update(tmp_path: Path
     project.mkdir()
     common = {
         "source": "https://example.invalid/isekai.git",
-        "ref": "v0.1.0",
+        "ref": "v0.2.0",
         "commit": "a" * 40,
     }
     install_from_checkout(ROOT, project, runtimes=("codex",), **common)
@@ -1634,8 +1634,8 @@ def test_rollback_preserves_project_manifest_created_after_update(tmp_path: Path
                 "id": "product",
                 "kind": "project",
                 "schema_version": "1.0.0",
-                "version": "0.1.0",
-                "foundation_path": ".isekai/foundations/0.1.0",
+                "version": "0.2.0",
+                "foundation_path": ".isekai/foundations/0.2.0",
                 "profiles": ["software-delivery-profile"],
                 "extensions": [],
                 "maximum_agent_level": "L0",
@@ -1680,7 +1680,7 @@ def test_managed_kiro_symlink_is_rejected_before_update(tmp_path: Path) -> None:
             ROOT,
             project,
             source="https://example.invalid/isekai.git",
-            ref="v0.1.1",
+            ref="v0.2.1",
             commit="b" * 40,
             runtimes=("kiro",),
             update=True,
@@ -1698,12 +1698,12 @@ def test_rollback_postflight_failure_restores_current_installation(
     project = _project_with_foundation(tmp_path)
     _install(project)
     release = _copy_release(tmp_path)
-    _bump_release(release, "0.1.1")
+    _bump_release(release, "0.2.1")
     install_from_checkout(
         release,
         project,
         source="https://example.invalid/isekai.git",
-        ref="v0.1.1",
+        ref="v0.2.1",
         commit="b" * 40,
         runtimes=("all",),
         update=True,

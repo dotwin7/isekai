@@ -17,6 +17,11 @@ from .common import (
     _unit_json,
 )
 from .common import _is_iso_timestamp
+from .external_access import (
+    EXTERNAL_API_ACTION,
+    matching_external_access,
+    normalize_external_api_request,
+)
 
 
 AUTHORIZATION_LEDGER_REQUIRED_FIELDS = {
@@ -404,6 +409,27 @@ def _authorization_ledger_issues(
             issues.append(f"Execution authorization grant {index} has invalid timestamp")
         _validate_grant_action(index, grant, envelope, issues)
         _validate_grant_target(index, grant, envelope, unit_dir, issues)
+    policies = envelope.get("external_access")
+    if isinstance(policies, list):
+        for policy in policies:
+            if not isinstance(policy, dict):
+                continue
+            request_count = sum(
+                isinstance(grant, dict)
+                and grant.get("action") == EXTERNAL_API_ACTION
+                and grant.get("external_access_id") == policy.get("id")
+                for grant in grants
+            )
+            max_requests = policy.get("max_requests")
+            if (
+                isinstance(max_requests, int)
+                and not isinstance(max_requests, bool)
+                and request_count > max_requests
+            ):
+                issues.append(
+                    "Execution authorization ledger exceeds external request "
+                    f"budget for policy: {policy.get('id')}"
+                )
     return issues
 
 
@@ -459,6 +485,49 @@ def _validate_grant_target(
     if not isinstance(target, str) or not target.strip():
         issues.append(f"Execution authorization grant {index} requires a target")
         return
+    action = grant.get("action")
+    if action == EXTERNAL_API_ACTION:
+        request, request_issue = normalize_external_api_request(
+            target,
+            grant.get("method"),
+            grant.get("credential_ref"),
+        )
+        if request_issue is not None:
+            issues.append(
+                f"Execution authorization grant {index} has invalid external request: "
+                + request_issue
+            )
+            return
+        assert request is not None
+        if request["target"] != target:
+            issues.append(
+                f"Execution authorization grant {index} external target is not normalized"
+            )
+        policy = matching_external_access(envelope.get("external_access"), request)
+        if policy is None:
+            issues.append(
+                f"Execution authorization grant {index} external request is outside policy"
+            )
+            return
+        if grant.get("external_access_id") != policy.get("id"):
+            issues.append(
+                f"Execution authorization grant {index} has invalid external_access_id"
+            )
+        if grant.get("environment") != policy.get("environment"):
+            issues.append(
+                f"Execution authorization grant {index} has invalid external environment"
+            )
+        return
+    external_fields = {
+        "credential_ref",
+        "environment",
+        "external_access_id",
+        "method",
+    }
+    if external_fields & grant.keys():
+        issues.append(
+            f"Execution authorization grant {index} has external fields for a local action"
+        )
     normalized_target = target.replace("\\", "/")
     if (
         normalized_target.startswith("/")
@@ -480,7 +549,6 @@ def _validate_grant_target(
             f"Execution authorization grant {index} target is outside the "
             "Execution Envelope scope"
         )
-    action = grant.get("action")
     if unit_dir is None or not isinstance(action, str):
         return
     try:

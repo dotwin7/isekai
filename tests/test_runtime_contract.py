@@ -189,8 +189,8 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.1.0",
-                "protocol_version": "1.0.0",
+                "adapter_version": "0.2.0",
+                "protocol_version": "1.1.0",
                 "project": str(project),
             },
         )
@@ -199,7 +199,7 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.1.0",
+                "adapter_version": "0.2.0",
                 "protocol_version": "2.0.0",
                 "project": str(project),
             },

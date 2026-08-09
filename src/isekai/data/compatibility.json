@@ -1,23 +1,27 @@
 {
   "schema_version": "1.0.0",
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.1.0",
   "runtime_contract": {
     "high_risk_actions": [],
     "human_decision_actions": [
       "decision",
       "foundation-decision",
       "foundation-promote"
-    ]
+    ],
+    "external_agent_actions": ["external-api"],
+    "credential_handling": "opaque-reference-resolved-by-host"
   },
   "trust_model": {
     "core_enforcement": "record-consistency-and-tamper-detection",
     "action_execution": "runtime-host-outside-core",
     "human_identity": "caller-attested-not-core-verified",
     "evidence_execution": "runtime-attested-not-core-executed",
+    "secret_resolution": "runtime-host-outside-core",
     "external_controls_required": [
       "runtime sandbox and permission policy",
       "authenticated human confirmation channel",
-      "CI or host execution provenance"
+      "CI or host execution provenance",
+      "host secret broker and output redaction"
     ]
   },
   "policy": {

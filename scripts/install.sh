@@ -19,14 +19,14 @@ Options:
   --adopt-foundation        Replace an existing project Foundation during install
   --init                    Create project.json after installation when absent
   --profile PROFILE_ID      Project profile used with --init; repeatable
-  --maximum-agent-level L   L0 (read-only) or L1 (bounded local changes) with --init
+  --maximum-agent-level L   L0 (read), L1 (local), or L2 (dev/test API) with --init
   --python EXECUTABLE       Python 3.11+ executable (default: python3 or python)
   -h, --help                Show this help
 
 Example:
   scripts/install.sh \
     --source https://github.com/dotwin7/isekai.git \
-    --ref v0.1.0 \
+    --ref v0.2.0 \
     --path . \
     --runtime all \
     --init
@@ -96,7 +96,7 @@ while (($#)); do
     --maximum-agent-level)
       require_value "$1" "$#"
       case "$2" in
-        L0|L1) maximum_agent_level="$2" ;;
+        L0|L1|L2) maximum_agent_level="$2" ;;
         *) fail "unknown maximum agent level: $2" ;;
       esac
       agent_level_set=1

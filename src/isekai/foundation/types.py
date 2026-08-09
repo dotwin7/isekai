@@ -23,7 +23,7 @@ ALLOWED_ASSET_KINDS = {
 }
 CONDITION_TYPES = {
     "extension-cannot-weaken-must", "required-artifact", "context-scope",
-    "required-decision", "required-envelope", "required-lineage",
+    "required-decision", "required-envelope", "required-external-authorization", "required-lineage",
     "required-promotion-review", "required-exception-controls", "required-dod",
 }
 EVALUATOR_TYPES = {

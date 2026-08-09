@@ -1,0 +1,49 @@
+{
+  "type": "execution-authorization-ledger",
+  "schema_version": "1.0.0",
+  "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
+  "envelope_id": "ENV-UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4-20260809103811981021",
+  "approval_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+  "grants": [
+    {
+      "id": "AUTH-20260809103812402303",
+      "action": "edit",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 1,
+      "decision_id": "DEC-20260809103812261621",
+      "envelope_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+      "authorized_at": "2026-08-09T10:38:12.402303+00:00"
+    },
+    {
+      "id": "AUTH-20260809103812473636",
+      "action": "test",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 2,
+      "decision_id": "DEC-20260809103812261621",
+      "envelope_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+      "authorized_at": "2026-08-09T10:38:12.473636+00:00"
+    },
+    {
+      "id": "AUTH-20260809103812644134",
+      "action": "edit",
+      "target": "src/reference_product/proposals.py",
+      "stage": "construction",
+      "iteration": 3,
+      "decision_id": "DEC-20260809103812261621",
+      "envelope_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+      "authorized_at": "2026-08-09T10:38:12.644134+00:00"
+    },
+    {
+      "id": "AUTH-20260809103812718061",
+      "action": "test",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 4,
+      "decision_id": "DEC-20260809103812261621",
+      "envelope_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
+      "authorized_at": "2026-08-09T10:38:12.718061+00:00"
+    }
+  ]
+}

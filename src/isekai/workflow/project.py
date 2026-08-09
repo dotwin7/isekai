@@ -494,7 +494,7 @@ def initialize_project(
         "id": resolved_id,
         "kind": "project",
         "schema_version": "1.0.0",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "foundation_path": foundation_path,
         "profiles": selected_profiles,
         "extensions": [],

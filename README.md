@@ -4,7 +4,7 @@ ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 스킬 기반 AI-Driven De
 
 배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 AI-DLC Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문·실행을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하고 기록합니다. 별도 Agent Brain이나 필수 훅·상주 하네스를 전제로 하지 않습니다.
 
-현재 버전은 `0.1.0`입니다. 범용 Software Delivery Profile과 Security Domain Profile, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter의 기본 계약을 제공합니다.
+현재 버전은 `0.2.0`입니다. 범용 Software Delivery Profile과 Security Domain Profile, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter, L2 개발·테스트 외부 API 계약을 제공합니다.
 
 ## ISEKAI가 하는 일
 
@@ -64,7 +64,7 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 ### macOS / Linux
 
 ```bash
-ISEKAI_VERSION=v0.1.0
+ISEKAI_VERSION=v0.2.0
 curl -fsSLo /tmp/isekai-install.sh \
   "https://raw.githubusercontent.com/dotwin7/isekai/${ISEKAI_VERSION}/scripts/install.sh"
 bash /tmp/isekai-install.sh \
@@ -81,7 +81,7 @@ bash /tmp/isekai-install.sh \
 ### Windows PowerShell
 
 ```powershell
-$IsekaiVersion = "v0.1.0"
+$IsekaiVersion = "v0.2.0"
 $installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-$IsekaiVersion.ps1"
 Invoke-WebRequest `
   "https://raw.githubusercontent.com/dotwin7/isekai/$IsekaiVersion/scripts/install.ps1" `
@@ -117,7 +117,7 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
   --profile software-delivery-profile
 ```
 
-`maximum_agent_level`의 기본값 `L0`은 승인된 Envelope 안에서도 읽기만 허용합니다. 로컬 파일 편집과 테스트가 필요한 프로젝트는 초기화할 때 `L1`을 명시합니다. `L1`도 승인된 scope·stage·iteration 예산 안의 `read`, `edit`, `test`만 허용하며 원격·배포·자격증명 action은 허용하지 않습니다. 보안 개발 규칙도 함께 사용할 프로젝트는 `--profile security-profile`을 추가할 수 있습니다. 이미 존재하는 `project.json`은 자동으로 덮어쓰지 않습니다.
+`maximum_agent_level`의 기본값 `L0`은 승인된 Envelope 안에서도 읽기만 허용합니다. 로컬 파일 편집과 테스트에는 `L1`, 정확히 allowlist된 개발·테스트 외부 API까지 필요하면 `L2`를 명시합니다. L2도 API key 원문을 Agent에 주는 권한이 아니며 `credential-access`, Production, 배포, 원격 Git, 고객 데이터는 계속 금지됩니다. 키는 호스트 secret store에 두고 Envelope에는 `secret://provider/name` 참조만 기록합니다. 보안 개발 규칙도 함께 사용할 프로젝트는 `--profile security-profile`을 추가할 수 있습니다. 이미 존재하는 `project.json`은 자동으로 덮어쓰지 않습니다.
 
 ### 설치 결과
 
@@ -211,26 +211,46 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 
 ## 버전 관리와 업데이트
 
-배포 단위는 immutable Git tag와 resolved commit입니다. 먼저 변경 내용을 확인한 다음 적용합니다.
+### 0.1.x에서 0.2.0으로 업그레이드
+
+대상 프로젝트 루트에서 실행합니다. 먼저 진행 중인 작업과 프로젝트 로컬 ISEKAI 파일의 변경을 커밋하거나 별도로 백업하고, 현재 설치가 정상인지 확인합니다. `update --check`는 파일을 바꾸지 않고 target commit과 component 차이만 보여 줍니다.
 
 ```bash
+./.isekai/bin/isekai doctor --path .
 ./.isekai/bin/isekai update --check --ref v0.2.0 --path .
 ./.isekai/bin/isekai update --ref v0.2.0 --path .
 ./.isekai/bin/isekai doctor --path .
 ```
 
-일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지합니다. Foundation 계약까지 변경하려면 diff와 사람 승인을 거친 뒤 `--include-foundation`을 명시해야 합니다. 문제가 생기면 직전 project-local 설치로 되돌릴 수 있습니다.
+Windows PowerShell에서는 같은 프로젝트에서 `py -3 .\.isekai\bin\isekai.py` 뒤에 동일한 `doctor`·`update` 인자를 사용합니다. 업그레이드가 끝나면 변경된 `isekai.lock.json`, `.isekai/`, 선택한 Runtime Skill과 host 설정 diff를 검토해 함께 커밋하고, 호스트가 새 Skill 계약을 읽도록 새 대화를 시작합니다.
+
+일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지합니다. 0.2.0 Foundation의 L2 계약까지 채택하려면 진행 중 Unit이 이전 Foundation에 고정되어 있지 않은지 먼저 확인하고, `--check` 결과와 Foundation diff를 사람에게 검수받은 다음 명시적으로 적용합니다.
+
+```bash
+./.isekai/bin/isekai update --check --ref v0.2.0 --path . \
+  --include-foundation --adopt-foundation
+./.isekai/bin/isekai update --ref v0.2.0 --path . \
+  --include-foundation --adopt-foundation
+./.isekai/bin/isekai doctor --path .
+```
+
+업그레이드는 `project.json`의 `maximum_agent_level`을 자동으로 높이지 않습니다. L2가 필요한 Project만 별도 검수로 값을 `L2`로 변경하며, 기존 Unit은 생성 시 Context Receipt에 고정된 level을 유지하고 새 Unit부터 변경된 상한을 사용합니다. API key 원문은 Project나 Unit에 기록하지 않습니다.
+
+문제가 생기면 update가 무결성 결박해 둔 직전 project-local 설치로 되돌릴 수 있습니다.
 
 ```bash
 ./.isekai/bin/isekai rollback --path .
+./.isekai/bin/isekai doctor --path .
 ```
+
+전체 설치·업데이트 계약과 실패 조건은 [설치와 업그레이드 문서](docs/installation.md)를 참고하세요.
 
 ## 안전 경계
 
 - 모든 새 대화는 ISEKAI mode가 `off`입니다.
 - Adapter version, Core version, protocol과 project lock이 맞지 않으면 handshake가 fail-closed합니다.
 - 현재 Adapter 계약에는 자율적인 high-risk action이 없습니다.
-- `L0` Project는 `read`만, `L1` Project는 승인된 범위의 `read`·`edit`·`test`만 허용합니다.
+- `L0` Project는 `read`만, `L1`은 승인된 `read`·`edit`·`test`, `L2`는 여기에 정확히 제한된 개발·테스트 `external-api`만 추가합니다.
 - 쓰기 action과 lifecycle Decision은 명시적 사용자 의도 또는 사람 승인을 요구합니다.
 - 고객 데이터나 민감한 원본 Evidence는 Git에서 제외되는 `units/**/evidence/raw/` 아래에 둡니다.
 - 일반 update는 Foundation을 자동으로 교체하지 않습니다.

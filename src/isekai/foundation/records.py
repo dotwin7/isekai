@@ -71,8 +71,11 @@ def _foundation_decision_issues(
         issues.append(f"Foundation Decision missing fields: {', '.join(missing)}")
     if decision.get("foundation_id") != foundation.manifest["id"]:
         issues.append("Foundation Decision foundation_id does not match release")
-    if decision.get("version") != foundation.version:
+    decision_version = decision.get("version")
+    if require_current_approval and decision_version != foundation.version:
         issues.append("Foundation Decision version does not match release")
+    elif not isinstance(decision_version, str) or not decision_version.strip():
+        issues.append("Foundation Decision requires a non-empty version")
     approval_digest = decision.get("approval_digest")
     if require_current_approval:
         if approval_digest != foundation.approval_digest:
@@ -140,7 +143,9 @@ def _foundation_decision_history_issues(
                     require_latest_approval and index == len(entries) - 1
                 ),
                 allow_legacy_approval_digest=(
-                    index == 0 and foundation.version == "0.1.0"
+                    index == 0
+                    and isinstance(entry, dict)
+                    and entry.get("version") == "0.1.0"
                 ),
             )
         )

@@ -15,7 +15,7 @@ param(
     [switch]$AdoptFoundation,
     [switch]$Init,
     [string[]]$Profile = @(),
-    [ValidateSet("L0", "L1")]
+    [ValidateSet("L0", "L1", "L2")]
     [string]$MaximumAgentLevel = "L0",
     [string]$Python
 )

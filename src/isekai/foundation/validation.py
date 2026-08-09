@@ -216,6 +216,30 @@ def _validate_condition(condition: Any, rule_id: str) -> None:
         _require_condition_fields(condition, {"envelope_ref", "action", "target_scope", "stage", "expires_at"}, rule_id)
         _require_condition_strings(condition, {"envelope_ref", "action", "target_scope", "stage", "expires_at"}, rule_id)
         _parse_timestamp(condition["expires_at"], f"{rule_id} condition expires_at")
+    elif condition_type == "required-external-authorization":
+        fields = {
+            "minimum_agent_level",
+            "action",
+            "credential_access",
+            "environment",
+            "target",
+            "budget",
+            "secret_resolution",
+        }
+        _require_condition_fields(condition, fields, rule_id)
+        _require_condition_strings(condition, fields, rule_id)
+        if condition["minimum_agent_level"] != "L2":
+            raise FoundationError(
+                f"{rule_id} external authorization minimum level must be L2"
+            )
+        if condition["action"] != "external-api":
+            raise FoundationError(
+                f"{rule_id} external authorization action must be external-api"
+            )
+        if condition["credential_access"] != "forbidden":
+            raise FoundationError(
+                f"{rule_id} external authorization must forbid credential access"
+            )
     elif condition_type == "required-lineage":
         _require_condition_fields(condition, {"mapping_ref", "source_ref", "target_ref", "transformation", "raw_reference"}, rule_id)
         _require_condition_strings(condition, {"mapping_ref", "source_ref", "target_ref", "transformation", "raw_reference"}, rule_id)
