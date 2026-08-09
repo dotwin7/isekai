@@ -197,6 +197,12 @@ Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 act
 
 `scope` 패턴은 디렉토리 경계를 존중한다. `*`와 `?`는 한 경로 세그먼트 안에서만 매칭하고, 세그먼트 전체가 `**`일 때만 0개 이상의 세그먼트를 가로지른다. 예를 들어 `src/*.py`는 `src/main.py`만 허용하고 `src/vendor/deep.py`는 스코프 밖이다. 하위 트리 전체를 허용하려면 `src/**`처럼 명시해야 한다.
 
+### Unit 실행 격리
+
+Execution Envelope는 선택된 Unit 하나에만 속한다. `scope: ["**"]`처럼 넓은 패턴이 승인되어도 그 Envelope로 기본 `units/` collection이나 형제 Unit의 artifact에 대한 `read`, `edit`, `test` authorization을 받을 수 없다. Project 내부의 사용자 지정 Unit 경로도 canonical Unit ID와 디렉터리가 일치하면 같은 경계를 적용한다. 저장된 grant는 `verify`에서 현재 파일시스템 기준으로 다시 검사하므로, 승인 후 symlink가 형제 Unit으로 바뀐 경우에도 원장을 무효화한다.
+
+이 경계는 filesystem sandbox가 아니다. 현재 Unit의 작업에는 프로젝트 소스와 테스트, 고정 Foundation·Profile·Extension이 필요하므로 이들은 Context Receipt와 승인 Envelope 범위 안에서 계속 접근할 수 있다. 다른 Unit의 작업을 이어갈 때는 현재 Checkpoint를 보존한 뒤 해당 Unit을 명시적으로 `resume --unit PATH`하여 active Unit을 교체한다. 형제 Unit의 결과가 공통 입력으로 필요하면 [Project Knowledge](project-knowledge.md)의 후보→사람 승인→승격 흐름이나 후속 명시적 참조 계약을 사용해야 하며, 현재 Unit이 형제 Unit 원장을 암묵적으로 탐색하지 않는다. `project-knowledge/`는 Core-managed path이므로 Unit Envelope로 직접 읽지 않고 Receipt에 고정된 release만 소비한다.
+
 ### Envelope 갱신
 
 `expires_at`은 승인이 새 action을 허가하는 창을 한정한다. 기본 창은 168시간이며 `--expires-in-hours`로 최대 720시간까지 조정한다. 창이 닫히거나 `max_iterations` 예산이 소진되면 Unit을 폐기하지 않고 Envelope를 갱신한다.

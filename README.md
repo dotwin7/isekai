@@ -18,6 +18,8 @@ ISEKAI를 켜면 일반 채팅 요청을 먼저 정규화하고 작업의 지속
 
 Unit 작업에서는 Intent, Decision, Evidence, Receipt와 Checkpoint를 저장해 사람과 에이전트가 다른 세션에서도 같은 맥락을 이어갈 수 있습니다. 중요한 수명주기 전환과 고위험 판단은 사람의 명시적 결정을 요구합니다.
 
+한 Unit에서 발견한 용어·관례·지침·판단이 후속 Unit에도 필요하면 `Project Knowledge` candidate로 제안하고 사람의 Knowledge Decision 뒤 승격합니다. 이는 온톨로지나 정책 계층이 아니라 승인된 프로젝트 공통 지식이며, 새 Unit은 생성 시점의 release를 Context Receipt에 고정합니다. 기존 Unit은 자동으로 최신 지식을 읽지 않습니다.
+
 ```text
 사용자 채팅 명령
       ↓
@@ -245,6 +247,10 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 
 Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 Decision은 해당 lifecycle gate에서만 기록할 수 있고, Release Decision은 현재 passing Evidence의 ID와 digest를 결박합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Project의 `maximum_agent_level`보다 넓은 action을 담은 Envelope도 제안·승인·authorize·verify 단계에서 fail-closed합니다. Verification Evidence의 각 command는 같은 stage의 최신 `test` authorization과 연결되며, Evidence는 기록 시점의 Envelope와 authorization 원장 digest에도 결박됩니다. 이후 grant가 추가되면 다시 검증해야 하고, 미완료 acceptance·artifact·checkpoint가 남으면 `releasing` 또는 `learned` 전이를 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
 
+Envelope는 active Unit 하나에만 속합니다. `scope: ["**"]`가 승인되어도 Core는 기본 `units/` collection과 형제 Unit artifact에 대한 `read`·`edit`·`test` authorization을 거부하며, 사용자 지정 Project-local Unit 경로에도 같은 경계를 적용합니다. 이 경계는 프로젝트 소스·테스트·고정 Foundation·Profile·Extension 접근을 막는 filesystem sandbox가 아니라 Decision·Checkpoint·Evidence가 Unit 사이에서 섞이지 않게 하는 실행 격리입니다.
+
+공통화할 결과는 형제 Unit을 직접 읽게 하지 않고 `project-knowledge-propose → decision --gate knowledge → project-knowledge-promote`로 승격합니다. `project-knowledge/`는 Core-managed path이며 active Unit은 catalog를 직접 읽지 않고 자기 Receipt에 고정된 release만 사용합니다. 자세한 계약은 [Project Knowledge](docs/project-knowledge.md)를 참고하세요.
+
 Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다. Evidence는 Runtime host가 제출한 실행 attestation이며, Core는 원본 `output`이 함께 전달된 경우에만 결과 digest를 직접 계산합니다. 새 Evidence의 `attestation.output_digest_verification`은 `core-derived`, `caller-supplied`, `mixed` 중 하나로 이 차이를 보존합니다. 실행 사실 자체를 신뢰 경계로 삼아야 하는 환경에서는 보호된 CI나 서명된 원격 실행 receipt를 함께 사용해야 합니다.
 
 Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 새 Decision은 `attestation.identity_verification: not-performed-by-core`와 caller가 보고한 actor를 digest에 함께 결박해 이 경계를 숨기지 않습니다. 호스트의 도구 실행 승인도 특정 shell·파일 action에 대한 권한일 뿐 lifecycle Decision이 아닙니다. 사람의 판단은 완성된 Decision Packet을 보여 주는 인증된 대화 UI나 외부 승인 시스템에서 받고, ISEKAI에는 그 결과를 감사 가능한 레코드로 남깁니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
@@ -305,6 +311,6 @@ uv run python -m isekai distribution-build --root .
 uv run python -m isekai distribution-check --root .
 ```
 
-세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.
+세부 workflow, Foundation 계약, artifact schema와 운영 정책은 [canonical 설계 문서 집합](docs/isekai.md)에서 시작하세요. 개요와 문서 맵은 `docs/isekai.md`에 있고, 주제별 세부 계약은 architecture·installation·workflow·unit·project-knowledge·foundation·information-model·agent-integration·roadmap 문서가 나눠 소유합니다. Runtime별 세부사항은 [Codex](plugin/isekai/runtimes/codex/README.md), [Claude Code](plugin/isekai/runtimes/claude/README.md), [Kiro](plugin/isekai/runtimes/kiro/README.md) Adapter 문서에 있습니다.
 
 프로젝트 로컬 설치부터 실제 제품 기능과 `learned` Unit까지의 결정론적 Golden Path는 [Reference Product](examples/reference-product/README.md)와 `tests/test_reference_product_e2e.py`에서 확인할 수 있습니다. 이 테스트는 설치된 launcher 계약을 사용하며 실제 호스트 모델 세션은 [Runtime live smoke](docs/live-smoke.md)로 분리합니다.

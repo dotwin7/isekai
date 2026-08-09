@@ -76,6 +76,8 @@ OFF
 
 기존 Unit 작업을 계속할 때는 `resume [--project PATH] [--unit PATH]`을 별도로 호출한다. `resume`만 Unit을 선택하고 Checkpoint와 원본 artifact를 복구한다. 여러 Unit이 있으면 명시적 `--unit`을 요구한다. `on` 응답은 기계용 ASCII 경로 배열 `unit_candidates`와 함께 `unit_candidate_details`에 사람용 `title`, 상태, 문서 언어를 제공하므로 Adapter는 선택 질문에서 경로와 제목을 함께 보여준다.
 
+`resume`한 Unit 하나만 현재 대화의 persistent work에 대한 active Unit으로 취급한다. Adapter는 현재 Unit의 Envelope로 형제 Unit을 읽거나 수정하거나 테스트하지 않는다. 다른 Unit을 계속하려면 현재 Checkpoint를 먼저 보존하고 전환 사실을 사용자에게 알린 뒤 해당 경로를 명시한 새 `resume --unit PATH`를 사용한다. Core는 stateless이므로 대화 전환 자체를 저장하지 않지만, authorization에서는 active Unit 바깥의 Unit collection과 형제 Unit artifact를 action 종류와 관계없이 거부한다. 프로젝트 소스와 고정 Foundation·Profile·Extension은 이 격리 대상이 아니며 계속 Envelope와 Context Receipt의 경계를 따른다. 재사용할 Unit 학습은 `project-knowledge-propose`로 후보화하고 실제 사람의 Knowledge Decision 뒤 `project-knowledge-promote`로 승격한다. Adapter는 active Unit에서 `project-knowledge/`를 직접 읽지 않고 `context.project_knowledge`에 고정된 release만 사용한다.
+
 `off`는 자동 라우팅을 중단하지만 Unit, Decision, Evidence, Receipt와 Checkpoint를 변경하거나 삭제하지 않는다. 암묵적 checkpoint도 작성하지 않는다. 모드가 off인 상태의 명시적 `/isekai <action>`은 대화 모드를 활성화하지 않는 one-shot action이다.
 
 Core는 `on`과 `off`를 읽기 전용 stateless handshake로 제공하며 mode를 artifact나 중앙 세션 저장소에 영속화하지 않는다. Project Plugin/Skill의 발견 여부와 대화 mode는 별개다.

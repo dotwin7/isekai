@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import stat
 from datetime import datetime, timezone
@@ -263,6 +264,17 @@ def build_session(
             raise SessionError(
                 "Unit Context Receipt fingerprint does not match its bound context"
             )
+        from .project_knowledge import project_knowledge_receipt_issues
+
+        knowledge_issues = project_knowledge_receipt_issues(
+            receipt.get("project_knowledge"),
+            project_id=str(status.get("project_id")),
+        )
+        if knowledge_issues:
+            raise SessionError(
+                "Unit Context Receipt has invalid Project Knowledge: "
+                + "; ".join(knowledge_issues)
+            )
         try:
             receipt_manifest = _receipt_source_manifest_path(
                 receipt,
@@ -293,6 +305,11 @@ def build_session(
                 + ", ".join(changed_fields)
                 + "; unit-migrate only supports path relocation"
             )
+        # Active work consumes its creation-time knowledge snapshot. The latest
+        # Project release remains visible only when no Unit is selected.
+        session["context"]["project_knowledge"] = copy.deepcopy(
+            receipt.get("project_knowledge")
+        )
         unit = _unit_ref(selected_unit, status)
     return {
         **session,
@@ -382,6 +399,13 @@ def migrate_unit_context(
             project_root=project_path.parent,
             unit_dir=selected_unit,
         )
+        if "project_knowledge" in receipt:
+            migrated["project_knowledge"] = copy.deepcopy(
+                receipt["project_knowledge"]
+            )
+        else:
+            migrated.pop("project_knowledge", None)
+        migrated["receipt_id"] = _context_receipt_id(migrated)
         previous_receipt_id = receipt.get("receipt_id")
         changed = migrated.get("receipt_id") != previous_receipt_id
         if changed:

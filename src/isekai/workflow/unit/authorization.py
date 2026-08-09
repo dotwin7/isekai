@@ -37,6 +37,8 @@ AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
     "authorized_at",
 }
 
+CANONICAL_UNIT_ID = re.compile(r"UNIT-\d{8}-[A-F0-9]{32}")
+
 
 def _authorization_ledger_digest(ledger: dict[str, Any]) -> str:
     encoded = json.dumps(
@@ -116,6 +118,107 @@ def _filesystem_path_key(value: str, *, case_insensitive: bool) -> str:
     return value.casefold() if case_insensitive else value
 
 
+def _is_canonical_unit_directory(directory: Path) -> bool:
+    """Return whether ``directory`` is an initialized ISEKAI Unit.
+
+    Product repositories can legitimately contain files named ``unit.json``.
+    A cross-Unit boundary must therefore require both the canonical Unit ID and
+    the matching canonical directory name before treating a directory as a
+    Unit.
+    """
+
+    if not directory.name.startswith("unit-"):
+        return False
+    try:
+        unit = _unit_json(directory, "unit.json")
+    except ValueError:
+        return False
+    unit_id = unit.get("id")
+    return (
+        isinstance(unit_id, str)
+        and CANONICAL_UNIT_ID.fullmatch(unit_id) is not None
+        and unit_id.casefold() == directory.name.casefold()
+    )
+
+
+def _containing_unit_directory(candidate: Path, project_root: Path) -> Path | None:
+    current = candidate if candidate.is_dir() else candidate.parent
+    while current == project_root or project_root in current.parents:
+        if _is_canonical_unit_directory(current):
+            return current.resolve()
+        if current == project_root:
+            break
+        current = current.parent
+    return None
+
+
+def _foreign_unit_child(directory: Path, active_unit: Path) -> Path | None:
+    if not directory.is_dir():
+        return None
+    try:
+        for candidate in directory.iterdir():
+            if candidate.resolve() != active_unit and _is_canonical_unit_directory(
+                candidate
+            ):
+                return candidate.resolve()
+    except OSError:
+        # The caller will fail closed without exposing a potentially mixed Unit
+        # collection when the directory cannot be inspected completely.
+        return directory.resolve()
+    return None
+
+
+def _cross_unit_access_issue(
+    unit_dir: Path,
+    project_root: Path,
+    candidate: Path,
+    resolved_target: str,
+) -> str | None:
+    """Keep one Unit's Envelope from authorizing access to a sibling Unit.
+
+    The boundary is intentionally narrower than a filesystem sandbox: the
+    active Unit still needs approved Project source, Foundation, and Extension
+    files. Only Unit collections and artifacts belonging to a different Unit
+    are denied.
+    """
+
+    active_unit = unit_dir.resolve()
+    if candidate == active_unit or active_unit in candidate.parents:
+        return None
+
+    # A directory above the active Unit would expose it together with any
+    # siblings through one broad read or test authorization.
+    if candidate in active_unit.parents:
+        return (
+            "Unit collection access is not allowed by the active Unit boundary: "
+            f"{resolved_target}"
+        )
+
+    default_units_root = (project_root / "units").resolve()
+    try:
+        candidate.relative_to(default_units_root)
+    except ValueError:
+        pass
+    else:
+        return (
+            "Cross-Unit access is not allowed by the active Unit boundary: "
+            f"{resolved_target}"
+        )
+
+    containing_unit = _containing_unit_directory(candidate, project_root)
+    if containing_unit is not None and containing_unit != active_unit:
+        return (
+            "Cross-Unit access is not allowed by the active Unit boundary: "
+            f"{resolved_target}"
+        )
+    if _foreign_unit_child(candidate, active_unit) is not None:
+        return (
+            "Unit collection access is not allowed by the active Unit boundary: "
+            f"{resolved_target}"
+        )
+    return None
+
+
 def _authorization_target_protection_issue(
     unit_dir: Path,
     action: str,
@@ -133,7 +236,14 @@ def _authorization_target_protection_issue(
     target_part_key = _filesystem_path_key(
         target_parts[0], case_insensitive=project_case_insensitive
     )
+    if target_part_key == "project-knowledge":
+        return (
+            "Project Knowledge is a Core-managed path; active Units must consume "
+            f"their pinned Context Receipt: {normalized_target}"
+        )
     if action == "edit" and target_key in {"project.json", "isekai.lock.json"}:
+        return f"Core control artifact cannot be edited through authorize: {normalized_target}"
+    if action == "edit" and target_key == ".isekai-project-knowledge.lock":
         return f"Core control artifact cannot be edited through authorize: {normalized_target}"
     if action == "edit" and target_part_key in {".git", ".isekai"}:
         return f"Managed control path cannot be edited through authorize: {normalized_target}"
@@ -157,9 +267,24 @@ def _authorization_target_protection_issue(
         if resolved_parts
         else ""
     )
+    if resolved_part_key == "project-knowledge":
+        return (
+            "Project Knowledge is a Core-managed path after path resolution; "
+            f"active Units must consume their pinned Context Receipt: "
+            f"{normalized_target} -> {resolved_target}"
+        )
+    unit_boundary_issue = _cross_unit_access_issue(
+        unit_dir,
+        project_root,
+        candidate,
+        resolved_target,
+    )
+    if unit_boundary_issue is not None:
+        return unit_boundary_issue
     if action == "edit" and resolved_target_key in {
         "project.json",
         "isekai.lock.json",
+        ".isekai-project-knowledge.lock",
     }:
         return (
             "Core control artifact cannot be edited through authorize after path "

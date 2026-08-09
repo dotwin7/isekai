@@ -215,6 +215,15 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         issues.append("Context Receipt foundation_version does not match Unit")
     if receipt.get("foundation_digest") != unit.get("foundation_digest"):
         issues.append("Context Receipt foundation_digest does not match Unit")
+    from ..project_knowledge import project_knowledge_receipt_issues
+
+    issues.extend(
+        "Context Receipt Project Knowledge: " + issue
+        for issue in project_knowledge_receipt_issues(
+            receipt.get("project_knowledge"),
+            project_id=str(unit.get("project_id")),
+        )
+    )
     receipt_id = receipt.get("receipt_id")
     if not isinstance(receipt_id, str) or receipt_id != _context_receipt_id(receipt):
         issues.append("Context Receipt receipt_id does not match its bound context")

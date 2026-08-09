@@ -9,6 +9,12 @@ without recreating a monolithic workflow module.
 
 from .project import initialize_project as _initialize_project
 from .project import load_project, resolve_context
+from .project_knowledge import (
+    current_project_knowledge,
+    project_knowledge_status,
+    promote_project_knowledge,
+    propose_project_knowledge,
+)
 from .routing import (
     AGENT_ALLOWED_ACTIONS,
     AGENT_LEVEL_ALLOWED_ACTIONS,
@@ -116,10 +122,14 @@ __all__ = [
     "authorize_action",
     "build_command_evidence",
     "classify_work",
+    "current_project_knowledge",
     "initialize_project",
     "initialize_unit",
     "load_project",
     "propose_execution_envelope",
+    "project_knowledge_status",
+    "promote_project_knowledge",
+    "propose_project_knowledge",
     "record_decision",
     "record_evidence",
     "resolve_context",

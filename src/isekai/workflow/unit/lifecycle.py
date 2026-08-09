@@ -409,6 +409,9 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                 scope=str(unit.get("scope")),
             )
         )
+        from ..project_knowledge import knowledge_decision_candidate_issues
+
+        issues.extend(knowledge_decision_candidate_issues(unit_dir, decisions))
     issues.extend(_human_document_language_issues(unit_dir, unit, decisions))
     if isinstance(decision_entries, list) and not decision_entries:
         issues.append("at least one recorded decision is required")

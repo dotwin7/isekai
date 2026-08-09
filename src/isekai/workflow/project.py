@@ -23,6 +23,10 @@ from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 CONTEXT_RECEIPT_NON_BINDING_FIELDS = {"receipt_id", "generated_at"}
 CONTEXT_RECEIPT_LOCATION_FIELDS = {"source_manifest"}
+# Project Knowledge is deliberately versioned context, not a mutable Project
+# contract. A Unit keeps the release pinned in its own Receipt while newer Units
+# can adopt later approved releases without invalidating the earlier Unit.
+CONTEXT_RECEIPT_EVOLVING_FIELDS = {"project_knowledge"}
 
 
 def _context_receipt_id(receipt: dict[str, Any]) -> str:
@@ -71,6 +75,7 @@ def _context_contract_changed_fields(
         set(context)
         - CONTEXT_RECEIPT_NON_BINDING_FIELDS
         - CONTEXT_RECEIPT_LOCATION_FIELDS
+        - CONTEXT_RECEIPT_EVOLVING_FIELDS
     )
     return [
         field
@@ -393,6 +398,8 @@ def load_project(
 
 def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict[str, Any]:
     manifest_path, project, foundation, project_extensions = load_project(path)
+    from .project_knowledge import current_project_knowledge
+
     applicable_rules: list[dict[str, Any]] = []
     rule_candidates = list(foundation.rules())
     rule_candidates.extend(
@@ -421,6 +428,9 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
         "rule_ids": sorted(rule["id"] for rule in applicable_rules),
         "rules": sorted(applicable_rules, key=lambda rule: rule["id"]),
         "policy_ids": sorted(foundation.assets_by_kind("policy"), key=lambda item: item["id"]),
+        "project_knowledge": current_project_knowledge(
+            manifest_path.parent, str(project["id"])
+        ),
         "source_manifest": str(manifest_path),
     }
     body["policy_ids"] = [item["id"] for item in body["policy_ids"]]

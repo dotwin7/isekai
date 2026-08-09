@@ -31,7 +31,10 @@ from ..workflow import (
     classify_work,
     initialize_project,
     initialize_unit,
+    project_knowledge_status,
+    promote_project_knowledge,
     propose_execution_envelope,
+    propose_project_knowledge,
     record_decision,
     record_evidence,
     transition_unit,
@@ -382,6 +385,28 @@ def _foundation_promote(values: Mapping[str, Any]) -> dict[str, Any]:
     return promote_foundation(values.get("foundation", "foundation"))
 
 
+def _project_knowledge_status(values: Mapping[str, Any]) -> dict[str, Any]:
+    return project_knowledge_status(values.get("project", "."))
+
+
+def _project_knowledge_propose(values: Mapping[str, Any]) -> dict[str, Any]:
+    entries = _list_field(values, "entries")
+    if any(not isinstance(entry, dict) for entry in entries):
+        raise PluginError("plugin request field entries must contain objects")
+    return propose_project_knowledge(
+        _required(values, "unit"),
+        entries=entries,
+        proposed_by=str(_required(values, "proposed_by")),
+    )
+
+
+def _project_knowledge_promote(values: Mapping[str, Any]) -> dict[str, Any]:
+    return promote_project_knowledge(
+        _required(values, "unit"),
+        candidate=str(_required(values, "candidate")),
+    )
+
+
 def _route(values: Mapping[str, Any]) -> dict[str, Any]:
     request = RouteRequest(
         change=str(_required(values, "change")),
@@ -492,6 +517,9 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "foundation-decision": _foundation_decision,
     "foundation-evidence": _foundation_evidence,
     "foundation-promote": _foundation_promote,
+    "project-knowledge-status": _project_knowledge_status,
+    "project-knowledge-propose": _project_knowledge_propose,
+    "project-knowledge-promote": _project_knowledge_promote,
     "route": _route,
     "unit-init": _unit_init,
     "checkpoint": _checkpoint,

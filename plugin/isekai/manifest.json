@@ -55,6 +55,9 @@
     "foundation-decision",
     "foundation-evidence",
     "foundation-promote",
+    "project-knowledge-status",
+    "project-knowledge-propose",
+    "project-knowledge-promote",
     "resume",
     "unit-migrate",
     "unit-init",
@@ -80,7 +83,9 @@
     "transition",
     "foundation-decision",
     "foundation-evidence",
-    "foundation-promote"
+    "foundation-promote",
+    "project-knowledge-propose",
+    "project-knowledge-promote"
   ],
   "high_risk_actions": [],
   "human_decision_actions": [

@@ -241,6 +241,7 @@ def _decision_record_issues(
     approval_subject_types = {
         "inception": "execution-envelope",
         "release": "verification-evidence",
+        "knowledge": "project-knowledge-candidate",
     }
     expected_subject_type = approval_subject_types.get(str(decision.get("gate")))
     if expected_subject_type is not None and decision.get("outcome") == "approved":
@@ -265,6 +266,13 @@ def _decision_record_issues(
             ):
                 issues.append(
                     f"{decision.get('gate')} Decision approval_subject requires SHA-256 digest"
+                )
+            if expected_subject_type == "project-knowledge-candidate" and (
+                not isinstance(approval_subject.get("reference"), str)
+                or not approval_subject.get("reference", "").strip()
+            ):
+                issues.append(
+                    "knowledge Decision approval_subject requires candidate reference"
                 )
     issues.extend(_decision_packet_issues(decision))
     return issues
@@ -582,6 +590,33 @@ def record_decision(
                 "id": str(evidence["id"]),
                 "digest": _verification_evidence_digest(evidence),
                 "reference": evidence_reference,
+            }
+        elif gate == "knowledge" and outcome == "approved":
+            from ..project_knowledge import load_project_knowledge_candidate
+
+            candidate_references = [
+                reference
+                for reference in references
+                if isinstance(reference, str)
+                and reference.replace("\\", "/").startswith(
+                    "project-knowledge/candidates/"
+                )
+                and reference.replace("\\", "/").endswith(".json")
+            ]
+            if len(candidate_references) != 1:
+                raise IntegrityError(
+                    "approved Knowledge Decision must reference exactly one "
+                    "Project Knowledge candidate"
+                )
+            candidate_reference = candidate_references[0].replace("\\", "/")
+            candidate = load_project_knowledge_candidate(
+                unit_dir, candidate_reference, require_current_base=True
+            )
+            approval_subject = {
+                "type": "project-knowledge-candidate",
+                "id": str(candidate["id"]),
+                "digest": str(candidate["candidate_digest"]),
+                "reference": candidate_reference,
             }
 
         now = datetime.now(timezone.utc)

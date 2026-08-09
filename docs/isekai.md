@@ -83,6 +83,7 @@ Core는 기본적으로 서버가 아니며, Plugin은 Host 연결과 사용자 
 | [installation.md](installation.md) | Git release 설치, 프로젝트 버전 고정, update·rollback |
 | [workflow.md](workflow.md) | Query·Quick Change·Unit 작업 라우팅과 AWS형 AI-DLC 수명주기 |
 | [unit.md](unit.md) | Unit 구조, 인간 게이트, Decision·Evidence·Execution Envelope, 원장 동시성 |
+| [project-knowledge.md](project-knowledge.md) | Unit 학습의 후보·승인·승격과 후속 Unit별 버전 고정 |
 | [foundation.md](foundation.md) | Engineering Foundation 계층, Security Profile, v0.1 완료 조건과 승인 절차 |
 | [information-model.md](information-model.md) | 범용 Data·Semantic·Knowledge Model과 Persistent Context |
 | [agent-integration.md](agent-integration.md) | Runtime Adapter, 세션 모드, 실행 통제 |

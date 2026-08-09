@@ -25,6 +25,9 @@ EXPECTED_ACTIONS = {
     "foundation-decision",
     "foundation-evidence",
     "foundation-promote",
+    "project-knowledge-status",
+    "project-knowledge-propose",
+    "project-knowledge-promote",
     "resume",
     "unit-migrate",
     "unit-init",
@@ -51,6 +54,8 @@ EXPECTED_WRITES = {
     "foundation-decision",
     "foundation-evidence",
     "foundation-promote",
+    "project-knowledge-propose",
+    "project-knowledge-promote",
 }
 
 
@@ -273,6 +278,8 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
         "Project root's `units/`",
         "never selects or resumes a Unit",
         "invoke `resume` separately",
+        "Treat one resumed Unit as the only active Unit for persistent work.",
+        "Never use its Envelope to read, edit, or test a sibling Unit.",
     ]
     for path in skill_paths:
         content = path.read_text(encoding="utf-8")

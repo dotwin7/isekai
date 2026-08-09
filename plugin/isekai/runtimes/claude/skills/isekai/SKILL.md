@@ -51,6 +51,7 @@ The host agent drives the lifecycle; Core classifies work, validates boundaries,
 - For a Unit, show the complete Level-1 plan and proposed Execution Envelope before the first Unit write. The user's explicit approval covers the bounded local artifact writes and mechanical transitions in that plan.
 - The Inception Decision is the formal approval that binds the exact Execution Envelope before Construction. The earlier plan response may supply this Decision only when the exact scope, actions, stage plan, risks, and Envelope subject were part of what the user approved; otherwise ask again at `awaiting-inception-decision`.
 - The current Core requires an Architecture Decision before Validation, a Release Decision bound to current passing Evidence before Releasing, and an Operation Decision before the Unit becomes Learned. Knowledge and Foundation promotion have their own human Decisions.
+- For reusable Unit learning, present the complete Project Knowledge candidate before recording an approved `knowledge` Decision. `project-knowledge-promote` mechanically applies that bound Decision and does not replace the human confirmation.
 - Read `status` or `resume` field `human_gate` before the next lifecycle transition. If `confirmation_required` is true, present the gate, Decision Packet, approval subject, tradeoffs, and risks, then stop until the user approves or rejects it. Do not treat `authorize`, `envelope-approve`, a tool permission prompt, silence, or a successful command as that Decision.
 - An unattended, headless, `dontAsk`, bypass-permission, or pre-trusted tool session cannot originate a new human Decision. It may continue only with an authenticated external approval supplied by the surrounding system; otherwise it must emit the pending Decision Packet and stop.
 
@@ -76,6 +77,9 @@ release-check --foundation PATH
 foundation-decision --foundation PATH --outcome approved|rejected --summary TEXT --decided-by HUMAN
 foundation-evidence --foundation PATH --passed --checks-json JSON --scope TEXT --recorded-by ACTOR
 foundation-promote --foundation PATH
+project-knowledge-status [--project PATH]
+project-knowledge-propose --unit PATH --entries-json JSON --proposed-by ACTOR
+project-knowledge-promote --unit PATH --candidate project-knowledge/candidates/PKC-....json
 intake --source host-goal|direct-request --goal TEXT [--expected-outcome TEXT] [--scope PATH] [--constraint TEXT] [--acceptance-criterion TEXT] [--change none|local|persistent] [--risk low|high] [--ambiguous] [--multi-party] [--remote] [--sensitive]
 status --project PATH [--unit PATH]
 route --change none|local|persistent [--risk low|high] [flags]
@@ -108,7 +112,8 @@ rollback [--path PATH]
 1. Run `intake` for every active-mode request. Use `status` before persistent work and before choosing whether to create or resume a Unit.
 2. Follow the returned adaptive workflow contract. The approved Level-1 plan, not a fixed full lifecycle, determines stage depth and whether Release and Operations apply. Before each transition, inspect `human_gate` and stop when it reports `confirmation_required: true`.
 3. Get explicit user confirmation before `install`, applying `update`, or `rollback`. For Unit work, use the Adaptive workflow driver approval and consequential-decision rules above. A successful `authorize` call only writes the audit grant already covered by the approved Envelope and does not need separate confirmation. Run read-only `update --check` before applying an update.
-4. Use `resume` after a new session and treat Unit artifacts, Receipt, Checkpoint, Decisions, and Evidence as authoritative. If a moved Project or external Unit reports a manifest-location mismatch, use `unit-migrate` only for the same Project contract; it must never accept Foundation, Profile, rule, or extension contract changes.
+4. Use `resume` after a new session and treat Unit artifacts, Receipt, Checkpoint, Decisions, and Evidence as authoritative. Treat one resumed Unit as the only active Unit for persistent work. Never use its Envelope to read, edit, or test a sibling Unit. Before explicitly resuming a different Unit, preserve the current Unit's Checkpoint and state the switch to the user. If a moved Project or external Unit reports a manifest-location mismatch, use `unit-migrate` only for the same Project contract; it must never accept Foundation, Profile, rule, or extension contract changes.
+   Consume Project Knowledge only from the active Unit's `context.project_knowledge` snapshot. Never authorize a direct read, edit, or test of `project-knowledge/`. When an operating or learned Unit discovers a reusable term, convention, guidance, or decision, use `project-knowledge-propose`, obtain a real human `knowledge` Decision for the exact candidate, then use `project-knowledge-promote`. Existing Units keep their pinned release; only future Units receive the latest approved release.
 5. Run `verify` after implementation and report its actual result. Do not claim success from an unexecuted command.
    Evidence records distinguish Core-derived output digests from caller-supplied digests, but Core does not execute the command. Preserve CI or host provenance when execution itself is a trust requirement.
 6. If the route is Unit, a human Decision is required before progressing through a consequential gate.

@@ -27,6 +27,9 @@ DIRECT_PLUGIN_ACTIONS = {
     "foundation-decision",
     "foundation-evidence",
     "foundation-promote",
+    "project-knowledge-status",
+    "project-knowledge-propose",
+    "project-knowledge-promote",
     "resume",
     "unit-migrate",
     "unit-init",
@@ -214,6 +217,29 @@ def _parser() -> argparse.ArgumentParser:
         "foundation-promote", help="promote Foundation after approval gates pass"
     )
     plugin_foundation_promote.add_argument("--foundation", default="foundation")
+
+    plugin_project_knowledge_status = plugin_commands.add_parser(
+        "project-knowledge-status",
+        help="show the latest approved Project Knowledge release",
+    )
+    plugin_project_knowledge_status.add_argument("--project", default=".")
+
+    plugin_project_knowledge_propose = plugin_commands.add_parser(
+        "project-knowledge-propose",
+        help="propose reusable knowledge from an operating or learned Unit",
+    )
+    plugin_project_knowledge_propose.add_argument("--unit", required=True)
+    plugin_project_knowledge_propose.add_argument("--entries-json", required=True)
+    plugin_project_knowledge_propose.add_argument(
+        "--proposed-by", dest="proposed_by", required=True
+    )
+
+    plugin_project_knowledge_promote = plugin_commands.add_parser(
+        "project-knowledge-promote",
+        help="promote a candidate bound by an approved knowledge Decision",
+    )
+    plugin_project_knowledge_promote.add_argument("--unit", required=True)
+    plugin_project_knowledge_promote.add_argument("--candidate", required=True)
 
     plugin_resume = plugin_commands.add_parser("resume", help="restore Unit checkpoint context")
     plugin_resume.add_argument("--project", default=".")

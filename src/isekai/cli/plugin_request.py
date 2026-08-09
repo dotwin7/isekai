@@ -68,6 +68,16 @@ def plugin_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         }
     elif action == "foundation-promote":
         payload = {"foundation": args.foundation}
+    elif action == "project-knowledge-status":
+        payload = {"project": args.project}
+    elif action == "project-knowledge-propose":
+        payload = {
+            "unit": args.unit,
+            "entries": json.loads(args.entries_json),
+            "proposed_by": args.proposed_by,
+        }
+    elif action == "project-knowledge-promote":
+        payload = {"unit": args.unit, "candidate": args.candidate}
     elif action == "route":
         payload = {
             "change": args.change,
@@ -151,6 +161,7 @@ def plugin_exit_code(action: str, result: dict[str, Any]) -> int:
         "verify": "valid",
         "release-check": "ready",
         "foundation-promote": "promoted",
+        "project-knowledge-promote": "promoted",
     }
     field = gates.get(action)
     return 0 if field is None or values[field] else 1

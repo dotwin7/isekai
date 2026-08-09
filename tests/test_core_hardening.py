@@ -194,7 +194,7 @@ def test_unit_stored_outside_the_project_still_edits_project_files(
     assert authorize_action(unit, action="edit", target="src/main.py")["allowed"] is True
 
 
-def test_control_artifacts_of_any_unit_are_protected(tmp_path: Path) -> None:
+def test_active_unit_boundary_denies_every_sibling_unit_action(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     active = _wide_open_unit(project, "Active Unit")
     sibling = initialize_unit(project, "Sibling Unit", project.parent / "units")
@@ -204,16 +204,22 @@ def test_control_artifacts_of_any_unit_are_protected(tmp_path: Path) -> None:
         action="edit",
         target=str((active / "decisions.json").relative_to(project.parent)),
     )
-    # A sibling Unit's ledger is just as much a control artifact as this one's.
-    other = authorize_action(
+    sibling_results = [
+        authorize_action(
+            active,
+            action=action,
+            target=str((sibling / relative).relative_to(project.parent)),
+        )
+        for action, relative in (
+            ("read", "requirements.md"),
+            ("edit", "requirements.md"),
+            ("test", "acceptance.md"),
+        )
+    ]
+    own_requirements = authorize_action(
         active,
         action="edit",
-        target=str((sibling / "decisions.json").relative_to(project.parent)),
-    )
-    ordinary = authorize_action(
-        active,
-        action="edit",
-        target=str((sibling / "requirements.md").relative_to(project.parent)),
+        target=str((active / "requirements.md").relative_to(project.parent)),
     )
     protected_nested = [
         active / "checkpoint.json",
@@ -231,12 +237,76 @@ def test_control_artifacts_of_any_unit_are_protected(tmp_path: Path) -> None:
     ]
 
     assert own["allowed"] is False and "control artifact" in own["reason"]
-    assert other["allowed"] is False and "control artifact" in other["reason"]
+    assert all(
+        result["allowed"] is False and "Cross-Unit" in result["reason"]
+        for result in sibling_results
+    )
     assert all(
         result["allowed"] is False and "control artifact" in result["reason"]
         for result in protected_results
     )
-    assert ordinary["allowed"] is True
+    assert own_requirements["allowed"] is True
+
+
+def test_active_unit_cannot_bypass_its_pinned_project_knowledge(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    active = _wide_open_unit(project, "Pinned Knowledge Unit")
+
+    results = [
+        authorize_action(
+            active,
+            action=action,
+            target="project-knowledge/catalog.json",
+        )
+        for action in ("read", "edit", "test")
+    ]
+
+    assert all(result["allowed"] is False for result in results)
+    assert all("pinned Context Receipt" in result["reason"] for result in results)
+
+
+def test_active_unit_boundary_covers_custom_project_local_unit_roots(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    custom_root = project.parent / "work-items"
+    active = _wide_open_unit(project, "Custom Active Unit", custom_root)
+    sibling = initialize_unit(project, "Custom Sibling Unit", custom_root)
+
+    result = authorize_action(
+        active,
+        action="read",
+        target=str((sibling / "requirements.md").relative_to(project.parent)),
+    )
+
+    assert result["allowed"] is False
+    assert "Cross-Unit" in result["reason"]
+
+    collection = authorize_action(
+        active,
+        action="read",
+        target=str(custom_root.relative_to(project.parent)),
+    )
+    assert collection["allowed"] is False
+    assert "Unit collection" in collection["reason"]
+
+
+def test_active_unit_boundary_denies_a_different_custom_unit_collection(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    active = _wide_open_unit(project, "Default Active Unit")
+    custom_root = project.parent / "work-items"
+    initialize_unit(project, "Custom Sibling Unit", custom_root)
+
+    result = authorize_action(
+        active,
+        action="read",
+        target=str(custom_root.relative_to(project.parent)),
+    )
+
+    assert result["allowed"] is False
+    assert "Unit collection" in result["reason"]
 
 
 def test_edit_authorization_rejects_existing_directory_targets(tmp_path: Path) -> None:
@@ -254,8 +324,22 @@ def test_edit_authorization_rejects_existing_directory_targets(tmp_path: Path) -
     assert unit_directory["allowed"] is False
     assert units_directory["allowed"] is False
     assert "Directory targets" in unit_directory["reason"]
-    assert "Directory targets" in units_directory["reason"]
+    assert "Unit collection" in units_directory["reason"]
     assert ordinary_file["allowed"] is True
+
+
+@pytest.mark.parametrize("action", ["read", "edit", "test"])
+def test_default_unit_collection_is_not_an_authorization_target(
+    tmp_path: Path,
+    action: str,
+) -> None:
+    project = make_project(tmp_path)
+    active = _wide_open_unit(project, "Collection Boundary")
+
+    result = authorize_action(active, action=action, target="units")
+
+    assert result["allowed"] is False
+    assert "Unit collection" in result["reason"]
 
 
 def test_authorization_validation_rejects_a_retargeted_external_symlink(
@@ -280,6 +364,32 @@ def test_authorization_validation_rejects_a_retargeted_external_symlink(
 
     assert result["valid"] is False
     assert any("escapes the selected Project" in issue for issue in result["issues"])
+
+
+def test_authorization_validation_rejects_a_retargeted_sibling_unit_symlink(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    project_root = project.parent
+    linked = project_root / "linked"
+    linked.mkdir()
+    (linked / "requirements.md").write_text("ordinary\n", encoding="utf-8")
+    active = _wide_open_unit(project, "Sibling Retarget")
+    sibling = initialize_unit(project, "Sibling Unit", project_root / "units")
+    granted = authorize_action(
+        active,
+        action="read",
+        target="linked/requirements.md",
+    )
+    assert granted["allowed"] is True
+
+    shutil.rmtree(linked)
+    linked.symlink_to(sibling, target_is_directory=True)
+
+    result = verify_unit(active)
+
+    assert result["valid"] is False
+    assert any("Cross-Unit" in issue for issue in result["issues"])
 
 
 @pytest.mark.parametrize(
