@@ -123,6 +123,22 @@ def test_plugin_route_and_compatibility_are_enveloped() -> None:
     }
 
 
+def test_plugin_unit_migrate_is_idempotent_for_portable_receipt(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Portable Plugin Unit", project.parent / "units")
+
+    result = dispatch(
+        "unit-migrate",
+        {"project": str(project), "unit": str(unit)},
+    )
+
+    assert result["action"] == "unit-migrate"
+    assert result["result"]["migrated"] is False
+    assert result["result"]["source_manifest_base"] == "unit"
+
+
 def test_plugin_rejects_an_explicit_zero_envelope_lifetime(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Zero Envelope Lifetime", project.parent / "units")

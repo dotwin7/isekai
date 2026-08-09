@@ -28,6 +28,7 @@ DIRECT_PLUGIN_ACTIONS = {
     "foundation-evidence",
     "foundation-promote",
     "resume",
+    "unit-migrate",
     "unit-init",
     "checkpoint",
     "envelope-propose",
@@ -217,6 +218,13 @@ def _parser() -> argparse.ArgumentParser:
     plugin_resume = plugin_commands.add_parser("resume", help="restore Unit checkpoint context")
     plugin_resume.add_argument("--project", default=".")
     plugin_resume.add_argument("--unit")
+
+    plugin_unit_migrate = plugin_commands.add_parser(
+        "unit-migrate",
+        help="rebind a moved Unit to the same Project contract using portable paths",
+    )
+    plugin_unit_migrate.add_argument("--project", default=".")
+    plugin_unit_migrate.add_argument("--unit", required=True)
 
     plugin_init = plugin_commands.add_parser("unit-init", help="create a Unit through the plugin contract")
     plugin_init.add_argument("--project", required=True)

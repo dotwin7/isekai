@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ...support.scope import scope_pattern_matches
+from ..project import _receipt_source_manifest_path
 from ..routing import AGENT_ALLOWED_ACTIONS
 from .common import (
     PROTECTED_UNIT_ARTIFACT_PREFIXES,
@@ -62,10 +63,10 @@ def _normalize_authorization_target(
         receipt = _unit_json(unit_dir, "context-receipt.json")
     except ValueError as exc:
         return None, str(exc)
-    source_manifest = receipt.get("source_manifest")
-    if not isinstance(source_manifest, str) or not source_manifest.strip():
-        return None, "Context Receipt has no source_manifest for target authorization"
-    manifest_path = Path(source_manifest).expanduser().resolve()
+    try:
+        manifest_path = _receipt_source_manifest_path(receipt, unit_dir=unit_dir)
+    except ValueError as exc:
+        return None, str(exc) + " for target authorization"
     if manifest_path.name != "project.json":
         return None, "Context Receipt source_manifest is not project.json"
     project_root = manifest_path.parent
@@ -124,7 +125,7 @@ def _authorization_target_protection_issue(
     if not target_parts:
         return "Authorization target must identify a path inside the Project"
     receipt = _unit_json(unit_dir, "context-receipt.json")
-    project_root = Path(str(receipt["source_manifest"])).expanduser().resolve().parent
+    project_root = _receipt_source_manifest_path(receipt, unit_dir=unit_dir).parent
     project_case_insensitive = _is_case_insensitive_directory(project_root)
     target_key = _filesystem_path_key(
         normalized_target, case_insensitive=project_case_insensitive

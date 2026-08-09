@@ -27,6 +27,8 @@ jobs:
         run: python -m pytest -q
       - name: Compile sources
         run: python -m compileall -q src tests
+      - name: Verify release component digests
+        run: python -m isekai distribution-check --root .
       - name: Build wheel
         run: python -m pip wheel --no-deps . --wheel-dir dist
       - name: Validate Foundation structure

@@ -45,6 +45,7 @@
     "foundation-evidence",
     "foundation-promote",
     "resume",
+    "unit-migrate",
     "unit-init",
     "checkpoint",
     "envelope-propose",
@@ -58,6 +59,7 @@
   "writes": [
     "init",
     "unit-init",
+    "unit-migrate",
     "checkpoint",
     "envelope-propose",
     "envelope-approve",

@@ -18,6 +18,7 @@ from ..workflow.session import (
     build_session,
     deactivate_session,
     inception_session,
+    migrate_unit_context,
     resume_session,
     update_checkpoint,
 )
@@ -123,6 +124,13 @@ def _status(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _resume(values: Mapping[str, Any]) -> dict[str, Any]:
     return resume_session(values.get("project", "."), values.get("unit"))
+
+
+def _unit_migrate(values: Mapping[str, Any]) -> dict[str, Any]:
+    return migrate_unit_context(
+        values.get("project", "."),
+        _required(values, "unit"),
+    )
 
 
 def _inception(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -259,6 +267,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "intake": intake,
     "status": _status,
     "resume": _resume,
+    "unit-migrate": _unit_migrate,
     "inception": _inception,
     "compatibility": lambda _values: load_compatibility(),
     "release-check": _release_check,

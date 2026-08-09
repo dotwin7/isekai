@@ -20,6 +20,7 @@ EXPECTED_ACTIONS = {
     "foundation-evidence",
     "foundation-promote",
     "resume",
+    "unit-migrate",
     "unit-init",
     "checkpoint",
     "envelope-propose",
@@ -33,6 +34,7 @@ EXPECTED_ACTIONS = {
 EXPECTED_WRITES = {
     "init",
     "unit-init",
+    "unit-migrate",
     "checkpoint",
     "envelope-propose",
     "envelope-approve",
@@ -50,6 +52,12 @@ def read_json(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     return value
+
+
+def test_packaged_and_plugin_compatibility_matrices_cannot_drift() -> None:
+    assert read_json(ROOT / "src/isekai/data/compatibility.json") == read_json(
+        ROOT / "plugin/isekai/compatibility.json"
+    )
 
 
 def test_plugin_manifest_actions_and_write_boundary_are_consistent() -> None:

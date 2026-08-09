@@ -65,6 +65,7 @@ status --project PATH [--unit PATH]
 route --change none|local|persistent [--risk low|high] [flags]
 inception --project PATH
 resume --project PATH [--unit PATH]
+unit-migrate --project PATH --unit PATH
 unit-init --project PATH --title TITLE [--output PATH] [--owner OWNER]
 checkpoint --unit PATH --next-action TEXT [--completed ITEM ...] [--pending ITEM ...] [--blocked-by ITEM ...]
 envelope-propose --unit PATH --scope PATH [--scope PATH ...] --stages-json JSON --allowed-action ACTION [--allowed-action ACTION ...] --max-iterations N --proposed-by ACTOR [--expires-in-hours HOURS]
@@ -91,7 +92,7 @@ Rules:
 1. Run `intake` for every active-mode request. Use `status` before persistent work and before choosing whether to create or resume a Unit.
 2. Follow the returned adaptive workflow contract. The approved Level-1 plan, not a fixed full lifecycle, determines stage depth and whether Release and Operations apply.
 3. Get explicit user confirmation before `install`, applying `update`, or `rollback`. For Unit work, use the Adaptive workflow driver approval and consequential-decision rules above. A successful `authorize` call only writes the audit grant already covered by the approved Envelope and does not need separate confirmation. Run read-only `update --check` before applying an update.
-4. Use `resume` after a new session and treat Unit artifacts, Receipt, Checkpoint, Decisions, and Evidence as authoritative.
+4. Use `resume` after a new session and treat Unit artifacts, Receipt, Checkpoint, Decisions, and Evidence as authoritative. If a moved Project or external Unit reports a manifest-location mismatch, use `unit-migrate` only for the same Project contract; it must never accept Foundation, Profile, rule, or extension contract changes.
 5. Run `verify` after implementation and report its actual result.
 6. Do not execute arbitrary remote Git, cloud, Kubernetes, credential, customer-data, or high-risk security actions through this plugin. Installation may use only a source explicitly supplied by the user; updates must use the Git source pinned in `isekai.lock.json` unless the user explicitly approves a source change.
 7. Do not inject the entire Foundation or conversation into context.

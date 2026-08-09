@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..intake import normalize_intent
-from ..project import resolve_context
+from ..project import _portable_context_receipt, resolve_context
 from ..routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
 from .authorization import _authorization_ledger_digest
 from .common import _write_json
@@ -73,6 +73,11 @@ def initialize_unit(
     final_unit_dir = output_root / unit_id.lower()
     if final_unit_dir.exists():
         raise FileExistsError(f"unit already exists: {final_unit_dir}")
+    receipt = _portable_context_receipt(
+        receipt,
+        project_root=project_root,
+        unit_dir=final_unit_dir,
+    )
     staging = tempfile.TemporaryDirectory(
         prefix=f".{unit_id.lower()}.stage-",
         dir=output_root,

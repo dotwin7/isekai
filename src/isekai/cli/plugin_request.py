@@ -28,6 +28,8 @@ def plugin_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         payload = {"project": args.project}
     elif action in {"status", "resume"}:
         payload = {"project": args.project, "unit": args.unit}
+    elif action == "unit-migrate":
+        payload = {"project": args.project, "unit": args.unit}
     elif action in {"off", "compatibility"}:
         payload = {}
     elif action == "intake":

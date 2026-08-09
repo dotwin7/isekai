@@ -151,6 +151,7 @@ project/
 $isekai on
 $isekai status
 $isekai resume --unit units/<unit-id>
+$isekai unit-migrate --project . --unit units/<unit-id>
 $isekai off
 ```
 
@@ -162,6 +163,7 @@ Marketplace에서 Plugin을 별도로 설치한 세션에서는 namespaced alias
 /isekai on
 /isekai status
 /isekai resume --unit units/<unit-id>
+/isekai unit-migrate --project . --unit units/<unit-id>
 /isekai off
 ```
 
@@ -173,6 +175,7 @@ Marketplace에서 Plugin을 별도로 설치한 세션에서는 `/isekai-agent-p
 /isekai on
 /isekai status
 /isekai resume --unit units/<unit-id>
+/isekai unit-migrate --project . --unit units/<unit-id>
 /isekai off
 ```
 
@@ -239,6 +242,8 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 ### Core가 강제하는 것과 강제하지 않는 것
 
 Core는 Decision·Envelope·Evidence의 **일관성**을 강제합니다. 각 Decision은 해당 lifecycle gate에서만 기록할 수 있고, Release Decision은 현재 passing Evidence의 ID와 digest를 결박합니다. Envelope는 승인 시점의 digest로 Inception Decision에 결박되고, 승인 뒤 내용이 바뀌면 authorize와 verify가 거부합니다. Project의 `maximum_agent_level`보다 넓은 action을 담은 Envelope도 제안·승인·authorize·verify 단계에서 fail-closed합니다. Verification Evidence의 각 command는 같은 stage의 최신 `test` authorization과 연결되며, Evidence는 기록 시점의 Envelope와 authorization 원장 digest에도 결박됩니다. 이후 grant가 추가되면 다시 검증해야 하고, 미완료 acceptance·artifact·checkpoint가 남으면 `releasing` 또는 `learned` 전이를 거부합니다. 예산·범위·stage를 벗어난 action도 거부합니다.
+
+Core는 Evidence에 적힌 테스트 명령을 직접 실행하지 않습니다. Evidence는 Runtime host가 제출한 실행 attestation이며, Core는 원본 `output`이 함께 전달된 경우에만 결과 digest를 직접 계산합니다. 실행 사실 자체를 신뢰 경계로 삼아야 하는 환경에서는 보호된 CI나 서명된 원격 실행 receipt를 함께 사용해야 합니다.
 
 Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지 않습니다**. Decision은 Core를 호출할 수 있는 누구나 기록할 수 있는 로컬 JSON 레코드이므로, 셸 접근 권한을 가진 에이전트는 자기 Envelope를 스스로 승인할 수 있습니다. 사람의 개입은 호스트 런타임의 승인 UI(도구 실행 승인)에서 집행되며, ISEKAI가 제공하는 것은 그 판단을 감사 가능하게 기록하고 이후의 무단 변경을 탐지하는 계층입니다. 이 경계를 넘는 강제가 필요하면 원격 IAM, 보호 브랜치, 승인 시스템 같은 Core 외부 통제를 함께 사용하세요.
 

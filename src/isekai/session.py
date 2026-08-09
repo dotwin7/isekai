@@ -16,6 +16,7 @@ from .workflow.session import (
     discover_project,
     discover_unit,
     inception_session,
+    migrate_unit_context,
     resume_session,
     update_checkpoint,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "discover_project",
     "discover_unit",
     "inception_session",
+    "migrate_unit_context",
     "resume_session",
     "update_checkpoint",
 ]

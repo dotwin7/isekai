@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -20,6 +21,7 @@ from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
 CONTEXT_RECEIPT_NON_BINDING_FIELDS = {"receipt_id", "generated_at"}
+CONTEXT_RECEIPT_LOCATION_FIELDS = {"source_manifest"}
 
 
 def _context_receipt_id(receipt: dict[str, Any]) -> str:
@@ -31,6 +33,132 @@ def _context_receipt_id(receipt: dict[str, Any]) -> str:
     }
     digest_input = json.dumps(body, sort_keys=True, separators=(",", ":"))
     return "CTX-" + hashlib.sha256(digest_input.encode()).hexdigest()[:16]
+
+
+def _context_contract_value(field: str, value: Any) -> Any:
+    """Return the location-independent value used to compare Project contracts.
+
+    Context Receipts bind the full rule and extension payload, but filesystem
+    locations are locators rather than contract meaning.  Removing only the
+    generated ``source_path`` fields lets a Unit move with its Project without
+    weakening the ID, version, provenance, rule, or content comparisons.
+    """
+
+    if field != "extension_assets":
+        return value
+
+    if not isinstance(value, list):
+        return value
+    normalized: list[Any] = []
+    for extension in value:
+        if not isinstance(extension, dict):
+            normalized.append(extension)
+            continue
+        asset = dict(extension)
+        asset.pop("source_path", None)
+        normalized.append(asset)
+    return normalized
+
+
+def _context_contract_changed_fields(
+    receipt: dict[str, Any],
+    context: dict[str, Any],
+) -> list[str]:
+    """List semantic Project fields that changed, excluding path locators."""
+
+    binding_fields = sorted(
+        set(context)
+        - CONTEXT_RECEIPT_NON_BINDING_FIELDS
+        - CONTEXT_RECEIPT_LOCATION_FIELDS
+    )
+    return [
+        field
+        for field in binding_fields
+        if _context_contract_value(field, receipt.get(field))
+        != _context_contract_value(field, context.get(field))
+    ]
+
+
+def _portable_context_receipt(
+    receipt: dict[str, Any],
+    *,
+    project_root: Path,
+    unit_dir: Path,
+) -> dict[str, Any]:
+    """Bind a Context Receipt to portable, explicitly based path locators."""
+
+    portable = copy.deepcopy(receipt)
+    manifest = Path(str(receipt["source_manifest"])).expanduser().resolve()
+    try:
+        source_manifest = Path(os.path.relpath(manifest, start=unit_dir)).as_posix()
+        source_manifest_base = "unit"
+    except ValueError:  # pragma: no cover - different Windows drive letters
+        source_manifest = str(manifest)
+        source_manifest_base = "absolute"
+    portable["source_manifest"] = source_manifest
+    portable["source_manifest_base"] = source_manifest_base
+
+    extensions = portable.get("extension_assets")
+    if isinstance(extensions, list):
+        for extension in extensions:
+            if not isinstance(extension, dict):
+                continue
+            source_path = extension.get("source_path")
+            if not isinstance(source_path, str) or not source_path.strip():
+                continue
+            absolute_source = Path(source_path).expanduser().resolve()
+            try:
+                extension["source_path"] = absolute_source.relative_to(
+                    project_root.resolve()
+                ).as_posix()
+            except ValueError:
+                extension["source_path"] = str(absolute_source)
+
+    portable["receipt_id"] = _context_receipt_id(portable)
+    return portable
+
+
+def _receipt_source_manifest_path(
+    receipt: dict[str, Any],
+    *,
+    unit_dir: Path,
+    selected_project: Path | None = None,
+) -> Path:
+    """Resolve new portable and legacy Context Receipt manifest locators."""
+
+    source_manifest = receipt.get("source_manifest")
+    if not isinstance(source_manifest, str) or not source_manifest.strip():
+        raise ValueError("Context Receipt has no source_manifest")
+    portable_source = source_manifest.replace("\\", "/")
+    source_path = Path(portable_source).expanduser()
+    base = receipt.get("source_manifest_base")
+    if source_path.is_absolute() or base == "absolute":
+        return source_path.resolve()
+    if base == "unit":
+        return (unit_dir / source_path).resolve()
+    if base is not None:
+        raise ValueError("Context Receipt has an unsupported source_manifest_base")
+    # Legacy relative locators were normalized against the selected Project (or
+    # the caller's working directory when no Project was available). Prefer an
+    # explicitly selected Project. Authorization and verification only have the
+    # Unit path, so recover the nearest ancestor Project whose complete semantic
+    # context matches the bound Receipt instead of trusting process cwd.
+    if selected_project is not None:
+        return (selected_project.parent / source_path).resolve()
+    for parent in unit_dir.parents:
+        candidate = (parent / source_path).resolve()
+        if candidate.name != "project.json" or not candidate.is_file():
+            continue
+        try:
+            candidate_context = resolve_context(candidate, WorkRoute.UNIT)
+        except FoundationError:
+            continue
+        if not _context_contract_changed_fields(receipt, candidate_context):
+            return candidate
+    raise ValueError(
+        "legacy relative source_manifest cannot resolve the bound Project; "
+        "run unit-migrate with an explicit Project"
+    )
 
 
 def _load_json(

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError, load_foundation
-from isekai.session import SessionError, resume_session
+from isekai.session import SessionError, migrate_unit_context, resume_session
 from isekai.workflow import (
     UNIT_REQUIRED_FILES,
     RouteRequest,
@@ -339,8 +339,114 @@ def test_resume_rejects_unit_bound_to_a_different_project(tmp_path: Path) -> Non
     second = make_project(second_root)
     unit = initialize_unit(first, "First Project Unit", first.parent / "units")
 
-    with pytest.raises(SessionError, match="source_manifest does not match"):
+    second_manifest = json.loads(second.read_text(encoding="utf-8"))
+    second_manifest["id"] = "different-project"
+    second.write_text(json.dumps(second_manifest, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(SessionError, match="project_id does not match"):
         resume_session(second, unit)
+
+
+def test_portable_context_receipt_survives_project_move(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Portable Unit", project.parent / "units")
+    receipt = json.loads((unit / "context-receipt.json").read_text(encoding="utf-8"))
+
+    assert receipt["source_manifest_base"] == "unit"
+    assert receipt["source_manifest"] == "../../project.json"
+    assert receipt["extension_assets"][0]["source_path"] == (
+        "extension/reference-product.json"
+    )
+
+    unit_name = unit.name
+    moved_root = tmp_path / "moved-project"
+    project.parent.rename(moved_root)
+    moved_project = moved_root / "project.json"
+    moved_unit = moved_root / "units" / unit_name
+
+    resumed = resume_session(moved_project, moved_unit)
+
+    assert resumed["unit"]["path"] == str(moved_unit)
+    assert resumed["project"]["manifest"] == str(moved_project)
+
+
+def test_unit_context_migration_rebinds_legacy_paths_only(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Legacy Location", project.parent / "units")
+    receipt_path = unit / "context-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["source_manifest"] = str(project)
+    receipt.pop("source_manifest_base")
+    for extension in receipt["extension_assets"]:
+        extension["source_path"] = str(project.parent / extension["source_path"])
+    from isekai.workflow.project import _context_receipt_id
+
+    receipt["receipt_id"] = _context_receipt_id(receipt)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    unit_name = unit.name
+    moved_root = tmp_path / "migrated-project"
+    project.parent.rename(moved_root)
+    moved_project = moved_root / "project.json"
+    moved_unit = moved_root / "units" / unit_name
+    with pytest.raises(SessionError, match="source_manifest does not match"):
+        resume_session(moved_project, moved_unit)
+
+    migration = migrate_unit_context(moved_project, moved_unit)
+
+    assert migration["migrated"] is True
+    assert migration["source_manifest"] == "../../project.json"
+    assert migration["source_manifest_base"] == "unit"
+    assert resume_session(moved_project, moved_unit)["unit"]["path"] == str(moved_unit)
+
+
+def test_context_comparison_ignores_only_generated_extension_locator() -> None:
+    from isekai.workflow.project import _context_contract_value
+
+    first = [
+        {
+            "id": "extension",
+            "source_path": "/first/location.json",
+            "content": {"source_path": "semantic-source-a"},
+        }
+    ]
+    moved = [
+        {
+            "id": "extension",
+            "source_path": "/second/location.json",
+            "content": {"source_path": "semantic-source-a"},
+        }
+    ]
+    changed = [
+        {
+            "id": "extension",
+            "source_path": "/second/location.json",
+            "content": {"source_path": "semantic-source-b"},
+        }
+    ]
+
+    assert _context_contract_value("extension_assets", first) == (
+        _context_contract_value("extension_assets", moved)
+    )
+    assert _context_contract_value("extension_assets", first) != (
+        _context_contract_value("extension_assets", changed)
+    )
+
+
+def test_unit_context_migration_rejects_project_contract_changes(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Contract Change", project.parent / "units")
+    before = (unit / "context-receipt.json").read_bytes()
+    manifest = json.loads(project.read_text(encoding="utf-8"))
+    manifest["version"] = "0.2.0"
+    project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(SessionError, match="project_version"):
+        migrate_unit_context(project, unit)
+
+    assert (unit / "context-receipt.json").read_bytes() == before
 
 
 def test_foundation_readiness_reports_approved_baseline() -> None:

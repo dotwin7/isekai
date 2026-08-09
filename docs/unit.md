@@ -152,6 +152,8 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
 
 Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage에서 명령 직전에 발급된 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 진입 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. 정식 release 검증은 `validation` lifecycle 상태와 stage에서 실행한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
+Core는 테스트 명령을 직접 실행하는 runner가 아니다. 이 레코드는 Runtime host가 관찰해 제출한 attestation이며 Core는 그 구조, 최신 `test` grant, 시간 순서와 digest 결박의 일관성을 검증한다. command 입력에 원본 `output`이 포함되면 Core가 `output_digest`를 계산하지만, digest만 제출된 경우에는 그 값의 사실성을 독립적으로 재확인하지 않는다. 보안 경계에서 실행 사실까지 보증해야 한다면 보호된 CI, 서명된 host receipt 또는 별도 원격 실행 시스템의 검증 결과를 함께 사용한다.
+
 ## Execution Envelope
 
 Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 Intent를 바탕으로 Envelope를 제안할 수 있지만, 사람의 Inception Decision이 `execution-envelope.json`을 참조해 승인하기 전에는 Construction을 시작할 수 없다.

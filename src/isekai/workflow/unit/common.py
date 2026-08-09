@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -163,6 +164,25 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         issues.append("Context Receipt document_language does not match Unit")
     if receipt.get("route") != WorkRoute.UNIT.value:
         issues.append("Context Receipt route must be unit")
+    source_manifest = receipt.get("source_manifest")
+    if not isinstance(source_manifest, str) or not source_manifest.strip():
+        issues.append("Context Receipt source_manifest must be a non-empty string")
+    else:
+        portable_source = source_manifest.replace("\\", "/")
+        source_is_absolute = portable_source.startswith("/") or bool(
+            re.match(r"^[A-Za-z]:", portable_source)
+        )
+        source_base = receipt.get("source_manifest_base")
+        if source_base not in {None, "unit", "absolute"}:
+            issues.append("Context Receipt has an unsupported source_manifest_base")
+        elif source_base == "unit" and source_is_absolute:
+            issues.append(
+                "Context Receipt unit-based source_manifest must be relative"
+            )
+        elif source_base == "absolute" and not source_is_absolute:
+            issues.append(
+                "Context Receipt absolute source_manifest must be absolute"
+            )
     maximum_agent_level = receipt.get("maximum_agent_level")
     if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
         issues.append(

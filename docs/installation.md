@@ -55,4 +55,12 @@ bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11
 ./.isekai/bin/isekai rollback --path .
 ```
 
-`update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지한다. Foundation 변경은 diff와 사람 승인을 거쳐 `--include-foundation`을 명시해야 하며, 기존 외부 Foundation과 다르면 `--adopt-foundation`도 요구한다. update는 이전 managed install, lock, workspace Adapter, host 설정과 Project manifest snapshot 전체의 digest를 새 lock의 `rollback` 항목에 결박한다. rollback은 현재 설치와 이 snapshot digest를 모두 확인한 뒤에만 복원하고, 복원 과정에서 만드는 redo snapshot도 복원된 lock에 새 digest로 결박한다. digest가 없거나 달라진 legacy·변조 snapshot은 복원하지 않는다. 진행 중 Unit은 생성 당시 Foundation version과 contract digest를 유지하고, 현재 Project 계약과 다르면 명시적 migration 전까지 resume을 차단한다.
+`update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지한다. Foundation 변경은 diff와 사람 승인을 거쳐 `--include-foundation`을 명시해야 하며, 기존 외부 Foundation과 다르면 `--adopt-foundation`도 요구한다. update는 이전 managed install, lock, workspace Adapter, host 설정과 Project manifest snapshot 전체의 digest를 새 lock의 `rollback` 항목에 결박한다. rollback은 현재 설치와 이 snapshot digest를 모두 확인한 뒤에만 복원하고, 복원 과정에서 만드는 redo snapshot도 복원된 lock에 새 digest로 결박한다. digest가 없거나 달라진 legacy·변조 snapshot은 복원하지 않는다. 진행 중 Unit은 생성 당시 Foundation version과 contract digest를 유지하고, 현재 Project 계약과 다르면 별도로 검토된 contract migration 전까지 resume을 차단한다.
+
+새 Unit의 Context Receipt는 Unit 디렉터리 기준의 portable Project manifest locator와 Project 상대 Extension locator를 사용하므로 Project 디렉터리를 함께 이동하거나 clone해도 그대로 resume할 수 있다. 이전 버전의 절대 경로 Receipt나 Project와 별도로 이동한 외부 Unit은 계약 내용이 동일한 경우에만 다음 path-only migration으로 다시 결박한다.
+
+```bash
+./.isekai/bin/isekai unit-migrate --project . --unit units/<unit-id>
+```
+
+`unit-migrate`는 Project ID, Foundation version·digest, Profile, Extension 내용과 적용 규칙이 하나라도 달라지면 실패한다. Foundation 또는 Project 계약을 바꾸는 migration 명령이 아니며, 그러한 변경은 별도 Unit과 사람 검토가 필요하다.

@@ -8,7 +8,13 @@ from typing import Any
 
 from ..support.files import metadata_is_path_alias
 from ..support.jsonio import write_json_atomic
-from .project import resolve_context
+from .project import (
+    _context_contract_changed_fields,
+    _context_receipt_id,
+    _portable_context_receipt,
+    _receipt_source_manifest_path,
+    resolve_context,
+)
 from .routing import WorkRoute
 from .unit.common import (
     UNIT_LOCK_NAME,
@@ -252,12 +258,19 @@ def build_session(
             receipt = _unit_json(selected_unit, "context-receipt.json")
         except ValueError as exc:
             raise SessionError(str(exc)) from exc
-        source_manifest = receipt.get("source_manifest")
-        if (
-            not isinstance(source_manifest, str)
-            or not source_manifest.strip()
-            or Path(source_manifest).expanduser().resolve() != project_path.resolve()
-        ):
+        if receipt.get("receipt_id") != _context_receipt_id(receipt):
+            raise SessionError(
+                "Unit Context Receipt fingerprint does not match its bound context"
+            )
+        try:
+            receipt_manifest = _receipt_source_manifest_path(
+                receipt,
+                unit_dir=selected_unit,
+                selected_project=project_path,
+            )
+        except ValueError as exc:
+            raise SessionError(str(exc)) from exc
+        if receipt_manifest != project_path.resolve():
             raise SessionError(
                 f"Unit source_manifest does not match selected Project: {selected_unit}"
             )
@@ -265,29 +278,19 @@ def build_session(
         if status.get("foundation_version") != context.get("foundation_version"):
             raise SessionError(
                 "Unit Foundation version does not match the selected Project; "
-                "migrate the Unit explicitly before resuming it"
+                "use a separate reviewed contract migration before resuming it"
             )
         if status.get("foundation_digest") != context.get("foundation_digest"):
             raise SessionError(
                 "Unit Foundation contract digest does not match the selected Project; "
-                "migrate the Unit explicitly before resuming it"
+                "use a separate reviewed contract migration before resuming it"
             )
-        binding_fields = sorted(
-            set(context) - {"generated_at", "receipt_id", "source_manifest"}
-        )
-        changed_fields = [
-            field for field in binding_fields if receipt.get(field) != context.get(field)
-        ]
+        changed_fields = _context_contract_changed_fields(receipt, context)
         if changed_fields:
             raise SessionError(
                 "Unit Context Receipt does not match the selected Project fields: "
                 + ", ".join(changed_fields)
-                + "; migrate the Unit explicitly before resuming it"
-            )
-        if receipt.get("receipt_id") != context.get("receipt_id"):
-            raise SessionError(
-                "Unit Context Receipt fingerprint does not match the selected Project; "
-                "migrate the Unit explicitly before resuming it"
+                + "; unit-migrate only supports path relocation"
             )
         unit = _unit_ref(selected_unit, status)
     return {
@@ -323,6 +326,76 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
                 and not path.name.startswith(UNIT_LOCK_NAME)
             ),
         },
+    }
+
+
+def migrate_unit_context(
+    project: str | Path,
+    unit_dir: str | Path,
+) -> dict[str, Any]:
+    """Rebind only path locators after a Project and its Unit have moved.
+
+    Contract changes are intentionally rejected. Foundation, Profile, rule, and
+    extension migrations require a separate reviewed workflow; this action only
+    replaces machine-local filesystem locations with portable locators.
+    """
+
+    project_path = discover_project(project)
+    selected_unit = discover_unit(project_path, unit_dir)
+    if selected_unit is None:  # pragma: no cover - unit_dir is required by callers
+        raise SessionError("Unit directory is required for context migration")
+    context = resolve_context(project_path, WorkRoute.UNIT)
+    with unit_lock(selected_unit):
+        try:
+            unit = _unit_json(selected_unit, "unit.json")
+            receipt = _unit_json(selected_unit, "context-receipt.json")
+        except ValueError as exc:
+            raise SessionError(str(exc)) from exc
+        if receipt.get("receipt_id") != _context_receipt_id(receipt):
+            raise SessionError(
+                "Unit Context Receipt fingerprint does not match its bound context"
+            )
+        if unit.get("project_id") != context.get("project_id"):
+            raise SessionError("Unit project_id does not match selected Project")
+        if unit.get("foundation_version") != context.get("foundation_version"):
+            raise SessionError(
+                "Unit Foundation version does not match the selected Project; "
+                "path-only migration cannot change the Foundation contract"
+            )
+        if unit.get("foundation_digest") != context.get("foundation_digest"):
+            raise SessionError(
+                "Unit Foundation contract digest does not match the selected Project; "
+                "path-only migration cannot change the Foundation contract"
+            )
+
+        changed_fields = _context_contract_changed_fields(receipt, context)
+        if changed_fields:
+            raise SessionError(
+                "Unit Context Receipt has Project contract changes that path-only "
+                "migration cannot apply: "
+                + ", ".join(changed_fields)
+            )
+
+        migrated = _portable_context_receipt(
+            context,
+            project_root=project_path.parent,
+            unit_dir=selected_unit,
+        )
+        previous_receipt_id = receipt.get("receipt_id")
+        changed = migrated.get("receipt_id") != previous_receipt_id
+        if changed:
+            write_json_atomic(selected_unit / "context-receipt.json", migrated)
+            persisted = _unit_json(selected_unit, "context-receipt.json")
+            if persisted.get("receipt_id") != migrated.get("receipt_id"):
+                raise SessionError("Unit Context Receipt migration postflight failed")
+    return {
+        "migrated": changed,
+        "unit": str(selected_unit),
+        "project": str(project_path),
+        "previous_receipt_id": previous_receipt_id,
+        "receipt_id": migrated["receipt_id"],
+        "source_manifest": migrated["source_manifest"],
+        "source_manifest_base": migrated["source_manifest_base"],
     }
 
 

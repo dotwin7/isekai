@@ -53,6 +53,32 @@ def test_direct_status_alias_uses_project_context(tmp_path: Path, capsys) -> Non
     assert output["result"]["project"]["id"] == "test-project"
 
 
+def test_direct_unit_migrate_alias_uses_path_only_contract(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    from isekai.workflow import initialize_unit
+    from test_core_workflow import make_project
+
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Portable CLI Unit", project.parent / "units")
+
+    exit_code = main(
+        [
+            "unit-migrate",
+            "--project",
+            str(project),
+            "--unit",
+            str(unit),
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["action"] == "unit-migrate"
+    assert output["result"]["migrated"] is False
+
+
 def test_direct_on_and_off_aliases_expose_adapter_mode(
     tmp_path: Path, capsys
 ) -> None:
