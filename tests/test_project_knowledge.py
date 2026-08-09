@@ -92,7 +92,18 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
 
     first_candidate = _propose(source, "service-id-format-v1")
     first_reference = str(first_candidate["reference"])
+    pending = project_knowledge_status(project)
+    assert pending["candidates"][0]["status"] == "pending-decision"
+    assert pending["candidates"][0]["decision"]["outcome"] is None
+    assert pending["candidates"][0]["source_unit"] == {
+        "base": "project",
+        "path": str(source.relative_to(project.parent)),
+    }
     _approve(source, first_reference)
+    approved = project_knowledge_status(project)
+    assert approved["candidates"][0]["status"] == "approved"
+    assert approved["candidates"][0]["decision"]["outcome"] == "approved"
+    assert approved["candidates"][0]["decision"]["current_for_promotion"] is True
     first_release = promote_project_knowledge(
         source, candidate=first_reference
     )["release"]
@@ -144,7 +155,10 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
     status = project_knowledge_status(project)
     assert status["current_release"]["version"] == "0.1.1"
     assert status["candidate_status_counts"] == {
-        "unpromoted": 0,
+        "pending-decision": 0,
+        "approved": 0,
+        "rejected": 0,
+        "stale": 0,
         "promoted": 2,
         "invalid": 0,
     }
@@ -152,6 +166,15 @@ def test_project_knowledge_is_pinned_per_unit_and_latest_is_used_by_future_units
         "promoted",
         "promoted",
     ]
+    assert status["schema_compatibility"] == {
+        "catalog_schema_version": "1.0.0",
+        "readable_schema_versions": ["1.0.0"],
+        "write_schema_version": "1.0.0",
+        "migration_required": False,
+        "automatic_migration": False,
+        "unknown_schema_policy": "fail-closed",
+        "unit_receipt_policy": "pinned-receipts-are-never-auto-rewritten",
+    }
 
 
 def test_new_unit_receives_only_active_knowledge_overlapping_its_scope(
@@ -257,6 +280,12 @@ def test_candidate_becomes_stale_after_another_release_is_promoted(
 
     with pytest.raises(IntegrityError, match="candidate is stale"):
         _approve(source, str(stale["reference"]))
+    statuses = {
+        candidate["id"]: candidate["status"]
+        for candidate in project_knowledge_status(project)["candidates"]
+    }
+    assert statuses[stale["candidate"]["id"]] == "stale"
+    assert statuses[winner["candidate"]["id"]] == "promoted"
 
 
 def test_rejected_knowledge_decision_cannot_promote_candidate(tmp_path: Path) -> None:
@@ -279,6 +308,9 @@ def test_rejected_knowledge_decision_cannot_promote_candidate(tmp_path: Path) ->
 
     with pytest.raises(LifecycleError, match="latest knowledge Decision"):
         promote_project_knowledge(source, candidate=reference)
+    candidate = project_knowledge_status(project)["candidates"][0]
+    assert candidate["status"] == "rejected"
+    assert candidate["decision"]["outcome"] == "rejected"
 
 
 def test_candidate_scope_must_be_project_relative(tmp_path: Path) -> None:

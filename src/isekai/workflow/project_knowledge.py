@@ -8,9 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from ..support.files import UnsafeControlFile, read_control_file
-from ..support.jsonio import write_json_atomic
+from ..support.jsonio import write_bytes_atomic, write_json_atomic
 from ..support.locking import file_lock
 from .errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
+from .project_knowledge_observability import (
+    CANDIDATE_STATUSES,
+    candidate_status_details,
+)
 from .project_knowledge_schema import (
     CANDIDATE_REFERENCE as _CANDIDATE_REFERENCE,
     PROJECT_KNOWLEDGE_SCHEMA_VERSION,
@@ -21,6 +25,7 @@ from .project_knowledge_schema import (
     entry_issues as _entry_issues,
     receipt_issues as project_knowledge_receipt_issues,
     release_digest as _release_digest,
+    schema_compatibility,
     select_release_context,
     summarize_release,
 )
@@ -195,6 +200,14 @@ def _candidate_reference(candidate_id: str) -> str:
     return f"{PROJECT_KNOWLEDGE_ROOT}/candidates/{candidate_id}.json"
 
 
+def _source_unit_locator(unit_dir: Path, project_root: Path) -> dict[str, Any]:
+    try:
+        relative = unit_dir.relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return {"base": "external", "path": None}
+    return {"base": "project", "path": relative}
+
+
 def load_project_knowledge_candidate(
     unit_dir: Path,
     reference: str,
@@ -320,6 +333,7 @@ def propose_project_knowledge(
                 "schema_version": PROJECT_KNOWLEDGE_SCHEMA_VERSION,
                 "project_id": project_id,
                 "source_unit_id": unit["id"],
+                "source_unit": _source_unit_locator(unit_dir, project_root),
                 "base_release_digest": current.get("release_digest") if current else None,
                 "proposed_by": proposed_by.strip(),
                 "proposed_at": now.isoformat(),
@@ -333,7 +347,24 @@ def propose_project_knowledge(
             candidate_path = candidates / f"{candidate_id}.json"
             if candidate_path.exists():  # pragma: no cover - UUID collision
                 raise IntegrityError("Project Knowledge candidate id collision")
-            write_json_atomic(candidate_path, candidate)
+            try:
+                write_json_atomic(candidate_path, candidate)
+                persisted = _safe_json(
+                    candidate_path,
+                    root=project_root,
+                    label="Project Knowledge candidate postflight",
+                )
+                if persisted.get("candidate_digest") != candidate["candidate_digest"]:
+                    raise IntegrityError("Project Knowledge candidate postflight failed")
+            except Exception as exc:
+                try:
+                    candidate_path.unlink(missing_ok=True)
+                except OSError as rollback_exc:  # pragma: no cover - secondary I/O failure
+                    raise IntegrityError(
+                        "Project Knowledge proposal failed and candidate rollback failed: "
+                        + str(rollback_exc)
+                    ) from exc
+                raise
     return {
         "candidate": candidate,
         "reference": _candidate_reference(candidate_id),
@@ -445,95 +476,37 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
             }
             updated["catalog_digest"] = _catalog_digest(updated)
             _managed_directory(project_root, PROJECT_KNOWLEDGE_ROOT, create=True)
-            write_json_atomic(project_root / PROJECT_KNOWLEDGE_CATALOG, updated)
-            persisted = _load_catalog(project_root, project_id)
-            if persisted is None or persisted.get("catalog_digest") != updated["catalog_digest"]:
-                raise IntegrityError("Project Knowledge promotion postflight failed")
+            catalog_path = project_root / PROJECT_KNOWLEDGE_CATALOG
+            catalog_before = (
+                read_control_file(
+                    catalog_path,
+                    root=project_root,
+                    label="Project Knowledge catalog snapshot",
+                )
+                if catalog is not None
+                else None
+            )
+            try:
+                write_json_atomic(catalog_path, updated)
+                persisted = _load_catalog(project_root, project_id)
+                if (
+                    persisted is None
+                    or persisted.get("catalog_digest") != updated["catalog_digest"]
+                ):
+                    raise IntegrityError("Project Knowledge promotion postflight failed")
+            except Exception as exc:
+                try:
+                    if catalog_before is None:
+                        catalog_path.unlink(missing_ok=True)
+                    else:
+                        write_bytes_atomic(catalog_path, catalog_before)
+                except Exception as restore_exc:  # pragma: no cover - secondary I/O failure
+                    raise IntegrityError(
+                        "Project Knowledge promotion failed and catalog rollback failed: "
+                        + str(restore_exc)
+                    ) from exc
+                raise
     return {"promoted": True, "release": release, "catalog": PROJECT_KNOWLEDGE_CATALOG}
-
-
-def _candidate_status_details(
-    project_root: Path,
-    project_id: str,
-    catalog: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    candidates_path = project_root / f"{PROJECT_KNOWLEDGE_ROOT}/candidates"
-    if not candidates_path.exists() and not candidates_path.is_symlink():
-        return []
-    _managed_directory(
-        project_root, f"{PROJECT_KNOWLEDGE_ROOT}/candidates", create=False
-    )
-    promoted = {
-        release.get("source_candidate_id"): {
-            "id": release.get("id"),
-            "version": release.get("version"),
-            "digest": release.get("release_digest"),
-        }
-        for release in (catalog.get("releases", []) if catalog else [])
-        if isinstance(release, dict)
-    }
-    details: list[dict[str, Any]] = []
-    for path in sorted(candidates_path.iterdir()):
-        reference = f"{PROJECT_KNOWLEDGE_ROOT}/candidates/{path.name}"
-        match = _CANDIDATE_REFERENCE.fullmatch(reference)
-        if match is None or not path.is_file() or path.is_symlink():
-            continue
-        try:
-            candidate = _safe_json(
-                path, root=project_root, label="Project Knowledge candidate"
-            )
-        except IntegrityError as exc:
-            details.append(
-                {
-                    "id": match.group(1),
-                    "reference": reference,
-                    "status": "invalid",
-                    "issues": [str(exc)],
-                    "promoted_release": None,
-                }
-            )
-            continue
-        source_unit_id = candidate.get("source_unit_id")
-        candidate_issues = _candidate_issues(
-            candidate,
-            project_id=project_id,
-            unit_id=str(source_unit_id),
-        )
-        if candidate.get("id") != match.group(1):
-            candidate_issues.append(
-                "Project Knowledge candidate id does not match its path"
-            )
-        promoted_release = promoted.get(candidate.get("id"))
-        status = (
-            "invalid"
-            if candidate_issues
-            else "promoted"
-            if promoted_release is not None
-            else "unpromoted"
-        )
-        entries = candidate.get("entries")
-        details.append(
-            {
-                "id": candidate.get("id"),
-                "reference": reference,
-                "source_unit_id": source_unit_id,
-                "proposed_by": candidate.get("proposed_by"),
-                "proposed_at": candidate.get("proposed_at"),
-                "base_release_digest": candidate.get("base_release_digest"),
-                "candidate_digest": candidate.get("candidate_digest"),
-                "entry_ids": [
-                    entry.get("id")
-                    for entry in entries
-                    if isinstance(entry, dict)
-                ]
-                if isinstance(entries, list)
-                else [],
-                "status": status,
-                "issues": candidate_issues,
-                "promoted_release": promoted_release,
-            }
-        )
-    return details
 
 
 def project_knowledge_status(path: str | Path = ".") -> dict[str, Any]:
@@ -542,12 +515,16 @@ def project_knowledge_status(path: str | Path = ".") -> dict[str, Any]:
     manifest, project, _foundation, _extensions = load_project(path)
     catalog = _load_catalog(manifest.parent, str(project["id"]))
     current = catalog["releases"][-1] if catalog and catalog["releases"] else None
-    candidates = _candidate_status_details(
-        manifest.parent, str(project["id"]), catalog
+    candidates = candidate_status_details(
+        manifest.parent,
+        str(project["id"]),
+        catalog,
+        knowledge_root=PROJECT_KNOWLEDGE_ROOT,
+        validate_sources=_validate_candidate_sources,
     )
     status_counts = {
         status: sum(candidate["status"] == status for candidate in candidates)
-        for status in ("unpromoted", "promoted", "invalid")
+        for status in CANDIDATE_STATUSES
     }
     return {
         "project_id": project["id"],
@@ -556,6 +533,7 @@ def project_knowledge_status(path: str | Path = ".") -> dict[str, Any]:
         "candidate_count": len(candidates),
         "candidate_status_counts": status_counts,
         "candidates": candidates,
+        "schema_compatibility": schema_compatibility(),
     }
 
 

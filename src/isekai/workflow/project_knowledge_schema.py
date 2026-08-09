@@ -8,6 +8,8 @@ from typing import Any
 
 
 PROJECT_KNOWLEDGE_SCHEMA_VERSION = "1.0.0"
+PROJECT_KNOWLEDGE_READABLE_SCHEMA_VERSIONS = ("1.0.0",)
+PROJECT_KNOWLEDGE_WRITE_SCHEMA_VERSION = "1.0.0"
 PROJECT_KNOWLEDGE_KINDS = {"term", "convention", "guidance", "decision"}
 CANDIDATE_REFERENCE = re.compile(
     r"project-knowledge/candidates/(PKC-[A-Z0-9-]+)\.json"
@@ -224,9 +226,16 @@ def candidate_issues(candidate: Any, *, project_id: str, unit_id: str) -> list[s
         "source_artifacts",
         "candidate_digest",
     }
+    allowed = required | {"source_unit"}
     missing = sorted(required - candidate.keys())
     if missing:
         issues.append("Project Knowledge candidate missing fields: " + ", ".join(missing))
+    unexpected = sorted(set(candidate) - allowed)
+    if unexpected:
+        issues.append(
+            "Project Knowledge candidate has unsupported fields: "
+            + ", ".join(unexpected)
+        )
     if candidate.get("type") != "project-knowledge-candidate":
         issues.append("Project Knowledge candidate has an invalid type")
     if candidate.get("schema_version") != PROJECT_KNOWLEDGE_SCHEMA_VERSION:
@@ -235,6 +244,37 @@ def candidate_issues(candidate: Any, *, project_id: str, unit_id: str) -> list[s
         issues.append("Project Knowledge candidate project_id does not match Project")
     if candidate.get("source_unit_id") != unit_id:
         issues.append("Project Knowledge candidate source_unit_id does not match Unit")
+    source_unit = candidate.get("source_unit")
+    if source_unit is not None:
+        if not isinstance(source_unit, dict):
+            issues.append("Project Knowledge candidate source_unit must be an object")
+        else:
+            base = source_unit.get("base")
+            locator = source_unit.get("path")
+            if set(source_unit) != {"base", "path"}:
+                issues.append("Project Knowledge candidate source_unit fields are invalid")
+            if base == "project":
+                if not isinstance(locator, str) or not locator.strip():
+                    issues.append(
+                        "project-relative Project Knowledge source_unit requires path"
+                    )
+                else:
+                    normalized = locator.replace("\\", "/")
+                    if (
+                        normalized.startswith("/")
+                        or re.match(r"^[A-Za-z]:", normalized)
+                        or ".." in normalized.split("/")
+                    ):
+                        issues.append(
+                            "Project Knowledge source_unit path must be project-relative"
+                        )
+            elif base == "external":
+                if locator is not None:
+                    issues.append(
+                        "external Project Knowledge source_unit cannot persist a machine path"
+                    )
+            else:
+                issues.append("Project Knowledge candidate source_unit base is invalid")
     entries = candidate.get("entries")
     if not isinstance(entries, list) or not entries:
         issues.append("Project Knowledge candidate entries must be a non-empty list")
@@ -452,3 +492,16 @@ def receipt_issues(value: Any, *, project_id: str) -> list[str]:
     if isinstance(value, dict) and value.get("type") == "project-knowledge-release":
         return release_issues(value, project_id=project_id)
     return context_issues(value, project_id=project_id)
+
+
+def schema_compatibility() -> dict[str, Any]:
+    """Expose the fail-closed schema evolution contract to adapters and operators."""
+    return {
+        "catalog_schema_version": PROJECT_KNOWLEDGE_SCHEMA_VERSION,
+        "readable_schema_versions": list(PROJECT_KNOWLEDGE_READABLE_SCHEMA_VERSIONS),
+        "write_schema_version": PROJECT_KNOWLEDGE_WRITE_SCHEMA_VERSION,
+        "migration_required": False,
+        "automatic_migration": False,
+        "unknown_schema_policy": "fail-closed",
+        "unit_receipt_policy": "pinned-receipts-are-never-auto-rewritten",
+    }

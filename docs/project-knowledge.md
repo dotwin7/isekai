@@ -44,6 +44,7 @@ project-knowledge/
 ```
 
 - Candidate는 덮어쓰지 않는 제안 기록이다.
+- 새 Candidate는 Project-local source Unit의 portable locator를 digest에 포함한다. Project 밖의 Unit은 machine path를 저장하지 않고 `external`로 표시해 clone에 로컬 절대 경로를 유출하지 않는다.
 - `catalog.json`은 release 전체 이력과 digest chain을 가진 단일 원자적 원장이다.
 - 최초 release는 `0.1.0`, 이후 승격은 patch version을 증가시킨다.
 - 기존 항목은 같은 ID로 수정하지 않는다. 새 ID와 `replaces`를 사용하면 이전 항목은 `deprecated`로 남고 새 항목이 `approved`가 된다.
@@ -57,7 +58,15 @@ Git 저장소 안의 이 파일들이 프로젝트 원장이다. 중앙 Knowledg
 
 Receipt의 `selection`은 선택 mode, Unit work scope, 전체 활성 항목 수와 선택된 항목 수를 기록하고 `context_digest`가 결과를 결박한다. Project Knowledge가 갱신되어도 진행 중이거나 완료된 Unit의 Receipt는 바뀌지 않으며 새 Unit만 최신 release에서 다시 선택한다.
 
-선택된 Unit의 `status`와 `resume`은 현재 catalog가 아니라 해당 Receipt의 scope-selected 고정본을 반환한다. Unit을 선택하지 않은 `on`·Project status·`resolve`는 release ID·version·digest와 활성·폐기 항목 수만 반환해 전체 지식을 프롬프트에 주입하지 않는다. Unit Envelope로 `project-knowledge/`를 직접 읽거나 수정하거나 테스트하는 authorization은 거부한다. Project 범위에서 전체 최신 상태를 명시적으로 보려면 Core의 `project-knowledge-status`를 사용한다. 이 응답은 candidate별 ID, 출처 Unit, 항목 ID, digest, `unpromoted|promoted|invalid` 상태, 승격 release와 검증 문제를 함께 보여 준다. 이 경계 덕분에 형제 Unit을 직접 읽지 않고도 승인된 공통 지식만 후속 Unit에 전달된다.
+선택된 Unit의 `status`와 `resume`은 현재 catalog가 아니라 해당 Receipt의 scope-selected 고정본을 반환한다. Unit을 선택하지 않은 `on`·Project status·`resolve`는 release ID·version·digest와 활성·폐기 항목 수만 반환해 전체 지식을 프롬프트에 주입하지 않는다. Unit Envelope로 `project-knowledge/`를 직접 읽거나 수정하거나 테스트하는 authorization은 거부한다. Project 범위에서 전체 최신 상태를 명시적으로 보려면 Core의 `project-knowledge-status`를 사용한다.
+
+이 응답은 candidate와 source Unit의 Decision ledger를 결합해 `pending-decision`, `approved`, `rejected`, `stale`, `promoted`, `invalid`를 구분한다. Candidate가 Project 밖 Unit에서 왔거나 legacy locator를 복구할 수 없으면 Decision은 `available: false`로 표시하며 승인 상태를 추측하지 않는다. 응답은 연결 Decision·release, 검증 문제와 schema 호환 정책도 함께 제공한다.
+
+## Schema와 동시성
+
+현재 catalog·candidate·Context schema의 읽기·쓰기 버전은 `1.0.0`이다. `project-knowledge-status.schema_compatibility`는 읽을 수 있는 버전, 현재 쓰기 버전, migration 필요 여부, unknown schema의 fail-closed 정책을 기계적으로 공개한다. Core는 Unit Receipt를 자동 재작성하지 않는다. 향후 schema migration은 지원하는 source→target 변환, 사람 검토와 rollback을 먼저 구현한 뒤에만 별도 명시적 작업으로 추가한다.
+
+모든 candidate 생성과 catalog 승격은 Unit lock 다음 Project Knowledge lock 순서로 직렬화한다. 서로 다른 Unit이 같은 base release에서 동시에 승격하면 한 candidate만 성공하고 나머지는 `stale`이 된다. Candidate write·postflight가 실패하면 부분 candidate를 제거한다. Catalog write나 postflight가 실패하면 승격 전 bytes를 복원하며, 최초 catalog 생성 실패라면 부분 catalog를 제거한다.
 
 ## CLI 예시
 
