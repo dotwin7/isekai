@@ -3,14 +3,16 @@
   "protocol_version": "1.1.0",
   "runtime_contract": {
     "high_risk_actions": [],
-      "human_decision_actions": [
-        "amend",
-        "active-unit-detach",
+    "human_decision_actions": [
+      "amend",
+      "active-unit-detach",
       "decision",
       "foundation-decision",
       "foundation-promote"
     ],
-    "external_agent_actions": ["external-api"],
+    "external_agent_actions": [
+      "external-api"
+    ],
     "credential_handling": "opaque-reference-resolved-by-host"
   },
   "trust_model": {
@@ -28,11 +30,11 @@
       "host secret broker and output redaction"
     ]
   },
-  "feature_model": {
-    "unit": "versioned-isekai-feature",
-    "distribution": "core-bundled-or-feature-package",
+  "catalog_model": {
+    "unit": "versioned-isekai-catalog-entry",
+    "distribution": "core-bundled-or-catalog-package",
     "exposure": "project-local-core-mcp-control-plane",
-    "context_binding": "sha256-feature-catalog-and-package-digests",
+    "context_binding": "sha256-catalog-and-package-digests",
     "project_ownership": "not-a-product-extension",
     "permission_effect": "cannot-expand-foundation-project-or-unit-authority"
   },
@@ -53,7 +55,9 @@
       "id": "kiro",
       "cli": "kiro-cli",
       "tested_versions": [],
-      "legacy_versions": ["2.14.2"],
+      "legacy_versions": [
+        "2.14.2"
+      ],
       "evidence_refs": [
         "OBS-20260809-KIRO-2.16.2",
         "OBS-20260808-KIRO-UNAVAILABLE",
@@ -65,29 +69,56 @@
         "Kiro CLI 2.1+ Skill slash-command capability",
         "Kiro CLI headless and tool-trust capability"
       ],
-      "core_checks": ["status", "resume", "verify"]
+      "core_checks": [
+        "status",
+        "resume",
+        "verify"
+      ]
     },
     {
       "id": "claude",
       "cli": "claude",
       "tested_versions": [],
-      "legacy_versions": ["2.1.220"],
-      "evidence_refs": ["OBS-20260809-CLAUDE-2.1.224", "LEGACY-CLAUDE-2.1.220"],
+      "legacy_versions": [
+        "2.1.220"
+      ],
+      "evidence_refs": [
+        "OBS-20260809-CLAUDE-2.1.224",
+        "LEGACY-CLAUDE-2.1.220"
+      ],
       "surface": "project-skill",
       "host_checks": [
         "project Skill frontmatter and documented path"
       ],
-      "core_checks": ["status", "resume", "verify"]
+      "core_checks": [
+        "status",
+        "resume",
+        "verify"
+      ]
     },
     {
       "id": "codex",
       "cli": "codex",
-      "tested_versions": ["0.147.0"],
-      "legacy_versions": ["0.146.0"],
-      "evidence_refs": ["OBS-20260808-CODEX-0.147.0", "LEGACY-CODEX-0.146.0"],
+      "tested_versions": [
+        "0.147.0"
+      ],
+      "legacy_versions": [
+        "0.146.0"
+      ],
+      "evidence_refs": [
+        "OBS-20260808-CODEX-0.147.0",
+        "LEGACY-CODEX-0.146.0"
+      ],
       "surface": "repo-skill",
-      "host_checks": ["repo Skill injection", "codex exec two-turn activation and intake"],
-      "core_checks": ["status", "resume", "verify"]
+      "host_checks": [
+        "repo Skill injection",
+        "codex exec two-turn activation and intake"
+      ],
+      "core_checks": [
+        "status",
+        "resume",
+        "verify"
+      ]
     }
   ],
   "observations": [
@@ -143,7 +174,9 @@
       "evidence_strength": "attested-summary",
       "observed_on": "2026-08-08",
       "source_ref": "docs/live-smoke.md#2026-08-08-observation",
-      "checks": ["local Kiro application and CLI were unavailable"]
+      "checks": [
+        "local Kiro application and CLI were unavailable"
+      ]
     },
     {
       "id": "LEGACY-CODEX-0.146.0",
@@ -153,7 +186,9 @@
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
       "source_ref": "runtime/adapters/codex/README.md",
-      "checks": ["historical verified-baseline claim retained for provenance"]
+      "checks": [
+        "historical verified-baseline claim retained for provenance"
+      ]
     },
     {
       "id": "LEGACY-CLAUDE-2.1.220",
@@ -163,7 +198,9 @@
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
       "source_ref": "runtime/adapters/claude/README.md",
-      "checks": ["historical verified-baseline claim retained for provenance"]
+      "checks": [
+        "historical verified-baseline claim retained for provenance"
+      ]
     },
     {
       "id": "LEGACY-KIRO-2.14.2",
@@ -173,7 +210,9 @@
       "evidence_strength": "repository-claim-without-linked-raw-evidence",
       "observed_on": null,
       "source_ref": "runtime/adapters/kiro/README.md",
-      "checks": ["historical verified-baseline claim retained for provenance"]
+      "checks": [
+        "historical verified-baseline claim retained for provenance"
+      ]
     }
   ]
 }

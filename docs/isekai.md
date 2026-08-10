@@ -45,7 +45,7 @@ ISEKAI는 다음 구성으로 이루어진다.
 | Engineering Foundation | 범용 Core, Domain Profile과 개발·운영·Agent·Policy·평가 공통 규칙 |
 | Persistent Context | Unit, Decision, Evidence, Receipt, Checkpoint |
 | Agent Integration | 기존 에이전트를 교체 가능한 실행 엔진으로 연결 |
-| ISEKAI Features | 이세카이가 제공하는 현재·향후 기능을 Project-local MCP 통제면에 연결하는 공통 Catalog |
+| ISEKAI Catalog | 이세카이가 제공하는 현재·향후 기능을 Project-local MCP 통제면에 연결하는 공통 Catalog |
 | Security Applications | 범용 AI-DLC와 Domain Profile을 보안 제품·서비스에 적용 |
 
 ```text
@@ -74,20 +74,27 @@ Local ISEKAI Core gateway
 Foundation + Project + Unit artifacts
 ```
 
-Core는 직접 CLI dispatch와 Project-local stdio MCP server를 함께 제공한다. 프로젝트 Runtime Skill이 Host 명령 표면을 담당하므로 전역 Plugin 설치는 필요하지 않다. Core는 공통 Feature discovery·compatibility·authorization과 action routing을 담당한다. ISEKAI가 제공하는 기능은 Feature Catalog에 등록되고 각 controller가 동작을 소유한다. Product Extension은 제품 계약만 확장하며 ISEKAI 추가 기능의 배포 수단이 아니다.
+Core는 직접 CLI dispatch와 Project-local stdio MCP server를 함께 제공한다. 프로젝트 Runtime Skill이 Host 명령 표면을 담당하므로 전역 Plugin 설치는 필요하지 않다. Core는 공통 Catalog discovery·compatibility·authorization과 action routing을 담당한다. ISEKAI가 제공하는 기능은 Catalog에 등록되고 각 controller가 동작을 소유한다. Product Extension은 제품 계약만 확장하며 ISEKAI 추가 기능의 배포 수단이 아니다.
 
 ## 5. 문서 맵
+
+### 플랫폼
 
 | 문서 | 내용 |
 |---|---|
 | [architecture.md](architecture.md) | Core 내부 모듈 경계, Project bootstrap과 discovery |
 | [installation.md](installation.md) | Git release 설치, 프로젝트 버전 고정, update·rollback |
-| [workflow.md](workflow.md) | Query·Quick Change·Unit 작업 라우팅과 AWS형 AI-DLC 수명주기 |
-| [unit.md](unit.md) | Unit 구조, 인간 게이트, Decision·Evidence·Execution Envelope, 원장 동시성 |
-| [project-knowledge.md](project-knowledge.md) | Unit 학습의 후보·승인·승격과 후속 Unit별 버전 고정 |
+| [catalog.md](catalog.md) | ISEKAI Catalog·패키지와 공통 MCP 통제면 |
 | [foundation.md](foundation.md) | Engineering Foundation 계층, Security Profile, v0.1 완료 조건과 승인 절차 |
+| [project-knowledge.md](project-knowledge.md) | Unit 학습의 후보·승인·승격과 후속 Unit별 버전 고정 |
 | [information-model.md](information-model.md) | 범용 Data·Semantic·Knowledge Model과 Persistent Context |
 | [agent-integration.md](agent-integration.md) | Runtime Adapter, 세션 모드, 실행 통제 |
-| [features.md](features.md) | ISEKAI Feature Catalog·패키지와 공통 MCP 통제면 |
 | [live-smoke.md](live-smoke.md) | 실제 Runtime Skill 발견, 활성화, intake와 Golden Path 검증 |
 | [roadmap.md](roadmap.md) | 제품·서비스 적용, 단계적 구현, 백로그, 성공 기준, 책임, 지표, 비목표, 남은 결정 |
+
+### AI-DLC
+
+| 문서 | 내용 |
+|---|---|
+| [ai-dlc/workflow.md](ai-dlc/workflow.md) | Query·Quick Change·Unit 작업 라우팅과 AI-DLC 수명주기 |
+| [ai-dlc/unit.md](ai-dlc/unit.md) | Unit 구조, 인간 게이트, Decision·Evidence·Execution Envelope, 원장 동시성 |

@@ -28,11 +28,11 @@
       "host secret broker and output redaction"
     ]
   },
-  "feature_model": {
-    "unit": "versioned-isekai-feature",
-    "distribution": "core-bundled-or-feature-package",
+  "catalog_model": {
+    "unit": "versioned-isekai-catalog-entry",
+    "distribution": "core-bundled-or-catalog-package",
     "exposure": "project-local-core-mcp-control-plane",
-    "context_binding": "sha256-feature-catalog-and-package-digests",
+    "context_binding": "sha256-catalog-and-package-digests",
     "project_ownership": "not-a-product-extension",
     "permission_effect": "cannot-expand-foundation-project-or-unit-authority"
   },
@@ -63,7 +63,7 @@
     "route",
     "inception",
     "compatibility",
-    "feature-status",
+    "catalog-status",
     "release-check",
     "foundation-decision",
     "foundation-evidence",

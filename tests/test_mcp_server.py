@@ -58,7 +58,7 @@ def test_mcp_server_advertises_only_core_mediated_write_tools(
     names = {tool["name"] for tool in responses[1]["result"]["tools"]}
     assert names == {
         "runtime_action",
-        "feature_catalog",
+        "catalog",
         "managed_edit",
         "artifact_write",
         "managed_test",
@@ -128,7 +128,7 @@ def test_mcp_server_rejects_unit_from_another_project(tmp_path: Path) -> None:
     assert "different Project" in response["result"]["content"][0]["text"]
 
 
-def test_mcp_server_refuses_tools_after_host_profile_tampering(
+def test_mcp_server_refuses_tools_after_host_custody_tampering(
     tmp_path: Path,
 ) -> None:
     project = project_with_profile(tmp_path)
@@ -159,7 +159,7 @@ def test_mcp_server_refuses_tools_after_host_profile_tampering(
     assert "execution guard changed" in response["result"]["content"][0]["text"]
 
 
-def test_mcp_exposes_isekai_feature_catalog_and_resources(
+def test_mcp_exposes_isekai_catalog_and_resources(
     tmp_path: Path,
 ) -> None:
     project = project_with_profile(tmp_path)
@@ -170,19 +170,19 @@ def test_mcp_exposes_isekai_feature_catalog_and_resources(
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "feature_catalog", "arguments": {}},
+            "params": {"name": "catalog", "arguments": {}},
         }
     )
     resources_response = server.handle(
         {"jsonrpc": "2.0", "id": 2, "method": "resources/list"}
     )
-    feature_response = server.handle(
+    resource_response = server.handle(
         {
             "jsonrpc": "2.0",
             "id": 3,
             "method": "resources/read",
             "params": {
-                "uri": "isekai://runtime/features/ai-dlc"
+                "uri": "isekai://runtime/catalog/ai-dlc"
             },
         }
     )
@@ -190,12 +190,12 @@ def test_mcp_exposes_isekai_feature_catalog_and_resources(
     assert catalog_response is not None
     assert catalog_response["result"]["isError"] is False
     catalog = catalog_response["result"]["structuredContent"]["result"]
-    assert {feature["id"] for feature in catalog["features"]} == {"ai-dlc"}
+    assert {entry["id"] for entry in catalog["entries"]} == {"ai-dlc"}
     assert resources_response is not None
     uris = {
         item["uri"] for item in resources_response["result"]["resources"]
     }
-    assert "isekai://runtime/features/ai-dlc" in uris
-    assert feature_response is not None
-    feature = json.loads(feature_response["result"]["contents"][0]["text"])
-    assert feature["id"] == "ai-dlc"
+    assert "isekai://runtime/catalog/ai-dlc" in uris
+    assert resource_response is not None
+    catalog_entry = json.loads(resource_response["result"]["contents"][0]["text"])
+    assert catalog_entry["id"] == "ai-dlc"

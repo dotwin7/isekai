@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..support.files import UnsafeControlFile, metadata_is_path_alias, read_control_file
-from .errors import IntegrityError
+from isekai.support.errors import IntegrityError
 
 
 def safe_project_json(path: Path, *, root: Path, label: str) -> dict[str, Any]:

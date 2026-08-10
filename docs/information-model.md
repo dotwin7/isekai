@@ -41,7 +41,7 @@ Core는 도메인별 이름 대신 재사용 가능한 최소 추상 계약만 �
 
 ## Domain Profile과 Product Extension
 
-Domain Profile은 Core를 전문화하는 용어·관계·제약·Semantic mapping 묶음이다. Product Extension은 해당 Profile을 변경하지 않고 제품 전용 필드·워크플로·지표를 namespace 아래 추가한다. ISEKAI가 제공하는 Runtime 기능은 Product Extension과 분리된 [ISEKAI Feature Catalog](features.md)가 소유한다.
+Domain Profile은 Core를 전문화하는 용어·관계·제약·Semantic mapping 묶음이다. Product Extension은 해당 Profile을 변경하지 않고 제품 전용 필드·워크플로·지표를 namespace 아래 추가한다. ISEKAI가 제공하는 Runtime 기능은 Product Extension과 분리된 [ISEKAI Catalog](catalog.md)가 소유한다.
 
 ```text
 Security Profile: Asset, Identity, Event, Alert, Case, Finding, Control

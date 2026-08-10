@@ -5,113 +5,146 @@ from pathlib import Path
 
 import pytest
 
-import isekai.workflow.features as feature_module
+import isekai.workflow.catalog as catalog_module
 from isekai.foundation import FoundationError
 from isekai.runtime_contract import dispatch
 from isekai.workflow import (
-    feature_resources,
-    load_feature_catalog,
-    read_feature_resource,
+    catalog_resources,
+    load_catalog,
+    read_catalog_resource,
     resolve_context,
 )
 
 from test_core_workflow import make_project
 
 
-def test_feature_catalog_contains_active_ai_dlc() -> None:
-    catalog = load_feature_catalog()
-    features = {feature["id"]: feature for feature in catalog["features"]}
+def test_catalog_contains_active_ai_dlc() -> None:
+    catalog = load_catalog()
+    entries = {e["id"]: e for e in catalog["entries"]}
 
-    assert catalog["type"] == "isekai-feature-catalog"
+    assert catalog["type"] == "isekai-catalog"
     assert catalog["catalog_digest"].startswith("sha256:")
-    assert set(features) == {"ai-dlc"}
-    assert features["ai-dlc"]["active"] is True
-    assert features["ai-dlc"]["delivery"] == "core-bundled"
-    assert features["ai-dlc"]["package_path"] == "ai-dlc/0.2.1"
+    assert set(entries) == {"ai-dlc"}
+    assert entries["ai-dlc"]["active"] is True
+    assert entries["ai-dlc"]["delivery"] == "core-bundled"
+    assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.2.1"
     assert all(
-        feature["authority"]
+        entry["authority"]
         == "cannot-expand-foundation-project-or-unit-authority"
-        for feature in features.values()
+        for entry in entries.values()
     )
 
 
-def test_context_receipt_binds_installed_isekai_feature_catalog(
+def test_context_receipt_binds_installed_isekai_catalog(
     tmp_path: Path,
 ) -> None:
     project = make_project(tmp_path)
 
     receipt = resolve_context(project)
 
-    assert receipt["features"]["catalog_digest"] == (
-        load_feature_catalog()["catalog_digest"]
+    assert receipt["catalog"]["catalog_digest"] == (
+        load_catalog()["catalog_digest"]
     )
 
 
 def test_feature_status_is_available_through_runtime_contract() -> None:
-    result = dispatch("feature-status", {})
+    result = dispatch("catalog-status", {})
 
-    assert result["action"] == "feature-status"
-    assert {feature["id"] for feature in result["result"]["features"]} == {"ai-dlc"}
+    assert result["action"] == "catalog-status"
+    assert {e["id"] for e in result["result"]["entries"]} == {"ai-dlc"}
 
 
-def test_feature_catalog_is_exposed_as_mcp_resources() -> None:
-    catalog = load_feature_catalog()
-    resources = feature_resources(catalog)
+def test_catalog_is_exposed_as_mcp_resources() -> None:
+    catalog = load_catalog()
+    resources = catalog_resources(catalog)
     uris = {resource["uri"] for resource in resources}
 
-    assert "isekai://runtime/features" in uris
-    assert "isekai://runtime/features/ai-dlc" in uris
-    content = read_feature_resource(
+    assert "isekai://runtime/catalog" in uris
+    assert "isekai://runtime/catalog/ai-dlc" in uris
+    content = read_catalog_resource(
         catalog,
-        "isekai://runtime/features/ai-dlc",
+        "isekai://runtime/catalog/ai-dlc",
     )
     value = json.loads(content["text"])
     assert value["id"] == "ai-dlc"
-    assert value["kind"] == "isekai-feature"
+    assert value["kind"] == "isekai-catalog-entry"
 
 
-def test_feature_catalog_is_managed_as_a_repository_distribution_component() -> None:
+def test_catalog_is_managed_as_a_repository_distribution_component() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = json.loads((root / "features/catalog.json").read_text(encoding="utf-8"))
-    entry = source["features"][0]
+    source = json.loads((root / "catalog/catalog.json").read_text(encoding="utf-8"))
+    entry = source["entries"][0]
 
     assert entry == {
         "id": "ai-dlc",
         "version": "0.2.1",
-        "manifest": "ai-dlc/0.2.1/feature.json",
+        "manifest": "ai-dlc/0.2.1/manifest.json",
     }
-    assert (root / "features" / entry["manifest"]).is_file()
+    assert (root / "catalog" / entry["manifest"]).is_file()
+
+
+def test_feature_scaffold_template_contains_required_fields() -> None:
+    root = Path(__file__).resolve().parents[1]
+    template_path = root / "catalog/_template/manifest.json.example"
+
+    assert template_path.is_file(), "scaffold template must exist"
+    content = json.loads(template_path.read_text(encoding="utf-8"))
+    required = {
+        "id",
+        "kind",
+        "schema_version",
+        "version",
+        "status",
+        "title",
+        "description",
+        "control_protocol",
+        "delivery",
+        "actions",
+        "resources",
+        "authority",
+    }
+    assert required <= set(content), f"template missing: {required - set(content)}"
+    assert content["kind"] == "isekai-catalog-entry"
+    assert content["authority"] == "cannot-expand-foundation-project-or-unit-authority"
+
+
+def test_catalog_loader_ignores_underscore_prefixed_directories() -> None:
+    catalog = load_catalog()
+    entry_ids = {e["id"] for e in catalog["entries"]}
+
+    assert "_template" not in entry_ids
+    assert all(not fid.startswith("_") for fid in entry_ids)
 
 
 def test_unknown_feature_authority_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original = load_feature_catalog()["features"][0]
+    original = load_catalog()["entries"][0]
     broken = {
         key: value
         for key, value in original.items()
-        if key not in {"active", "feature_digest", "package_path"}
+        if key not in {"active", "entry_digest", "package_path"}
     }
-    broken["authority"] = "feature-controls-core"
+    broken["authority"] = "entry-controls-core"
     package = tmp_path / broken["id"] / broken["version"]
     package.mkdir(parents=True)
-    (package / "feature.json").write_text(
+    (package / "manifest.json").write_text(
         json.dumps(broken) + "\n",
         encoding="utf-8",
     )
     (tmp_path / "catalog.json").write_text(
         json.dumps(
             {
-                "kind": "isekai-feature-source-catalog",
+                "kind": "isekai-source-catalog",
                 "schema_version": "1.0.0",
                 "control_protocol": "1.1.0",
-                "features": [
+                "entries": [
                     {
                         "id": broken["id"],
                         "version": broken["version"],
                         "manifest": (
-                            f"{broken['id']}/{broken['version']}/feature.json"
+                            f"{broken['id']}/{broken['version']}/manifest.json"
                         ),
                     }
                 ],
@@ -120,7 +153,7 @@ def test_unknown_feature_authority_fails_closed(
         + "\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(feature_module, "FEATURE_ROOT", tmp_path)
+    monkeypatch.setattr(catalog_module, "CATALOG_ROOT", tmp_path)
 
     with pytest.raises(FoundationError, match="invalid authority"):
-        load_feature_catalog()
+        load_catalog()

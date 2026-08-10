@@ -221,78 +221,78 @@ def _project_version(root: Path) -> str:
     return version
 
 
-def _validate_feature_source_catalog(release_root: Path) -> None:
-    feature_root = _component_root(
+def _validate_source_catalog(release_root: Path) -> None:
+    catalog_root = _component_root(
         release_root,
-        "features",
-        label="features.path",
+        "catalog",
+        label="catalog.path",
     )
     catalog = _read_control_json(
-        feature_root / "catalog.json",
-        root=feature_root,
-        label="Feature source catalog",
+        catalog_root / "catalog.json",
+        root=catalog_root,
+        label="Catalog source",
     )
-    if catalog.get("kind") != "isekai-feature-source-catalog":
-        raise DistributionError("Feature source catalog has an invalid kind")
+    if catalog.get("kind") != "isekai-source-catalog":
+        raise DistributionError("Catalog source has an invalid kind")
     if catalog.get("schema_version") != "1.0.0":
-        raise DistributionError("Feature source catalog has an unsupported schema_version")
+        raise DistributionError("Catalog source has an unsupported schema_version")
     if catalog.get("control_protocol") != PROTOCOL_VERSION:
-        raise DistributionError("Feature source catalog protocol does not match Core")
-    entries = catalog.get("features")
+        raise DistributionError("Catalog source protocol does not match Core")
+    entries = catalog.get("entries")
     if not isinstance(entries, list) or not entries:
-        raise DistributionError("Feature source catalog cannot be empty")
+        raise DistributionError("Catalog source cannot be empty")
     identifiers: list[str] = []
     manifests: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
-            raise DistributionError("Feature source catalog entries must be objects")
-        feature_id = entry.get("id")
+            raise DistributionError("Catalog source entries must be objects")
+        entry_id = entry.get("id")
         version = entry.get("version")
         manifest_value = entry.get("manifest")
-        if not isinstance(feature_id, str) or not re.fullmatch(
-            r"[a-z][a-z0-9-]{0,63}", feature_id
+        if not isinstance(entry_id, str) or not re.fullmatch(
+            r"[a-z][a-z0-9-]{0,63}", entry_id
         ):
-            raise DistributionError("Feature source catalog has an invalid feature ID")
+            raise DistributionError("Catalog source has an invalid entry ID")
         if not isinstance(version, str) or not re.fullmatch(
             r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version
         ):
             raise DistributionError(
-                f"Feature source catalog has an invalid version for {feature_id}"
+                f"Catalog source has an invalid version for {entry_id}"
             )
-        expected = Path(feature_id) / version / "feature.json"
+        expected = Path(entry_id) / version / "manifest.json"
         manifest = _safe_relative_path(
             manifest_value,
-            label=f"Feature source catalog {feature_id}.manifest",
+            label=f"Catalog source {entry_id}.manifest",
         )
         if manifest != expected:
             raise DistributionError(
-                f"Feature source catalog has an invalid manifest path for {feature_id}"
+                f"Catalog source has an invalid manifest path for {entry_id}"
             )
-        feature = _read_control_json(
-            feature_root / manifest,
-            root=feature_root,
-            label=f"Feature manifest {feature_id}@{version}",
+        entry = _read_control_json(
+            catalog_root / manifest,
+            root=catalog_root,
+            label=f"Catalog entry manifest {entry_id}@{version}",
         )
         if (
-            feature.get("id") != feature_id
-            or feature.get("version") != version
-            or feature.get("kind") != "isekai-feature"
+            entry.get("id") != entry_id
+            or entry.get("version") != version
+            or entry.get("kind") != "isekai-catalog-entry"
         ):
             raise DistributionError(
-                f"Feature manifest {feature_id}@{version} does not match the source catalog"
+                f"Catalog entry manifest {entry_id}@{version} does not match the source catalog"
             )
-        identifiers.append(feature_id)
+        identifiers.append(entry_id)
         manifests.append(manifest.as_posix())
     if len(set(identifiers)) != len(identifiers):
-        raise DistributionError("Feature source catalog has duplicate IDs")
+        raise DistributionError("Catalog source has duplicate IDs")
     if len(set(manifests)) != len(manifests):
-        raise DistributionError("Feature source catalog has duplicate manifests")
+        raise DistributionError("Catalog source has duplicate manifests")
 
 
 def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
     release_root = Path(root).resolve()
     version = _project_version(release_root)
-    _validate_feature_source_catalog(release_root)
+    _validate_source_catalog(release_root)
     foundation = _read_control_json(
         release_root / "foundation/release.json",
         root=release_root,
@@ -375,15 +375,15 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
                 )
             ),
         },
-        "features": {
-            "id": "isekai-feature-catalog",
+        "catalog": {
+            "id": "isekai-catalog",
             "version": release_version,
-            "path": "features",
+            "path": "catalog",
             "digest": tree_digest(
                 _component_root(
                     release_root,
-                    "features",
-                    label="features.path",
+                    "catalog",
+                    label="catalog.path",
                 )
             ),
         },
@@ -426,7 +426,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
         "core",
         "bootstrap",
         "runtime",
-        "features",
+        "catalog",
         "foundation",
         "adapters",
         "compatibility",
@@ -474,7 +474,7 @@ def load_distribution_manifest(root: str | Path) -> dict[str, Any]:
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
         ("runtime", manifest["runtime"]),
-        ("features", manifest["features"]),
+        ("catalog", manifest["catalog"]),
         ("foundation", manifest["foundation"]),
         *((f"adapter:{entry['id']}", entry) for entry in manifest["adapters"]),
     ]
@@ -520,7 +520,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
             ("core", manifest.get("core"), canonical["core"]),
             ("bootstrap", manifest.get("bootstrap"), canonical["bootstrap"]),
             ("runtime", manifest.get("runtime"), canonical["runtime"]),
-            ("features", manifest.get("features"), canonical["features"]),
+            ("catalog", manifest.get("catalog"), canonical["catalog"]),
             ("foundation", manifest.get("foundation"), canonical["foundation"]),
         ]
         actual_adapters = {
@@ -555,7 +555,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
         manifest["core"],
         manifest["bootstrap"],
         manifest["runtime"],
-        manifest["features"],
+        manifest["catalog"],
         manifest["foundation"],
         *manifest["adapters"],
     ]
@@ -580,7 +580,7 @@ def verify_distribution(root: str | Path) -> dict[str, Any]:
         ("core", manifest["core"]),
         ("bootstrap", manifest["bootstrap"]),
         ("runtime", manifest["runtime"]),
-        ("features", manifest["features"]),
+        ("catalog", manifest["catalog"]),
         ("foundation", manifest["foundation"]),
     ):
         if not isinstance(entry, dict):

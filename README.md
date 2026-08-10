@@ -40,9 +40,9 @@ Foundation + Project + Unit artifacts
 
 Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, Foundation과 Unit artifact가 권위 있는 상태이며 Adapter는 Core와 handshake한 뒤 이를 사용합니다.
 
-ISEKAI Feature Catalog는 이세카이가 제공하는 기능을 하나의 공통 목록과 계약으로 묶습니다. 각 Feature는 Project-local Core MCP 통제면에 등록되며 ID·버전·상태·action·resource·digest로 식별됩니다. 현재 Catalog에는 실행 가능한 AI-DLC가 등록돼 있고, 향후 추가 기능은 각각 독립된 ISEKAI Feature package로 배포해 같은 Catalog에 등록합니다. 자세한 계약은 [ISEKAI Features](docs/features.md)를 참고하세요.
+ISEKAI Catalog는 이세카이가 제공하는 기능을 하나의 공통 목록과 계약으로 묶습니다. 각 Catalog entry는 Project-local Core MCP 통제면에 등록되며 ID·버전·상태·action·resource·digest로 식별됩니다. 현재 Catalog에는 실행 가능한 AI-DLC가 등록돼 있고, 향후 추가 기능은 각각 독립된 ISEKAI Catalog entry package로 배포해 같은 Catalog에 등록합니다. 자세한 계약은 [ISEKAI Catalog](docs/catalog.md)를 참고하세요.
 
-Feature 배포 원본은 이세카이 저장소의 `features/catalog.json`과 `features/<feature-id>/<version>/`에서 관리합니다. Git release는 이 디렉터리 전체를 독립 component digest로 결박하고 설치기가 대상 프로젝트의 `.isekai/features/`에 배치합니다.
+Catalog 배포 원본은 이세카이 저장소의 `catalog/catalog.json`과 `catalog/<entry-id>/<version>/`에서 관리합니다. Git release는 이 디렉터리 전체를 독립 component digest로 결박하고 설치기가 대상 프로젝트의 `.isekai/catalog/`에 배치합니다.
 
 ## 지원 런타임과 채팅 명령
 
@@ -110,7 +110,7 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
 | Kiro | `--runtime kiro` | `.kiro/skills/isekai/` |
 | 세 런타임 모두 | `--runtime all` | 위 세 프로젝트 경로 |
 
-`--runtime`은 반복해서 지정할 수 있습니다. 설치 스크립트는 선택한 Runtime Skill과 Core를 배치한 뒤 해당 Project의 실행 보호 설정을 적용하고 Project-local Core MCP gateway까지 자동 연결합니다. 사용자 홈과 host marketplace는 변경하지 않으며 lifecycle 훅도 설치하지 않습니다. 기존 Project host 설정의 원본 bytes는 `.isekai/host-profiles/state.json`에 보존됩니다.
+`--runtime`은 반복해서 지정할 수 있습니다. 설치 스크립트는 선택한 Runtime Skill과 Core를 배치한 뒤 해당 Project의 실행 보호 설정을 적용하고 Project-local Core MCP gateway까지 자동 연결합니다. 사용자 홈과 host marketplace는 변경하지 않으며 lifecycle 훅도 설치하지 않습니다. 기존 Project host 설정의 원본 bytes는 `.isekai/host-custody/state.json`에 보존됩니다.
 
 ```bash
 # 정상 설치 뒤에는 필요하지 않습니다. 문제가 의심될 때만 사용합니다.
@@ -140,7 +140,7 @@ project/
 ├── .isekai/
 │   ├── bin/                         # 프로젝트 로컬 launcher
 │   ├── runtime/isekai/              # ISEKAI Core
-│   ├── features/                    # Feature Catalog와 versioned package
+│   ├── catalog/                     # ISEKAI Catalog과 versioned entry package
 │   └── foundations/<version>/       # 고정된 Foundation
 ├── .agents/skills/isekai/            # Codex repo Skill
 ├── .claude/skills/isekai/            # Claude project Skill
@@ -150,7 +150,7 @@ project/
 └── units/                           # 지속되는 AI-DLC 작업 단위
 ```
 
-설치기는 bootstrap, Core, host-neutral Runtime contract, Feature Catalog, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Runtime component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 이전 marketplace 기반 0.1.0 설치를 업데이트하면 ISEKAI가 소유한 legacy 선언만 제거하고 다른 host 설정은 보존합니다.
+설치기는 bootstrap, Core, host-neutral Runtime contract, Catalog, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Runtime component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 이전 marketplace 기반 0.1.0 설치를 업데이트하면 ISEKAI가 소유한 legacy 선언만 제거하고 다른 host 설정은 보존합니다.
 
 ## 사용법
 
@@ -263,7 +263,7 @@ Windows PowerShell에서는 같은 프로젝트에서 `py -3 .\.isekai\bin\iseka
 - 모든 새 대화는 ISEKAI mode가 `off`입니다.
 - Adapter version, Core version, protocol과 project lock이 맞지 않으면 handshake가 fail-closed합니다.
 - Project 실행 보호 설정이 Agent의 직접 쓰기를 막고 Core MCP gateway를 연결하지 않으면 handshake가 fail-closed합니다. 이 경계에는 lifecycle 훅을 사용하지 않습니다.
-- `feature-status`와 MCP Feature resource는 설치된 ISEKAI Feature와 상태를 보여 주지만 `preview` Feature의 실행이나 추가 권한을 자동 승인하지 않습니다.
+- `catalog-status`와 MCP Catalog resource는 설치된 ISEKAI Catalog entry와 상태를 보여 주지만 `preview` entry의 실행이나 추가 권한을 자동 승인하지 않습니다.
 - 현재 Adapter 계약에는 자율적인 high-risk action이 없습니다.
 - `L0` Project는 `read`만, `L1`은 승인된 `read`·`edit`·`test`, `L2`는 여기에 정확히 제한된 개발·테스트 `external-api`만 추가합니다.
 - 쓰기 action과 lifecycle Decision은 명시적 사용자 의도 또는 사람 승인을 요구합니다.
@@ -287,7 +287,7 @@ Core는 `--decided-by`에 적힌 주체가 실제 사람인지는 **검증하지
 Runtime manifest와 `isekai runtime compatibility` 응답의 `human_decision_actions`·`trust_model`이 이 경계를 기계가 읽을 수 있게 표시합니다. Adapter는 이 목록의 action을 호출하기 전에 사용자에게 실제 확인을 받아야 합니다.
 
 ```text
-decision  foundation-decision  foundation-promote
+amend  active-unit-detach  decision  foundation-decision  foundation-promote
 ```
 
 `envelope-approve`와 `transition`은 이미 기록된 Decision과 승인된 계획을 반영하는 기계적 상태 변경이므로 별도의 인간 판단 action으로 분류하지 않습니다. 다만 승인된 범위·위험·외부 효과나 단계 계획이 달라지면 새 Decision이 먼저 필요합니다.

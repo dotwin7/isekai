@@ -15,7 +15,7 @@ ISEKAI
 └─ Future Approved Agent Adapter
 ```
 
-Adapter는 프로젝트·Unit 컨텍스트 전달, Foundation·Profile 버전 표시, Decision 대기 상태, Evidence·Checkpoint 연결과 ISEKAI Feature 상태 보고를 담당한다. `feature-status`와 MCP resource로 설치된 Feature를 읽되, catalog나 `preview` 상태를 새로운 실행 권한으로 해석하지 않는다.
+Adapter는 프로젝트·Unit 컨텍스트 전달, Foundation·Profile 버전 표시, Decision 대기 상태, Evidence·Checkpoint 연결과 ISEKAI Catalog entry 상태 보고를 담당한다. `catalog-status`와 MCP resource로 설치된 Catalog entry를 읽되, catalog나 `preview` 상태를 새로운 실행 권한으로 해석하지 않는다.
 
 Adapter는 모델의 추론 방식과 출력 스타일을 과도하게 교정하지 않는다. 상시 규율 주입, 도구 출력 압축·재작성과 코드 folding은 기본 기능이 아니다.
 
@@ -27,7 +27,7 @@ ISEKAI는 프로젝트에 설치되는 Runtime Skill·Core·Foundation 묶음이
 
 활성 mode에 끝나지 않은 active Unit이 없을 때만 새 요청에 `intake`를 호출한다. 응답의 `workflow` 계약에 따라 Agent는 Query를 직접 답하고, Quick Change에는 compact plan을 적용하며, Unit에는 프로젝트를 읽기 전용으로 탐색한 뒤 Project의 `maximum_agent_level`을 넘지 않는 계획을 제안한다. 사용자가 전체 계획을 승인하기 전에는 Unit을 생성하거나 쓰지 않는다.
 
-계획 승인 뒤에는 승인 범위의 Unit artifact·Checkpoint와 Decision을 Core에 기록한다. `envelope-approve`와 `transition`은 이미 승인된 계획·Decision을 반영하는 기계적 action이라 매번 별도 확인을 요구하지 않는다. 실제 인간 판단을 기록하는 `amend`, `decision`, `foundation-decision`, 그리고 Foundation을 승격하는 `foundation-promote`는 manifest의 `human_decision_actions`로 표시한다.
+계획 승인 뒤에는 승인 범위의 Unit artifact·Checkpoint와 Decision을 Core에 기록한다. `envelope-approve`와 `transition`은 이미 승인된 계획·Decision을 반영하는 기계적 action이라 매번 별도 확인을 요구하지 않는다. 실제 인간 판단을 기록하는 `amend`, `active-unit-detach`, `decision`, `foundation-decision`, 그리고 Foundation을 승격하는 `foundation-promote`는 manifest의 `human_decision_actions`로 표시한다.
 
 계획을 대화에 제시한 것과 Unit에 기록한 것은 별개다. `unit-init` 직후 Agent는 승인된 계획을 `plan.md`에 그대로 영속화하고 Inception 문서와 stage disposition, Checkpoint를 materialize한 뒤에만 첫 transition을 수행한다. Construction 구현이 끝나면 Architecture와 Implementation Guide를 기록하고 Architecture packet을 승인받은 뒤 Validation으로 간다. Core의 artifact readiness와 Decision snapshot digest가 이 순서를 fail-closed로 검사한다.
 
@@ -47,9 +47,9 @@ ISEKAI 호스트 프로필은 Project 파일시스템을 호스트 Agent에게 �
 
 이 검사는 Project-local 설정의 정합성 검사다. 실제 Host process가 더 높은 우선순위의 CLI flag나 조직 managed policy로 Project 설정을 덮어썼는지 Core가 stdio MCP 안에서 독립적으로 증명할 수는 없다. 따라서 정상 ISEKAI 실행 보호 설정에서는 사전에 direct writer가 제공되지 않으며, 사용자가 별도의 Host override로 sandbox를 다시 연 것은 운영자 우회로 취급한다. lifecycle 훅을 원하지 않는 조건에서 이 Host permission이 MCP 밖 직접 파일 수정을 사전 차단하는 경계이고, Core는 자기 MCP를 거친 요청을 다시 active Unit·Envelope·Decision으로 검사한다.
 
-## ISEKAI Feature Catalog 연결
+## ISEKAI Catalog 연결
 
-ISEKAI가 제공하는 기능은 Project-local Core MCP의 공통 Feature Catalog에 등록된다. Core MCP는 Catalog와 개별 Feature manifest resource를 노출하고 Unit Context Receipt는 Catalog digest를 고정한다. Adapter는 `active` Feature만 사용하며, 각 Feature action은 같은 active Unit·Envelope·Decision·Evidence 경계를 거쳐야 한다. 현재 등록된 실행 기능은 AI-DLC이며, 새 기능은 구현과 배포 계약이 준비된 뒤 고유한 Feature ID로 추가한다. 구체 계약은 [ISEKAI Features](features.md)를 따른다.
+ISEKAI가 제공하는 기능은 Project-local Core MCP의 공통 Catalog에 등록된다. Core MCP는 Catalog와 개별 Catalog entry manifest resource를 노출하고 Unit Context Receipt는 Catalog digest를 고정한다. Adapter는 `active` entry만 사용하며, 각 entry action은 같은 active Unit·Envelope·Decision·Evidence 경계를 거쳐야 한다. 현재 등록된 실행 기능은 AI-DLC이며, 새 기능은 구현과 배포 계약이 준비된 뒤 고유한 entry ID로 추가한다. 구체 계약은 [ISEKAI Catalog](catalog.md)를 따른다.
 
 파일 변경은 grant와 실행을 분리하지 않는다. `artifact-write`는 승인 전 Unit 문서를 materialize하고, 승인된 문서의 의미 변경에는 먼저 같은 Unit의 pending Amendment를 요구한다. 기존 acceptance 항목을 `[ ]`에서 `[x]`로만 진행시키는 것은 예외지만 문구 변경이나 역방향 변경은 허용하지 않는다. `managed-edit`는 모든 target의 Envelope 범위와 expected digest를 검증하고 한 Core batch에서 쓰기와 receipt 기록을 완료한다. `managed-test`는 일회용 Project 복제본에서 실행해 테스트가 만든 상대 경로 쓰기를 원본으로 되돌리지 않는다. Runtime `authorize --action edit|test`는 의도적으로 거부된다. 이 구조는 훅의 사후 감지에 의존하지 않는다.
 

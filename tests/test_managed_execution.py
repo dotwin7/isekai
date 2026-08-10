@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import isekai.workflow.unit.managed_execution as managed_execution_module
+import isekai.catalog.ai_dlc.unit.managed_execution as managed_execution_module
 from isekai.runtime_contract import dispatch
-from isekai.workflow.unit.managed_execution import (
+from isekai.catalog.ai_dlc.unit.managed_execution import (
     execute_managed_edit,
     execute_managed_test,
     write_unit_artifacts,

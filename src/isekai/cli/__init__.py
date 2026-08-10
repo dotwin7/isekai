@@ -31,11 +31,11 @@ def _json(value: object) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments and arguments[0] == "host-profile":
+    if arguments and arguments[0] == "host-custody":
         # Compatibility for early development builds. Keep the implementation
         # term out of public help and route recovery through the user-facing
         # project doctor instead.
-        legacy = argparse.ArgumentParser(prog="isekai host-profile")
+        legacy = argparse.ArgumentParser(prog="isekai host-custody")
         legacy.add_argument(
             "--runtime", choices=("kiro", "claude", "codex"), required=True
         )

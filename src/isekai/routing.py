@@ -1,6 +1,6 @@
-"""Compatibility façade for work routing primitives."""
+"""Compatibility facade for work routing primitives."""
 
-from .workflow.routing import (
+from isekai.catalog.ai_dlc.routing import (
     AGENT_ALLOWED_ACTIONS,
     AGENT_PROHIBITED_ACTIONS,
     ALLOWED_AGENT_LEVELS,

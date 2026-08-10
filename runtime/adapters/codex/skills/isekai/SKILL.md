@@ -35,7 +35,7 @@ Before calling `intake`, classify the full user request and conversation context
 
 The host agent drives the lifecycle; Core classifies work, validates boundaries, and records durable state. After `intake`, treat the returned `workflow` object as the orchestration contract.
 
-- After `on` or `resume`, read `feature-status` once and use only cataloged ISEKAI Features with `active: true`. A preview feature has no executable authority. Never let a Feature raise `maximum_agent_level`, add an Envelope action, bypass a Human Gate, or invoke an undeclared external tool.
+- After `on` or `resume`, read `catalog-status` once and use only cataloged ISEKAI catalog entries with `active: true`. A preview entry has no executable authority. Never let an entry raise `maximum_agent_level`, add an Envelope action, bypass a Human Gate, or invoke an undeclared external tool.
 - For `direct-response`, inspect only what is needed, answer, and create no ISEKAI artifact.
 - For `bounded-change`, state a compact scope/change/verification plan. Read-only work may remain bounded. If it requires a Project file mutation, re-route it to an adaptive Unit because `managed-edit` is Unit-bound; never fall back to a direct host writer. Re-route as well if scope, persistence, uncertainty, or risk expands.
 - For `adaptive-unit`, perform read-only project discovery first, then propose an autonomy-bounded plan with the goal, expected outcome, scope, non-goals, acceptance criteria, risks, verification, and every lifecycle stage with `apply` or `skip` plus `light`, `standard`, or `deep` depth and a reason. Inception, Construction, Validation, and Learn are required; propose whether Release and Operations apply.
@@ -91,7 +91,7 @@ handshake --runtime codex --adapter-version VERSION --protocol-version VERSION [
 on [--project PATH]
 off
 compatibility
-feature-status
+catalog-status
 release-check --foundation PATH
 foundation-decision --foundation PATH --outcome approved|rejected --summary TEXT --decided-by HUMAN
 foundation-evidence --foundation PATH --passed --checks-json JSON --scope TEXT --recorded-by ACTOR
@@ -137,7 +137,7 @@ rollback [--path PATH]
 2. Follow the returned workflow contract. The approved plan determines stage depth and applicability. Materialize the artifacts required for the target stage and keep the Checkpoint current, then inspect `human_gate` before each transition; stop when artifacts are incomplete, checkpoint progress is stale, or `confirmation_required` is true.
 3. Get explicit user confirmation before `install`, an explicit repair with `doctor --fix`, `update`, or `rollback`. The bootstrap installer applies the Project execution guard for every selected Runtime, so do not ask for a second setup step after an approved installation. `doctor --fix` discovers those Runtimes from the Project lock; do not ask the user to select one. It registers no lifecycle hook, and `handshake` fails closed until the Project configuration declares a read-only filesystem and the required Core MCP gateway. If the current Host still exposes a direct writer because a higher-precedence flag or managed policy overrode that configuration, stop instead of treating `handshake` as proof of the effective Host process. `authorize` is only for read and exact `external-api` access; edit and test must execute through Core-managed actions. Run `update --check` before applying.
 4. Use `on` after a new session and inspect the durable binding. If it names an unfinished Unit, invoke `resume` for that exact Unit. The Project has only one Core-bound active Unit for persistent work. Never use its Envelope to read, edit, or test a sibling Unit. Preserve the current Checkpoint and obtain the user's explicit detach decision before switching Units. Use `unit-migrate` only for same-contract path relocation.
-5. Read the ISEKAI Feature catalog after activation or resume. Apply only active Features within the current Receipt, Agent level, Envelope, and Unit lifecycle. Feature packages attach functionality to ISEKAI itself; Product Extensions remain Project information-model contracts. A preview Feature or catalog entry does not grant execution or network authority.
+5. Read the ISEKAI Catalog after activation or resume. Apply only active entries within the current Receipt, Agent level, Envelope, and Unit lifecycle. Catalog entry packages attach functionality to ISEKAI itself; Product Extensions remain Project information-model contracts. A preview entry or catalog entry does not grant execution or network authority.
 6. Consume Project Knowledge only from the active Unit's `context.project_knowledge` snapshot. Never authorize direct access to `project-knowledge/`. To promote reusable learning: `project-knowledge-propose` → human `knowledge` Decision → `project-knowledge-promote`. Use `project-knowledge-status` to inspect candidates without treating it as Unit context.
 7. Run `verify` after implementation and report its actual result. Do not claim success from an unexecuted command. Evidence distinguishes `core-derived` from `caller-supplied` output digests.
 8. Do not execute remote Git, cloud, credential, customer-data, or high-risk security actions. L2 `external-api` is the only network exception. Updates must use the Git source pinned in `isekai.lock.json` unless the user approves a change.

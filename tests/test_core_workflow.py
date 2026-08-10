@@ -145,7 +145,7 @@ def test_project_manifest_rejects_non_string_contract_fields(
 
 
 def test_canonical_unit_tree_matches_core_required_artifacts() -> None:
-    canonical = (ROOT / "docs/unit.md").read_text(encoding="utf-8")
+    canonical = (ROOT / "docs/ai-dlc/unit.md").read_text(encoding="utf-8")
 
     for relative in UNIT_REQUIRED_FILES:
         assert relative in canonical

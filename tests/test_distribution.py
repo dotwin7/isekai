@@ -86,13 +86,13 @@ def _bump_release(release: Path, version: str) -> None:
         release / "runtime/adapters/claude/skills/isekai/SKILL.md",
     ]
     replacements.extend(path for path in (release / "foundation").rglob("*.json"))
-    replacements.extend(path for path in (release / "features").rglob("*.json"))
+    replacements.extend(path for path in (release / "catalog").rglob("*.json"))
     for path in replacements:
         content = path.read_text(encoding="utf-8").replace("0.2.1", version)
         path.write_text(content, encoding="utf-8")
-    feature_version = release / "features/ai-dlc/0.2.1"
-    if feature_version.is_dir() and version != "0.2.1":
-        feature_version.rename(feature_version.parent / version)
+    entry_version = release / "catalog/ai-dlc/0.2.1"
+    if entry_version.is_dir() and version != "0.2.1":
+        entry_version.rename(entry_version.parent / version)
     write_distribution_manifest(release)
 
 
@@ -186,13 +186,13 @@ def test_checked_in_distribution_manifest_matches_release_components() -> None:
     )
 
 
-def test_distribution_rejects_an_invalid_feature_source_catalog(
+def test_distribution_rejects_an_invalid_source_catalog(
     tmp_path: Path,
 ) -> None:
     release = _copy_release(tmp_path)
-    catalog_path = release / "features/catalog.json"
+    catalog_path = release / "catalog/catalog.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-    catalog["features"][0]["manifest"] = "../outside/feature.json"
+    catalog["entries"][0]["manifest"] = "../outside/manifest.json"
     catalog_path.write_text(json.dumps(catalog) + "\n", encoding="utf-8")
 
     with pytest.raises(DistributionError, match="must stay inside the release"):
@@ -335,15 +335,15 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     assert lock is not None
     assert lock["source"]["ref"] == "v0.2.1"
     assert lock["source"]["commit"] == "a" * 40
-    assert lock["features"]["id"] == "isekai-feature-catalog"
-    assert lock["features"]["path"] == ".isekai/features"
-    assert lock["features"]["digest"] == tree_digest(
-        project / ".isekai/features",
+    assert lock["catalog"]["id"] == "isekai-catalog"
+    assert lock["catalog"]["path"] == ".isekai/catalog"
+    assert lock["catalog"]["digest"] == tree_digest(
+        project / ".isekai/catalog",
         include_transients=True,
     )
-    assert (project / ".isekai/features/catalog.json").is_file()
+    assert (project / ".isekai/catalog/catalog.json").is_file()
     assert (
-        project / ".isekai/features/ai-dlc/0.2.1/feature.json"
+        project / ".isekai/catalog/ai-dlc/0.2.1/manifest.json"
     ).is_file()
     assert set(lock["adapters"]) == {"kiro", "claude", "codex"}
     assert lock["adapters"]["codex"]["path"] == ".agents/skills/isekai"
@@ -379,30 +379,30 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout)["core_version"] == "0.2.1"
-    feature_status = subprocess.run(
-        [str(project / ".isekai/bin/isekai"), "runtime", "feature-status"],
+    catalog_status_out = subprocess.run(
+        [str(project / ".isekai/bin/isekai"), "runtime", "catalog-status"],
         cwd=project,
         text=True,
         capture_output=True,
         check=False,
     )
-    assert feature_status.returncode == 0, feature_status.stderr
-    installed_catalog = json.loads(feature_status.stdout)["result"]
-    assert [item["id"] for item in installed_catalog["features"]] == ["ai-dlc"]
+    assert catalog_status_out.returncode == 0, catalog_status_out.stderr
+    installed_catalog = json.loads(catalog_status_out.stdout)["result"]
+    assert [item["id"] for item in installed_catalog["entries"]] == ["ai-dlc"]
 
 
-def test_doctor_fails_closed_after_installed_feature_tampering(
+def test_doctor_fails_closed_after_installed_catalog_tampering(
     tmp_path: Path,
 ) -> None:
     project = _project_with_foundation(tmp_path)
     _install(project)
-    manifest = project / ".isekai/features/ai-dlc/0.2.1/feature.json"
+    manifest = project / ".isekai/catalog/ai-dlc/0.2.1/manifest.json"
     manifest.write_text("{}\n", encoding="utf-8")
 
     health = doctor_install(project)
 
     assert health["ready"] is False
-    assert "features digest mismatch" in health["issues"]
+    assert "catalog digest mismatch" in health["issues"]
 
 
 def test_doctor_checks_and_repairs_all_installed_execution_guards(
@@ -720,7 +720,7 @@ def test_update_preserves_foundation_and_rollback_restores_previous_release(
     assert updated_lock is not None
     assert updated_lock["release"] == "0.2.2"
     assert updated_lock["core"]["version"] == "0.2.2"
-    assert updated_lock["features"]["version"] == "0.2.2"
+    assert updated_lock["catalog"]["version"] == "0.2.2"
     assert updated_lock["foundation"]["version"] == "0.2.1"
     assert updated_lock["rollback"]["digest"] == tree_digest(
         project / ".isekai/rollback",
@@ -1630,12 +1630,12 @@ def test_update_plan_reports_source_digest_changes(tmp_path: Path) -> None:
         "to_digest": target_manifest["core"]["digest"],
         "changed": True,
     }
-    assert changes["features"] == {
-        "component": "features",
+    assert changes["catalog"] == {
+        "component": "catalog",
         "from": "0.2.1",
         "to": "0.2.2",
-        "from_digest": current["features"]["source_digest"],
-        "to_digest": target_manifest["features"]["digest"],
+        "from_digest": current["catalog"]["source_digest"],
+        "to_digest": target_manifest["catalog"]["digest"],
         "changed": True,
     }
     assert changes["adapter:codex"]["from_digest"] == current["adapters"][

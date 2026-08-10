@@ -72,7 +72,7 @@ def test_initialize_project_preflight_failure_leaves_no_artifacts(tmp_path: Path
 def test_initialize_unit_write_failure_leaves_no_partial_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import isekai.workflow.unit.initialization as initialization
+    import isekai.catalog.ai_dlc.unit.initialization as initialization
 
     project_root = project_root_with_foundation(tmp_path)
     project = initialize_project(project_root)

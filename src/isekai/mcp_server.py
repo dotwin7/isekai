@@ -9,10 +9,10 @@ from . import __version__
 from .distribution.execution_profile import execution_profile_status
 from .runtime.actions import ACTION_HANDLERS
 from .runtime_contract import dispatch
-from .workflow.features import (
-    feature_resources,
-    load_feature_catalog,
-    read_feature_resource,
+from .workflow.catalog import (
+    catalog_resources,
+    load_catalog,
+    read_catalog_resource,
 )
 from .workflow.active_binding import project_manifest_for_unit
 from .workflow.session import discover_project
@@ -54,9 +54,9 @@ def _tool_schemas() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "feature_catalog",
+            "name": "catalog",
             "description": (
-                "Read versioned features attached to this ISEKAI Runtime."
+                "Read versioned entries in to this ISEKAI Runtime."
             ),
             "inputSchema": {
                 "type": "object",
@@ -172,8 +172,8 @@ class ProjectMcpServer:
                 "Project execution guard changed: "
                 + "; ".join(profile["issues"])
             )
-        if name == "feature_catalog":
-            result = dispatch("feature-status", {})
+        if name == "catalog":
+            result = dispatch("catalog-status", {})
         elif name == "runtime_action":
             action = arguments.get("action")
             payload = arguments.get("payload")
@@ -269,10 +269,10 @@ class ProjectMcpServer:
                         "Project execution guard changed: "
                         + "; ".join(profile["issues"])
                     )
-                catalog = load_feature_catalog()
+                catalog = load_catalog()
                 return self._result(
                     request_id,
-                    {"resources": feature_resources(catalog)},
+                    {"resources": catalog_resources(catalog)},
                 )
             if method == "resources/read":
                 params = request.get("params")
@@ -286,8 +286,8 @@ class ProjectMcpServer:
                         "Project execution guard changed: "
                         + "; ".join(profile["issues"])
                     )
-                catalog = load_feature_catalog()
-                content = read_feature_resource(catalog, str(params["uri"]))
+                catalog = load_catalog()
+                content = read_catalog_resource(catalog, str(params["uri"]))
                 return self._result(request_id, {"contents": [content]})
             if method == "tools/call":
                 params = request.get("params")

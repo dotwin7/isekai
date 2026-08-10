@@ -10,7 +10,7 @@ from typing import Any
 from ..support.files import UnsafeControlFile, read_control_file
 from ..support.jsonio import write_bytes_atomic, write_json_atomic
 from ..support.locking import file_lock
-from .errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
+from isekai.support.errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
 from .project_knowledge_observability import (
     CANDIDATE_STATUSES,
     candidate_status_details,
@@ -130,7 +130,7 @@ def _unit_project(unit_dir: Path) -> tuple[dict[str, Any], Path, str]:
         _receipt_source_manifest_path,
         resolve_context,
     )
-    from .unit.common import _unit_json, _unit_preflight_issues
+    from isekai.catalog.ai_dlc.unit.common import _unit_json, _unit_preflight_issues
 
     issues = _unit_preflight_issues(unit_dir)
     if issues:
@@ -284,7 +284,7 @@ def propose_project_knowledge(
         raise WorkflowError("proposed_by must be a non-empty string")
     if not isinstance(entries, list):
         raise WorkflowError("entries must be a list")
-    from .unit.common import unit_lock
+    from isekai.catalog.ai_dlc.unit.common import unit_lock
 
     with unit_lock(unit_dir):
         unit, project_root, project_id = _unit_project(unit_dir)
@@ -385,8 +385,8 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
-    from .unit.common import _unit_json, unit_lock
-    from .unit.decisions import _decision_ledger_issues, _latest_decision
+    from isekai.catalog.ai_dlc.unit.common import _unit_json, unit_lock
+    from isekai.catalog.ai_dlc.unit.decisions import _decision_ledger_issues, _latest_decision
 
     candidate = candidate.replace("\\", "/")
 

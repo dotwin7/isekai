@@ -13,7 +13,7 @@ from ..foundation import (
     record_foundation_decision,
     record_foundation_evidence,
 )
-from ..workflow.intake import intake
+from isekai.catalog.ai_dlc.intake import intake
 from ..workflow.session import (
     activate_session,
     build_session,
@@ -35,30 +35,30 @@ from ..workflow.active_binding import (
     require_active_unit_match,
 )
 from ..workflow import (
-    EXECUTION_ENVELOPE_DEFAULT_HOURS,
-    RouteRequest,
-    approve_execution_envelope,
-    authorize_action,
-    classify_work,
     initialize_project,
-    initialize_unit,
-    load_feature_catalog,
+    load_catalog,
     project_knowledge_status,
     promote_project_knowledge,
-    propose_execution_envelope,
     propose_project_knowledge,
-    record_decision,
-    record_evidence,
-    record_unit_amendment,
-    transition_unit,
-    verify_unit,
 )
-from ..workflow.unit.managed_execution import (
+from isekai.catalog.ai_dlc.routing import RouteRequest, classify_work
+from isekai.catalog.ai_dlc.unit.amendments import record_unit_amendment
+from isekai.catalog.ai_dlc.unit.decisions import record_decision
+from isekai.catalog.ai_dlc.unit.evidence import record_evidence
+from isekai.catalog.ai_dlc.unit.execution import (
+    EXECUTION_ENVELOPE_DEFAULT_HOURS,
+    approve_execution_envelope,
+    authorize_action,
+    propose_execution_envelope,
+)
+from isekai.catalog.ai_dlc.unit.initialization import initialize_unit
+from isekai.catalog.ai_dlc.unit.lifecycle import transition_unit, verify_unit
+from isekai.catalog.ai_dlc.unit.managed_execution import (
     execute_managed_edit,
     execute_managed_test,
     write_unit_artifacts,
 )
-from .feature_contract import feature_model_issues
+from .catalog_contract import catalog_model_issues
 
 class RuntimeContractError(ValueError):
     """Raised for invalid or unsafe Runtime Skill requests."""
@@ -122,7 +122,7 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
     }
     if trust_model != expected_trust_model:
         issues.append("compatibility matrix has an invalid trust_model")
-    issues.extend(feature_model_issues(value.get("feature_model")))
+    issues.extend(catalog_model_issues(value.get("catalog_model")))
     policy = value.get("policy")
     if not isinstance(policy, dict):
         issues.append("compatibility policy must be an object")
@@ -658,7 +658,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "unit-migrate": _unit_migrate,
     "inception": _inception,
     "compatibility": lambda _values: load_compatibility(),
-    "feature-status": lambda _values: load_feature_catalog(),
+    "catalog-status": lambda _values: load_catalog(),
     "release-check": _release_check,
     "foundation-decision": _foundation_decision,
     "foundation-evidence": _foundation_evidence,

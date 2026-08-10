@@ -15,7 +15,7 @@
     "package": "isekai-ai-dlc-runtime",
     "version": "0.2.1",
     "path": "src/isekai",
-    "digest": "sha256:390c8c67169a2d7186292b95027479f066a84e6707b876bd7dfb4463e12366e7"
+    "digest": "sha256:b6cb71ad2f8ad0821579aa451a8c389018146cd6f4af52a7c6e9ac4cdaa484bd"
   },
   "bootstrap": {
     "id": "bootstrap",
@@ -27,13 +27,13 @@
     "id": "isekai-project-runtime-contract",
     "version": "0.2.1",
     "path": "runtime",
-    "digest": "sha256:6e2989053ea5f9948b404eb863277f8c445fe106320ca72abd21044d7c3d4fd8"
+    "digest": "sha256:be6434662e1f256548e6f79dded109e162b7ed3453523f89d5eb28cb41ca9fee"
   },
-  "features": {
-    "id": "isekai-feature-catalog",
+  "catalog": {
+    "id": "isekai-catalog",
     "version": "0.2.1",
-    "path": "features",
-    "digest": "sha256:67915b23e34d930358a5a77722dc4f6db8629358990d2591ee2df1e335b975b4"
+    "path": "catalog",
+    "digest": "sha256:aac9e50276e5429a98447acd2972396a64f66258ebcd2ed0b342980e87a05dbd"
   },
   "foundation": {
     "id": "isekai-foundation",
@@ -46,19 +46,19 @@
       "id": "claude",
       "version": "0.2.1",
       "path": "runtime/adapters/claude/skills/isekai",
-      "digest": "sha256:f10e3524d928856d5a5f98fca09614c15f6041c174a596de3541240d4c041868"
+      "digest": "sha256:01ff2dc8be1ebc3781362ec8aa58605ba24a46a47220467131815c0476c4dcbb"
     },
     {
       "id": "codex",
       "version": "0.2.1",
       "path": "runtime/adapters/codex/skills/isekai",
-      "digest": "sha256:f4fa90d7bf1831965f3033071c1a59de1a13c7acf3e10c929ef0da80d5f01c1d"
+      "digest": "sha256:ac4164ffb21ad1b3db9387f6dbb4871b33cdd4f35e16bc85deadaf96bc479fa5"
     },
     {
       "id": "kiro",
       "version": "0.2.1",
       "path": "runtime/adapters/kiro/skills/isekai",
-      "digest": "sha256:e859fe028951d08a819bcf5c0eea9be6fac69c93dbd161b3d7f4892a49f7fc86"
+      "digest": "sha256:54312cc3f518e0642d911bbb8f56829d697aa8c2de159f88f0cbc736a8a3dd52"
     }
   ]
 }

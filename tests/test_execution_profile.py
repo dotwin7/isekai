@@ -52,7 +52,7 @@ def test_codex_profile_preserves_config_and_forces_core_gateway(
     assert parsed["mcp_servers"]["isekai_core"]["required"] is True
     assert parsed["mcp_servers"]["isekai_core"]["enabled_tools"] == [
         "runtime_action",
-        "feature_catalog",
+        "catalog",
         "managed_edit",
         "artifact_write",
         "managed_test",
@@ -135,7 +135,7 @@ def test_codex_profile_upgrades_the_legacy_owned_mcp_entry(tmp_path: Path) -> No
     assert entry["required"] is True
     assert entry["enabled_tools"] == [
         "runtime_action",
-        "feature_catalog",
+        "catalog",
         "managed_edit",
         "artifact_write",
         "managed_test",
@@ -166,7 +166,7 @@ def test_reapply_upgrades_an_owned_codex_tool_allowlist(tmp_path: Path) -> None:
     config = project / ".codex/config.toml"
     config.write_text(
         config.read_text(encoding="utf-8").replace(
-            'enabled_tools = ["runtime_action", "feature_catalog", '
+            'enabled_tools = ["runtime_action", "catalog", '
             '"managed_edit", "artifact_write", "managed_test"]',
             'enabled_tools = ["runtime_action"]',
         ),
@@ -181,7 +181,7 @@ def test_reapply_upgrades_an_owned_codex_tool_allowlist(tmp_path: Path) -> None:
     assert result["ready"] is True
     assert entry["enabled_tools"] == [
         "runtime_action",
-        "feature_catalog",
+        "catalog",
         "managed_edit",
         "artifact_write",
         "managed_test",

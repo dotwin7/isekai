@@ -1,6 +1,6 @@
-"""Compatibility façade for request intake and normalization."""
+"""Compatibility facade for request intake and normalization."""
 
-from .workflow.intake import (
+from isekai.catalog.ai_dlc.intake import (
     CHANGE_VALUES,
     INTAKE_SOURCES,
     RISK_VALUES,

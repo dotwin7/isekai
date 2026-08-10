@@ -414,7 +414,7 @@ def plan_git_update(
     adapters = {item["id"]: item for item in target["adapters"]}
     changes = [
         change("core", current.get("core"), target["core"]),
-        change("features", current.get("features"), target["features"]),
+        change("catalog", current.get("catalog"), target["catalog"]),
     ]
     changes.extend(
         change(

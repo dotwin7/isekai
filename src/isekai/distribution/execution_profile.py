@@ -13,7 +13,7 @@ from ..support.jsonio import write_bytes_atomic, write_json_atomic
 from .release import DistributionError, MANAGED_ROOT, RUNTIMES
 
 
-PROFILE_STATE = Path(MANAGED_ROOT) / "host-profiles/state.json"
+PROFILE_STATE = Path(MANAGED_ROOT) / "host-custody/state.json"
 CODEX_CONFIG = Path(".codex/config.toml")
 CLAUDE_SETTINGS = Path(".claude/settings.json")
 CLAUDE_MCP = Path(".mcp.json")
@@ -23,7 +23,7 @@ PROFILE_SCHEMA_VERSION = "1.0.0"
 MCP_SERVER_ID = "isekai_core"
 CORE_MCP_TOOLS = [
     "runtime_action",
-    "feature_catalog",
+    "catalog",
     "managed_edit",
     "artifact_write",
     "managed_test",

@@ -13,7 +13,7 @@ from isekai.distribution.install import (
     _install_from_verified_checkout as install_from_checkout,
 )
 from isekai.distribution import apply_execution_profile
-from isekai.workflow.unit.lifecycle import verify_unit
+from isekai.catalog.ai_dlc.unit.lifecycle import verify_unit
 
 
 ROOT = Path(__file__).resolve().parents[1]

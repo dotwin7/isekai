@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from .errors import IntegrityError
+from isekai.support.errors import IntegrityError
 from .project_knowledge_schema import CANDIDATE_REFERENCE, candidate_issues
 from .project_knowledge_storage import managed_project_directory, safe_project_json
-from .unit.common import _unit_json
-from .unit.decisions import _decision_ledger_issues
+from isekai.catalog.ai_dlc.unit.common import _unit_json
+from isekai.catalog.ai_dlc.unit.decisions import _decision_ledger_issues
 
 
 CANDIDATE_STATUSES = (

@@ -38,7 +38,7 @@ The Adapter is discoverable by the host but conversation mode is off by default.
 
 The selected host agent is the adaptive workflow driver. The Runtime Skill tells it to interpret Core's machine-readable `workflow` directive, inspect the project, and propose a plan bounded by `maximum_agent_level`. ISEKAI does not add a second agent brain or lifecycle hook. The Project execution guard makes the Host read-only and connects the Project-local Core MCP gateway as the exclusive writer.
 
-The ISEKAI Feature Catalog groups the versioned functions provided by ISEKAI on the Project-local Core MCP control plane. Core exposes a digest-bound Catalog and includes it in new Unit Context Receipts. AI-DLC is the currently active Feature. Future functions are delivered as independent ISEKAI Feature packages and registered in the same Catalog. Inspect it with `isekai runtime feature-status`.
+The ISEKAI Catalog groups the versioned functions provided by ISEKAI on the Project-local Core MCP control plane. Core exposes a digest-bound Catalog and includes it in new Unit Context Receipts. AI-DLC is the currently active entry. Future functions are delivered as independent ISEKAI Catalog packages and registered in the same Catalog. Inspect it with `isekai runtime catalog-status`.
 
 `<PROJECT_ROOT>/.isekai/bin/isekai runtime <action>` is the internal Runtime Adapter contract. Adapters must resolve it from the selected Project and never use a global executable fallback.
 
@@ -101,7 +101,7 @@ The three checked-in Runtime Skills are generated from `templates/runtime-skill.
 
 ## Core boundary
 
-The adapters own runtime interaction only. ISEKAI Core owns Foundation resolution, Feature catalog validation and exposure, routing, the Project-scoped active Unit binding, Unit lifecycle, Decision boundaries, managed file/test execution, Evidence, and verification. Unit artifacts remain the source of truth; ignored `.isekai-runtime/active-unit.json` is enforcement state, not a lifecycle artifact. Core does not authenticate the reported human identity, create separate host agents, or execute undeclared external services and allowlisted external APIs on the caller's behalf.
+The adapters own runtime interaction only. ISEKAI Core owns Foundation resolution, Catalog validation and exposure, routing, the Project-scoped active Unit binding, Unit lifecycle, Decision boundaries, managed file/test execution, Evidence, and verification. Unit artifacts remain the source of truth; ignored `.isekai-runtime/active-unit.json` is enforcement state, not a lifecycle artifact. Core does not authenticate the reported human identity, create separate host agents, or execute undeclared external services and allowlisted external APIs on the caller's behalf.
 
 ## Non-goals
 

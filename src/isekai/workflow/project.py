@@ -17,8 +17,8 @@ from ..foundation import (
     validate_rule_definition,
 )
 from ..support.files import UnsafeControlFile, read_control_file
-from .errors import WorkflowError
-from .routing import ALLOWED_AGENT_LEVELS, WorkRoute
+from isekai.support.errors import WorkflowError
+from isekai.catalog.ai_dlc.routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
 CONTEXT_RECEIPT_NON_BINDING_FIELDS = {"receipt_id", "generated_at"}
@@ -398,7 +398,7 @@ def load_project(
 
 def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict[str, Any]:
     manifest_path, project, foundation, project_extensions = load_project(path)
-    from .features import load_feature_catalog
+    from .catalog import load_catalog
     from .project_knowledge import (
         current_project_knowledge,
         summarize_project_knowledge,
@@ -427,7 +427,7 @@ def resolve_context(path: str | Path, route: WorkRoute = WorkRoute.UNIT) -> dict
         "profiles": project["profiles"],
         "extensions": project["extensions"],
         "extension_assets": sorted(project_extensions, key=lambda asset: asset["id"]),
-        "features": load_feature_catalog(),
+        "catalog": load_catalog(),
         "route": route.value,
         "maximum_agent_level": project.get("maximum_agent_level", "L0"),
         "rule_ids": sorted(rule["id"] for rule in applicable_rules),

@@ -32,7 +32,7 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         payload = {"project": args.project, "unit": args.unit}
     elif action in {"off", "compatibility"}:
         payload = {}
-    elif action == "feature-status":
+    elif action == "catalog-status":
         payload = {}
     elif action == "intake":
         payload = {

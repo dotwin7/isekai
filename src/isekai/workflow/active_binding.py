@@ -16,10 +16,10 @@ from ..support.files import (
 )
 from ..support.jsonio import write_json_atomic
 from ..support.locking import file_lock
-from .errors import IntegrityError, LifecycleError, WorkflowError
+from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
 from .project import _receipt_source_manifest_path
-from .unit.checkpointing import checkpoint_progress_issues
-from .unit.common import _unit_json
+from isekai.catalog.ai_dlc.unit.checkpointing import checkpoint_progress_issues
+from isekai.catalog.ai_dlc.unit.common import _unit_json
 
 
 ACTIVE_BINDING_SCHEMA_VERSION = "1.0.0"

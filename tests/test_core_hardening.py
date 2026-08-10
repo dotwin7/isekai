@@ -30,10 +30,10 @@ def test_no_top_level_command_is_shadowed_by_a_runtime_alias() -> None:
     assert _top_level_commands() & DIRECT_RUNTIME_ACTIONS == set()
 
 
-def test_internal_host_profile_term_is_not_exposed_in_public_cli_help() -> None:
+def test_internal_host_custody_term_is_not_exposed_in_public_cli_help() -> None:
     parser = _parser()
 
-    assert "host-profile" not in parser.format_help()
+    assert "host-custody" not in parser.format_help()
     assert "doctor" in parser.format_help()
     assert "--fix" in parser._subparsers._group_actions[0].choices[
         "doctor"
@@ -461,7 +461,7 @@ def test_edit_authorization_rejects_case_insensitive_control_path_aliases(
     monkeypatch: pytest.MonkeyPatch,
     protected_target: str,
 ) -> None:
-    from isekai.workflow.unit import authorization as authorization_module
+    from isekai.catalog.ai_dlc.unit import authorization as authorization_module
 
     project = make_project(tmp_path)
     unit = _wide_open_unit(project, "Case Alias Protection")
@@ -586,7 +586,7 @@ def test_control_readers_normalize_platform_os_errors(
     from isekai.runtime import actions as runtime_module
     from isekai.runtime.actions import RuntimeContractError
     from isekai.workflow import project as project_module
-    from isekai.workflow.unit import common as unit_common
+    from isekai.catalog.ai_dlc.unit import common as unit_common
 
     def deny(*args: object, **kwargs: object) -> bytes:
         raise PermissionError("platform denied control read")

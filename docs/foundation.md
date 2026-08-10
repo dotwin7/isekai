@@ -65,7 +65,7 @@ examples/reference-product/
    └─ reference-product.json
 ```
 
-`project.json`은 공통 Profile은 Foundation ID로 선택하고, Product Extension은 `extensions`에서 프로젝트 로컬 파일을 참조한다. ISEKAI Runtime의 추가 기능은 Product Extension에 넣지 않고 [ISEKAI Feature Catalog](features.md)에 등록한다. 모든 Feature는 Foundation MUST, Project Agent level과 Unit Envelope를 넓힐 수 없다.
+`project.json`은 공통 Profile은 Foundation ID로 선택하고, Product Extension은 `extensions`에서 프로젝트 로컬 파일을 참조한다. ISEKAI Runtime의 추가 기능은 Product Extension에 넣지 않고 [ISEKAI Catalog](catalog.md)에 등록한다. 모든 Catalog entry는 Foundation MUST, Project Agent level과 Unit Envelope를 넓힐 수 없다.
 
 ## 문서 언어 정책
 

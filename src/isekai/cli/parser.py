@@ -23,7 +23,7 @@ DIRECT_RUNTIME_ACTIONS = {
     "route",
     "inception",
     "compatibility",
-    "feature-status",
+    "catalog-status",
     "release-check",
     "foundation-decision",
     "foundation-evidence",
@@ -214,8 +214,8 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     runtime_commands.add_parser(
-        "feature-status",
-        help="show versioned features attached to this ISEKAI Runtime",
+        "catalog-status",
+        help="show the ISEKAI Catalog for this Runtime",
     )
 
     runtime_release_check = runtime_commands.add_parser(

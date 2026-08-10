@@ -16,19 +16,19 @@ from .project import (
     _receipt_source_manifest_path,
     resolve_context,
 )
-from .routing import WorkRoute
-from .unit.common import (
+from isekai.catalog.ai_dlc.routing import WorkRoute
+from isekai.catalog.ai_dlc.unit.common import (
     UNIT_LOCK_NAME,
     _is_canonical_unit_directory,
     _unit_json,
     _unit_preflight_issues,
     unit_lock,
 )
-from .unit.checkpointing import (
+from isekai.catalog.ai_dlc.unit.checkpointing import (
     authorization_progress_cursor,
     checkpoint_progress_issues,
 )
-from .unit.lifecycle import unit_status
+from isekai.catalog.ai_dlc.unit.lifecycle import unit_status
 
 
 class SessionError(ValueError):

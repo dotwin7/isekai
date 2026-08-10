@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import isekai.workflow.unit.execution as execution_module
-import isekai.workflow.unit.execution_history as execution_history_module
-import isekai.workflow.unit.lifecycle as lifecycle_module
+import isekai.catalog.ai_dlc.unit.execution as execution_module
+import isekai.catalog.ai_dlc.unit.execution_history as execution_history_module
+import isekai.catalog.ai_dlc.unit.lifecycle as lifecycle_module
 from isekai.jsonio import write_json_atomic
 from isekai.workflow.errors import AuthorizationError, IntegrityError
 from isekai.workflow import (
@@ -21,7 +21,7 @@ from isekai.workflow import (
     verify_unit,
 )
 from isekai.workflow.project import _context_receipt_id
-from isekai.workflow.unit.execution import _scope_pattern_matches
+from isekai.catalog.ai_dlc.unit.execution import _scope_pattern_matches
 from isekai.session import resume_session, update_checkpoint
 
 from test_core_workflow import make_project, materialize_unit_artifacts

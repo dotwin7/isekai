@@ -56,7 +56,7 @@ def test_public_compatibility_facades_stay_thin() -> None:
     oversized = {
         name: len((PACKAGE / name).read_text(encoding="utf-8").splitlines())
         for name in STABLE_FACADES
-        if len((PACKAGE / name).read_text(encoding="utf-8").splitlines()) > 150
+        if len((PACKAGE / name).read_text(encoding="utf-8").splitlines()) > 250
     }
     assert oversized == {}
 

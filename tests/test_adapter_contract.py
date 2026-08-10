@@ -21,7 +21,7 @@ EXPECTED_ACTIONS = {
     "route",
     "inception",
     "compatibility",
-    "feature-status",
+    "catalog-status",
     "release-check",
     "foundation-decision",
     "foundation-evidence",
@@ -84,7 +84,7 @@ def test_packaged_and_runtime_compatibility_matrices_cannot_drift() -> None:
     assert _compatibility_issues(packaged) == []
     manifest = read_json(ROOT / "runtime/manifest.json")
     assert packaged["trust_model"] == manifest["trust_model"]
-    assert packaged["feature_model"] == manifest["feature_model"]
+    assert packaged["catalog_model"] == manifest["catalog_model"]
     assert packaged["runtime_contract"] == {
         "high_risk_actions": manifest["high_risk_actions"],
         "human_decision_actions": manifest["human_decision_actions"],
@@ -101,12 +101,12 @@ def test_tested_runtime_versions_require_linked_live_evidence() -> None:
     assert any("tested_versions lack live evidence" in issue for issue in _compatibility_issues(broken))
 
 
-def test_feature_permission_contract_cannot_be_silently_weakened() -> None:
+def test_catalog_permission_contract_cannot_be_silently_weakened() -> None:
     matrix = read_json(ROOT / "runtime/compatibility.json")
     broken = copy.deepcopy(matrix)
-    broken["feature_model"]["permission_effect"] = "may-expand-unit-authority"
+    broken["catalog_model"]["permission_effect"] = "may-expand-unit-authority"
 
-    assert "compatibility matrix has an invalid feature_model" in (
+    assert "compatibility matrix has an invalid catalog_model" in (
         _compatibility_issues(broken)
     )
 
@@ -200,11 +200,11 @@ def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
             "host secret broker and output redaction",
         ],
     }
-    assert manifest["feature_model"] == {
-        "unit": "versioned-isekai-feature",
-        "distribution": "core-bundled-or-feature-package",
+    assert manifest["catalog_model"] == {
+        "unit": "versioned-isekai-catalog-entry",
+        "distribution": "core-bundled-or-catalog-package",
         "exposure": "project-local-core-mcp-control-plane",
-        "context_binding": "sha256-feature-catalog-and-package-digests",
+        "context_binding": "sha256-catalog-and-package-digests",
         "project_ownership": "not-a-product-extension",
         "permission_effect": "cannot-expand-foundation-project-or-unit-authority",
     }
