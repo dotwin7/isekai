@@ -6,7 +6,7 @@
   "status": "preview",
   "title": "Feature title for MCP resource listing",
   "description": "One-line description shown in the feature catalog.",
-  "control_protocol": "1.1.0",
+  "control_protocol": "1.2.0",
   "delivery": "core-bundled",
   "actions": [],
   "resources": [],

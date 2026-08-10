@@ -42,7 +42,7 @@ DIRECT_RUNTIME_ACTIONS = {
     "authorize",
     "managed-edit",
     "artifact-write",
-    "managed-test",
+    "prove",
     "evidence",
     "decision",
     "transition",
@@ -372,14 +372,14 @@ def _parser() -> argparse.ArgumentParser:
     runtime_artifact_write.add_argument("--unit", required=True)
     runtime_artifact_write.add_argument("--artifacts-json", required=True)
 
-    runtime_managed_test = runtime_commands.add_parser(
-        "managed-test",
-        help="authorize and execute a test command inside Core",
+    runtime_prove = runtime_commands.add_parser(
+        "prove",
+        help="execute and receipt a verification command inside Core",
     )
-    runtime_managed_test.add_argument("--unit", required=True)
-    runtime_managed_test.add_argument("--target", required=True)
-    runtime_managed_test.add_argument("--command-json", required=True)
-    runtime_managed_test.add_argument(
+    runtime_prove.add_argument("--unit", required=True)
+    runtime_prove.add_argument("--target", required=True)
+    runtime_prove.add_argument("--command-json", required=True)
+    runtime_prove.add_argument(
         "--timeout-seconds", type=int, default=300
     )
 

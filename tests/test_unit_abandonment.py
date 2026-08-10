@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 
 import pytest
 
+import isekai.workflow.active_binding as active_binding_module
+from isekai.runtime_contract import dispatch
 from isekai.workflow import (
     ALLOWED_TRANSITIONS,
     LIFECYCLE_STATUSES,
@@ -13,6 +16,7 @@ from isekai.workflow import (
     verify_unit,
 )
 from isekai.workflow.active_binding import (
+    active_unit_action_guard,
     active_unit_binding,
     bind_active_unit,
     complete_active_unit,
@@ -26,6 +30,7 @@ from isekai.catalog.ai_dlc.unit.managed_execution import (
 )
 
 from test_decision_lifecycle import make_unit, start_construction
+from test_core_workflow import make_project
 
 
 def _unit_value(unit: Path) -> dict[str, object]:
@@ -129,10 +134,11 @@ def test_abandonment_releases_the_active_unit_binding(tmp_path: Path) -> None:
     assert binding["active"] is True
 
     abandon_decision(unit)
-    transition_unit(unit, "abandoned")
+    with active_unit_action_guard(project, unit, action="transition") as complete:
+        transition_unit(unit, "abandoned")
+        completed = complete()
 
     assert active_unit_binding(project)["active"] is False
-    completed = complete_active_unit(project, unit)
     assert completed["active"] is False
     state = json.loads(
         Path(completed["state_path"]).read_text(encoding="utf-8")
@@ -140,5 +146,135 @@ def test_abandonment_releases_the_active_unit_binding(tmp_path: Path) -> None:
     assert state["active_unit"] is None
     assert state["events"][-1]["action"] == "abandoned"
 
+    # Recovery remains idempotent after the terminal event was committed inside
+    # the same binding lock as the transition action.
+    completed = complete_active_unit(project, unit)
+    state = json.loads(Path(completed["state_path"]).read_text(encoding="utf-8"))
+    assert [event["action"] for event in state["events"]].count("abandoned") == 1
+
     replay = bind_active_unit(project, unit)
     assert replay["active"] is False
+
+
+def test_terminal_transition_closes_binding_before_another_unit_can_bind(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    project = unit.parent.parent / "project.json"
+    start_construction(unit)
+    bind_active_unit(project, unit)
+    abandon_decision(unit)
+
+    def create_next_unit() -> dict[str, object]:
+        return dispatch(
+            "unit-init",
+            {
+                "project": str(project),
+                "title": "폐기 직후의 새 Unit",
+                "owner": "human-owner",
+            },
+        )["result"]
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with active_unit_action_guard(project, unit, action="transition") as complete:
+            transition_unit(unit, "abandoned")
+            future = executor.submit(create_next_unit)
+            with pytest.raises(TimeoutError):
+                future.result(timeout=0.1)
+            complete()
+        created = future.result(timeout=2)
+
+    state = json.loads(
+        (project.parent / ".isekai-runtime/active-unit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert [event["action"] for event in state["events"]] == [
+        "bind",
+        "abandoned",
+        "bind",
+    ]
+    created_unit = json.loads(
+        Path(str(created["created"])).joinpath("unit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["active_unit"]["unit_id"] == created_unit["id"]
+
+
+def test_next_unit_reconciles_a_terminal_event_after_binding_write_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unit = make_unit(tmp_path)
+    project = unit.parent.parent / "project.json"
+    start_construction(unit)
+    bind_active_unit(project, unit)
+    abandon_decision(unit)
+    original_write_event = active_binding_module._write_event
+    failed = False
+
+    def fail_first_terminal_event(
+        project_manifest: Path,
+        binding: dict[str, object],
+        event: dict[str, object],
+        active_unit: dict[str, str] | None,
+    ) -> dict[str, object]:
+        nonlocal failed
+        if event.get("action") == "abandoned" and not failed:
+            failed = True
+            raise OSError("forced terminal binding write failure")
+        return original_write_event(project_manifest, binding, event, active_unit)
+
+    monkeypatch.setattr(active_binding_module, "_write_event", fail_first_terminal_event)
+
+    with pytest.raises(OSError, match="forced terminal binding write failure"):
+        dispatch("transition", {"unit": str(unit), "to": "abandoned"})
+
+    assert _unit_value(unit)["status"] == "abandoned"
+    created = dispatch(
+        "unit-init",
+        {
+            "project": str(project),
+            "title": "복구 뒤 새 Unit",
+            "owner": "human-owner",
+        },
+    )["result"]
+    state = json.loads(
+        (project.parent / ".isekai-runtime/active-unit.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert [event["action"] for event in state["events"]] == [
+        "bind",
+        "abandoned",
+        "bind",
+    ]
+    assert Path(str(created["created"])).is_dir()
+
+
+def test_unit_initialization_rolls_back_when_binding_commit_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = make_project(tmp_path)
+    units_root = project.parent / "units"
+
+    def fail_binding_commit(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise OSError("forced Unit binding commit failure")
+
+    monkeypatch.setattr(active_binding_module, "_write_event", fail_binding_commit)
+
+    with pytest.raises(OSError, match="forced Unit binding commit failure"):
+        dispatch(
+            "unit-init",
+            {
+                "project": str(project),
+                "title": "결박 실패 Unit",
+                "owner": "human-owner",
+            },
+        )
+
+    assert units_root.is_dir()
+    assert list(units_root.iterdir()) == []

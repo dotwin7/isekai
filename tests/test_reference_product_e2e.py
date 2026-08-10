@@ -16,7 +16,7 @@ from isekai.distribution.install import (
 )
 from isekai.distribution import apply_execution_profile
 from isekai.catalog.ai_dlc.unit.lifecycle import verify_unit
-from isekai.catalog.ai_dlc.unit.managed_test_sandbox import sandbox_available
+from isekai.catalog.ai_dlc.unit.proof_sandbox import sandbox_available
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +130,17 @@ def _assert_korean_human_artifacts(unit: Path) -> None:
 
 
 def _portable_command(command: object) -> object:
+    if isinstance(command, str):
+        try:
+            argv = json.loads(command)
+        except json.JSONDecodeError:
+            argv = None
+        if (
+            isinstance(argv, list)
+            and argv
+            and all(isinstance(argument, str) for argument in argv)
+        ):
+            return json.dumps(["python", *argv[1:]], separators=(",", ":"))
     if isinstance(command, str) and " -m unittest " in command:
         return "python -m unittest " + command.split(" -m unittest ", 1)[1]
     return command
@@ -391,7 +402,7 @@ def _run_product_tests(project: Path, unit: Path) -> dict[str, object]:
     return _run_isekai(
         project,
         "runtime",
-        "managed-test",
+        "prove",
         "--unit",
         str(unit),
         "--target",
@@ -415,15 +426,14 @@ def _run_product_tests(project: Path, unit: Path) -> dict[str, object]:
 def _record_product_evidence(
     project: Path,
     unit: Path,
-    managed_test: dict[str, object],
+    proof_run: dict[str, object],
     *,
     passed: bool,
 ) -> dict[str, object]:
-    result = managed_test["result"]
+    result = proof_run["result"]
     assert isinstance(result, dict)
-    output = str(result["stdout"]) + str(result["stderr"])
-    execution = result["execution"]
-    assert isinstance(execution, dict)
+    evidence_command = result["evidence_command"]
+    assert isinstance(evidence_command, dict)
     arguments = [
         "runtime",
         "evidence",
@@ -435,19 +445,7 @@ def _record_product_evidence(
     arguments.extend(
         [
             "--commands-json",
-            json.dumps(
-                [
-                    {
-                        "command": (
-                            f"{sys.executable} -m unittest discover -s tests -v"
-                        ),
-                        "exit_code": execution["exit_code"],
-                        "output_digest": hashlib.sha256(output.encode()).hexdigest(),
-                        "observed_at": datetime.now(timezone.utc).isoformat(),
-                        "authorization_id": result["authorization_id"],
-                    }
-                ]
-            ),
+            json.dumps([evidence_command]),
             "--scope",
             "Reference Product 기능 제안 우선순위 결정",
             "--recorded-by",
@@ -532,7 +530,7 @@ mapping 레코드 iterable을 `prioritize_proposals`에 전달한다. 함수는 
 
 @pytest.mark.skipif(
     not sandbox_available(),
-    reason="managed-test OS sandbox provider is unavailable",
+    reason="prove OS sandbox provider is unavailable",
 )
 def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
     tmp_path: Path,
@@ -570,9 +568,9 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         "--runtime",
         "codex",
         "--adapter-version",
-        "0.2.1",
+        "0.3.0",
         "--protocol-version",
-        "1.1.0",
+        "1.2.0",
         "--project",
         str(project),
     )

@@ -42,7 +42,7 @@ Start Kiro from a repository containing `project.json` and invoke `/isekai on` w
 
 - Read-only: `on`, `off`, `status`, `intake`, `route`, `inception`, `resume`, `verify`, `release-check`
 - Core-mediated writes: `init`, `unit-init`, `checkpoint`, `artifact-write`, `managed-edit`, `envelope-propose`, `evidence`, `amend`, `active-unit-detach`, `decision`, `transition`, `foundation-decision`, `foundation-evidence`, `foundation-promote`
-- Core-mediated test execution: `managed-test`; free-standing `authorize edit|test` calls are denied
+- Core-mediated test execution: `prove`; free-standing `authorize edit|test` calls are denied
 - The initial explicit request covers only a bounded Quick Change. Unit writes require autonomy-bounded plan approval, and `human_gate` identifies the Inception, Architecture, Release, or Operation Decision that blocks the next transition.
 
 The runtime adapter does not own Unit state. The selected `isekai-core` agent has no direct write or shell tool: Unit documents, Project edits, and tests go through the Core MCP gateway, which authorizes and receipts them. L2 uses only an opaque `secret://provider/name` resolved by the host; raw credentials, production, deployment, and arbitrary high-risk remote actions remain prohibited. Do not use another agent profile or `/tools trust-all` to bypass this boundary. Unit artifacts and ISEKAI Core remain authoritative.

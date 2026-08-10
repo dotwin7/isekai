@@ -116,7 +116,7 @@ def _load_catalog_entry(
     for field in ("title", "description"):
         if not isinstance(value.get(field), str) or not value[field].strip():
             raise FoundationError(f"ISEKAI catalog entry {entry_id} requires {field}")
-    if value["control_protocol"] != "1.1.0":
+    if value["control_protocol"] != "1.2.0":
         raise FoundationError(
             f"ISEKAI catalog entry {entry_id} requires an incompatible control protocol"
         )
@@ -152,7 +152,7 @@ def load_catalog() -> dict[str, Any]:
         raise FoundationError(
             "ISEKAI Catalog source catalog has an unsupported schema_version"
         )
-    if source.get("control_protocol") != "1.1.0":
+    if source.get("control_protocol") != "1.2.0":
         raise FoundationError(
             "ISEKAI Catalog source catalog requires an incompatible control protocol"
         )
@@ -195,7 +195,7 @@ def load_catalog() -> dict[str, Any]:
     catalog = {
         "type": "isekai-catalog",
         "schema_version": CATALOG_SCHEMA_VERSION,
-        "control_protocol": "1.1.0",
+        "control_protocol": "1.2.0",
         "entries": loaded_entries,
     }
     catalog["catalog_digest"] = _digest(catalog, "catalog_digest")

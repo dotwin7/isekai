@@ -12,7 +12,8 @@ from isekai.distribution import DistributionError, install_from_git, plan_git_up
 from isekai.foundation import load_foundation
 from isekai.support.jsonio import write_json_atomic
 from isekai.workflow.session import _descendant_project_candidates, update_checkpoint
-from isekai.workflow import authorize_action, initialize_unit, verify_unit
+from isekai.workflow import initialize_unit, verify_unit
+from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant as authorize_action
 from isekai.workflow.errors import IntegrityError
 
 from test_core_workflow import ROOT, make_project

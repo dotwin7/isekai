@@ -25,7 +25,7 @@ catalog/
 
 | ID | Version | Status | Delivery | 설명 |
 |---|---|---|---|---|
-| `ai-dlc` | 0.2.1 | active | core-bundled | Intake부터 Learn까지 거버넌스 개발주기 |
+| `ai-dlc` | 0.3.0 | active | core-bundled | Intake부터 Learn까지 거버넌스 개발주기 |
 
 ## 새 Entry 추가 절차
 
@@ -57,7 +57,7 @@ cp catalog/_template/manifest.json.example \
 | `status` | `"active"`, `"preview"`, `"deprecated"` 중 하나 |
 | `title` | MCP resource 목록에 표시될 제목 |
 | `description` | 한 줄 설명 |
-| `control_protocol` | `"1.1.0"` (현재 Core 프로토콜) |
+| `control_protocol` | `"1.2.0"` (현재 Core 프로토콜) |
 | `delivery` | `"core-bundled"` 또는 `"catalog-package"` |
 | `actions` | 이 entry가 소유하는 Core action ID 목록 |
 | `resources` | 이 entry가 제공하는 resource 이름 목록 |

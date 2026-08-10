@@ -6,6 +6,7 @@ import re
 import stat
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -25,21 +26,23 @@ from .common import (
     unit_lock,
 )
 from .execution import _authorize_action_locked
-from .managed_test_sandbox import build_sandbox_invocation
-from .managed_test_runtime import (
-    MAX_MANAGED_TEST_CAPTURE_BYTES,
-    MAX_MANAGED_TEST_OUTPUT_BYTES,
+from .proof_sandbox import build_sandbox_invocation
+from .proof_runtime import (
+    MAX_PROOF_CAPTURE_BYTES,
+    MAX_PROOF_OUTPUT_BYTES,
     capture_managed_process as _capture_managed_process,
     copy_test_workspace as _copy_test_workspace,
     isolated_test_command as _isolated_test_command,
-    managed_test_environment as _managed_test_environment,
+    proof_environment as _proof_environment,
+    proof_command_text,
+    proof_output_digest,
 )
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 ABSENT_DIGEST = "absent"
 MAX_MANAGED_FILE_BYTES = 8 * 1024 * 1024
-MAX_MANAGED_TEST_SECONDS = 1800
+MAX_PROOF_SECONDS = 1800
 
 
 def _content_digest(content: bytes) -> str:
@@ -297,22 +300,22 @@ def execute_managed_edit(
 
 def _normalize_command(command: object) -> list[str]:
     if not isinstance(command, list) or not command:
-        raise WorkflowError("managed test requires a non-empty argv list")
+        raise WorkflowError("proof requires a non-empty argv list")
     if len(command) > 64 or any(
         not isinstance(item, str) or not item or "\x00" in item for item in command
     ):
-        raise WorkflowError("managed test argv must contain 1-64 non-empty strings")
+        raise WorkflowError("proof argv must contain 1-64 non-empty strings")
     return list(command)
 
 
-def execute_managed_test(
+def execute_proof(
     path: str | Path,
     *,
     target: str,
     command: object,
     timeout_seconds: int = 300,
 ) -> dict[str, Any]:
-    """Authorize, execute, and receipt a test without returning a host grant."""
+    """Authorize, execute, and receipt a verification run inside Core."""
 
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
@@ -322,16 +325,16 @@ def execute_managed_test(
         not isinstance(timeout_seconds, int)
         or isinstance(timeout_seconds, bool)
         or timeout_seconds < 1
-        or timeout_seconds > MAX_MANAGED_TEST_SECONDS
+        or timeout_seconds > MAX_PROOF_SECONDS
     ):
         raise WorkflowError(
-            f"managed test timeout must be 1-{MAX_MANAGED_TEST_SECONDS} seconds"
+            f"proof timeout must be 1-{MAX_PROOF_SECONDS} seconds"
         )
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
         if unit.get("status") in TERMINAL_STATUSES:
             raise LifecycleError(
-                f"a {unit.get('status')} Unit cannot execute managed tests"
+                f"a {unit.get('status')} Unit cannot execute proofs"
             )
         receipt = _unit_json(unit_dir, "context-receipt.json")
         project_root = _receipt_source_manifest_path(
@@ -351,16 +354,16 @@ def execute_managed_test(
             credential_ref=None,
         )
         if authorization.get("allowed") is not True:
-            raise LifecycleError(str(authorization.get("reason", "managed test blocked")))
+            raise LifecycleError(str(authorization.get("reason", "proof blocked")))
         try:
-            with tempfile.TemporaryDirectory(prefix="isekai-managed-test-") as temp:
+            with tempfile.TemporaryDirectory(prefix="isekai-proof-") as temp:
                 # Seatbelt evaluates canonical filesystem paths.  macOS exposes
                 # its per-user temporary directory through /var -> /private/var,
                 # so bind the sandbox contract to the resolved spelling.
                 temp_root = Path(temp).resolve()
                 sandbox_project = temp_root / "project"
                 _copy_test_workspace(project_root, sandbox_project)
-                environment = _managed_test_environment(temp_root)
+                environment = _proof_environment(temp_root)
                 sandbox = build_sandbox_invocation(
                     argv,
                     temp_root=temp_root,
@@ -401,14 +404,14 @@ def execute_managed_test(
             )
             grants = candidate_ledger.get("grants")
             if not isinstance(grants, list) or not grants:
-                raise IntegrityError("managed test authorization grant was not persisted")
+                raise IntegrityError("proof authorization grant was not persisted")
             grant = grants[-1]
             if not isinstance(grant, dict) or grant.get("id") != authorization.get(
                 "authorization_id"
             ):
-                raise IntegrityError("managed test authorization grant changed concurrently")
+                raise IntegrityError("proof authorization grant changed concurrently")
             execution = {
-                "type": "core-managed-test",
+                "type": "core-proof",
                 "status": (
                     "timed-out"
                     if timed_out
@@ -427,22 +430,26 @@ def execute_managed_test(
                 "environment": "core-allowlisted",
                 "command": argv,
                 "exit_code": exit_code,
+                "timed_out": timed_out,
                 "stdout_digest": stdout_digest,
                 "stderr_digest": stderr_digest,
                 "stdout_bytes": stdout_bytes,
                 "stderr_bytes": stderr_bytes,
                 "stdout_truncated": stdout_truncated,
                 "stderr_truncated": stderr_truncated,
-                "output_capture_limit_bytes": MAX_MANAGED_TEST_CAPTURE_BYTES,
+                "output_capture_limit_bytes": MAX_PROOF_CAPTURE_BYTES,
                 "output_limit_exceeded": output_limit_exceeded,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
             }
+            execution["evidence_command"] = proof_command_text(argv)
+            execution["evidence_output_digest"] = proof_output_digest(execution)
             grant["execution"] = execution
             issues = _authorization_ledger_issues(
                 candidate_ledger, unit, envelope, unit_dir=unit_dir
             )
             if issues:
                 raise IntegrityError(
-                    "managed test receipt rejected: " + "; ".join(issues)
+                    "proof receipt rejected: " + "; ".join(issues)
                 )
             _write_json(
                 unit_dir / "execution-authorizations.json", candidate_ledger
@@ -455,7 +462,7 @@ def execute_managed_test(
                 )
             except Exception as restore_exc:  # pragma: no cover - secondary failure
                 raise IntegrityError(
-                    "managed test failed and authorization ledger could not be restored: "
+                    "proof failed and authorization ledger could not be restored: "
                     f"{restore_exc}"
                 ) from exc
             raise
@@ -465,6 +472,9 @@ def execute_managed_test(
                 exit_code == 0 and not timed_out and not output_limit_exceeded
             ),
             "execution": execution,
+            "evidence_command": {
+                "authorization_id": authorization["authorization_id"],
+            },
             "stdout": stdout,
             "stderr": stderr,
             "stdout_truncated": stdout_truncated,

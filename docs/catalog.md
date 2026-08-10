@@ -59,7 +59,7 @@ isekai/
 
 `distribution/release.json`은 `catalog/` 전체를 독립 release component와 SHA-256 digest로 결박한다. 설치기는 검증된 Catalog와 package를 Project-local `.isekai/catalog/`에 그대로 배치하고 `isekai.lock.json.catalog`에 source digest와 설치 digest를 기록한다. `doctor`는 이 디렉터리의 변조나 누락을 fail-closed로 보고한다. 사용자 홈이나 Host 전역 Plugin에는 설치하지 않는다.
 
-현재 배포 원본은 `catalog/ai-dlc/0.2.1/manifest.json`이다. AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, Catalog entry manifest와 Catalog는 독립 release component로 배포된다. 새로운 기능은 controller와 검증 계약을 자기 ID·version package에 구현한 뒤 `catalog/catalog.json`에 등록한다. Git release 설치와 update가 Catalog 전체를 대상 Project에 배포한다.
+현재 배포 원본은 `catalog/ai-dlc/0.3.0/manifest.json`이다. AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, Catalog entry manifest와 Catalog는 독립 release component로 배포된다. 새로운 기능은 controller와 검증 계약을 자기 ID·version package에 구현한 뒤 `catalog/catalog.json`에 등록한다. Git release 설치와 update가 Catalog 전체를 대상 Project에 배포한다.
 
 ## 새 Catalog entry 추가 절차
 

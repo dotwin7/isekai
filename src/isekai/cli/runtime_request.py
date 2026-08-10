@@ -155,7 +155,7 @@ def runtime_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "unit": args.unit,
             "artifacts": json.loads(args.artifacts_json),
         }
-    elif action == "managed-test":
+    elif action == "prove":
         payload = {
             "unit": args.unit,
             "target": args.target,
@@ -198,7 +198,7 @@ def runtime_exit_code(action: str, result: dict[str, Any]) -> int:
     gates = {
         "authorize": "allowed",
         "managed-edit": "allowed",
-        "managed-test": "allowed",
+        "prove": "allowed",
         "verify": "valid",
         "release-check": "ready",
         "foundation-promote": "promoted",

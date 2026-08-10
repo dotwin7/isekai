@@ -530,7 +530,7 @@ def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
     }
 
 
-def authorize_action(
+def _issue_action_grant(
     path: str | Path,
     *,
     action: str,
@@ -539,6 +539,7 @@ def authorize_action(
     method: str | None = None,
     credential_ref: str | None = None,
 ) -> dict[str, Any]:
+    """Issue a standalone grant for internal validation and compatibility paths."""
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         return {"allowed": False, "reason": f"Unit directory does not exist: {unit_dir}"}

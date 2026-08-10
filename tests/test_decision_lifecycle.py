@@ -15,14 +15,17 @@ from isekai.workflow.errors import (
 )
 from isekai.workflow import (
     DECISION_REQUIRED_FIELDS,
-    authorize_action,
-    build_command_evidence,
     initialize_unit,
     propose_execution_envelope,
     record_decision,
     record_evidence,
     transition_unit,
     verify_unit,
+)
+from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant as authorize_action
+from isekai.catalog.ai_dlc.unit.proof_runtime import (
+    proof_command_text,
+    proof_output_digest,
 )
 from isekai.workflow.session import update_checkpoint
 
@@ -89,13 +92,56 @@ def start_construction(unit: Path) -> None:
     transition_unit(unit, "construction")
 
 
-def authorize_test(unit: Path) -> str:
+def authorize_test(
+    unit: Path,
+    *,
+    target: str = "tests/test_decision_lifecycle.py",
+    exit_code: int = 0,
+) -> str:
     authorization = authorize_action(
         unit,
         action="test",
-        target="tests/test_decision_lifecycle.py",
+        target=target,
     )
     assert authorization["allowed"] is True
+    ledger_path = unit / "execution-authorizations.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    grant = ledger["grants"][-1]
+    assert grant["id"] == authorization["authorization_id"]
+    completed_at = datetime.now(timezone.utc).isoformat()
+    execution = {
+        "type": "core-proof",
+        "status": "completed",
+        "workspace": "disposable-copy",
+        "sandbox_provider": "test-double",
+        "filesystem_isolation": "source-and-user-data-read-denied-write-confined",
+        "network_isolation": "denied",
+        "process_isolation": "process-group-cleanup",
+        "resource_limits": {
+            "cpu_seconds": 305,
+            "file_size_bytes": 256 * 1024 * 1024,
+            "open_files": 256,
+            "processes": 512,
+            "core_dump_bytes": 0,
+        },
+        "environment": "core-allowlisted",
+        "command": ["pytest", "-q"],
+        "exit_code": exit_code,
+        "timed_out": False,
+        "stdout_digest": "sha256:" + "a" * 64,
+        "stderr_digest": "sha256:" + "0" * 64,
+        "stdout_bytes": 0,
+        "stderr_bytes": 0,
+        "stdout_truncated": False,
+        "stderr_truncated": False,
+        "output_capture_limit_bytes": 8 * 1024 * 1024,
+        "output_limit_exceeded": False,
+        "completed_at": completed_at,
+    }
+    execution["evidence_command"] = proof_command_text(execution["command"])
+    execution["evidence_output_digest"] = proof_output_digest(execution)
+    grant["execution"] = execution
+    write_json_atomic(ledger_path, ledger)
     return str(authorization["authorization_id"])
 
 
@@ -124,6 +170,36 @@ def test_inception_transition_rejects_unmaterialized_templates(
         "plan.md still contains the ISEKAI placeholder marker" in issue
         for issue in verify_unit(unit)["issues"]
     )
+
+
+@pytest.mark.parametrize("marker", ["[]", "[xx]"])
+def test_inception_rejects_malformed_acceptance_checkboxes(
+    tmp_path: Path,
+    marker: str,
+) -> None:
+    unit = make_unit(tmp_path)
+    (unit / "acceptance.md").write_text(
+        f"# 인수 조건\n\n- {marker} 잘못된 체크박스는 기준이 아니다.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LifecycleError, match="checkable criterion"):
+        transition_unit(unit, "inception")
+
+
+@pytest.mark.parametrize("criterion", ["- [ ]", "- [ ]   ", "- [x]"])
+def test_inception_rejects_acceptance_checkboxes_without_criterion_text(
+    tmp_path: Path,
+    criterion: str,
+) -> None:
+    unit = make_unit(tmp_path)
+    (unit / "acceptance.md").write_text(
+        f"# 인수 조건\n\n{criterion}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LifecycleError, match="checkable criterion"):
+        transition_unit(unit, "inception")
 
 
 def test_inception_decision_binds_the_materialized_plan(
@@ -202,15 +278,7 @@ def passing_evidence(unit: Path) -> None:
         passed=True,
         scope="Core and runtime lifecycle tests",
         recorded_by="test-validator",
-        commands=[
-            {
-                "command": "PYTHONPATH=src python3 -m pytest -q",
-                "exit_code": 0,
-                "output_digest": "a" * 64,
-                "observed_at": datetime.now(timezone.utc).isoformat(),
-                "authorization_id": authorization_id,
-            }
-        ],
+        commands=[{"authorization_id": authorization_id}],
     )
     update_checkpoint(
         unit,
@@ -237,18 +305,59 @@ def test_evidence_record_rejects_symlinked_records_directory(
             passed=True,
             scope="Evidence path boundary regression",
             recorded_by="test-validator",
-            commands=[
-                {
-                    "command": "pytest -q",
-                    "exit_code": 0,
-                    "output_digest": "a" * 64,
-                    "observed_at": datetime.now(timezone.utc).isoformat(),
-                    "authorization_id": authorization_id,
-                }
-            ],
+            commands=[{"authorization_id": authorization_id}],
         )
 
     assert list(external.iterdir()) == []
+
+
+def test_verify_audits_every_historical_evidence_record(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+    record_evidence(
+        unit,
+        passed=True,
+        scope="valid current Evidence",
+        recorded_by="test-validator",
+        commands=[{"authorization_id": authorization_id}],
+    )
+    write_json_atomic(
+        unit / "evidence/records/EVD-20260810000000000000.json",
+        {"this": "is not verification Evidence"},
+    )
+
+    verification = verify_unit(unit)
+
+    assert verification["valid"] is False
+    assert any(
+        "historical verification evidence" in issue
+        or "verification evidence missing fields" in issue
+        for issue in verification["issues"]
+    )
+
+
+def test_verify_rejects_a_tampered_historical_evidence_digest(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+    result = record_evidence(
+        unit,
+        passed=False,
+        scope="historical failed Evidence",
+        recorded_by="test-validator",
+        commands=[{"authorization_id": authorization_id}],
+    )
+    record_path = Path(result["record_path"])
+    historical = json.loads(record_path.read_text())
+    historical["scope"] = "tampered historical scope"
+    write_json_atomic(record_path, historical)
+
+    verification = verify_unit(unit)
+
+    assert "verification evidence record_digest does not match its record" in (
+        verification["issues"]
+    )
 
 
 def test_full_lifecycle_requires_the_expected_human_decisions(tmp_path: Path) -> None:
@@ -610,6 +719,35 @@ def test_evidence_requires_a_current_test_authorization(tmp_path: Path) -> None:
         )
 
 
+def test_evidence_requires_a_core_proof_execution_receipt(
+    tmp_path: Path,
+) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization = authorize_action(
+        unit,
+        action="test",
+        target="tests/test_decision_lifecycle.py",
+    )
+
+    with pytest.raises(EvidenceError, match="Core proof execution receipt"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="unexecuted test grant",
+            recorded_by="test-validator",
+            commands=[
+                {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "output_digest": "a" * 64,
+                    "observed_at": datetime.now(timezone.utc).isoformat(),
+                    "authorization_id": authorization["authorization_id"],
+                }
+            ],
+        )
+
+
 def test_evidence_rejects_a_forged_out_of_scope_authorization_grant(
     tmp_path: Path,
 ) -> None:
@@ -659,13 +797,7 @@ def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) 
     unit = make_unit(tmp_path)
     start_construction(unit)
     authorization_id = authorize_test(unit)
-    command = {
-        "command": "pytest -q",
-        "exit_code": 0,
-        "output_digest": "a" * 64,
-        "observed_at": datetime.now(timezone.utc).isoformat(),
-        "authorization_id": authorization_id,
-    }
+    command = {"authorization_id": authorization_id}
     record_evidence(
         unit,
         passed=True,
@@ -696,21 +828,13 @@ def test_evidence_cannot_rebind_an_old_test_grant_after_an_edit(tmp_path: Path) 
 def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)
-    authorization_id = authorize_test(unit)
+    authorization_id = authorize_test(unit, exit_code=1)
     result = record_evidence(
         unit,
         passed=False,
         scope="intentional failure case",
         recorded_by="test-validator",
-        commands=[
-            {
-                "command": "python failing-check.py",
-                "exit_code": 1,
-                "output_digest": "b" * 64,
-                "observed_at": datetime.now(timezone.utc).isoformat(),
-                "authorization_id": authorization_id,
-            }
-        ],
+        commands=[{"authorization_id": authorization_id}],
     )
 
     assert result["passed"] is False
@@ -718,164 +842,123 @@ def test_failed_evidence_is_auditable_but_does_not_enable_release(tmp_path: Path
     assert "verification evidence is not passing" in verification["issues"]
 
 
-def test_evidence_rejects_missing_output_digest_provenance(tmp_path: Path) -> None:
+def test_evidence_command_is_derived_from_the_core_proof_receipt(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)
     authorization_id = authorize_test(unit)
 
-    with pytest.raises(EvidenceError, match="output_digest"):
-        record_evidence(
-            unit,
-            passed=True,
-            scope="invalid evidence",
-            recorded_by="test-validator",
-            commands=[
-                {
-                    "command": "pytest -q",
-                    "exit_code": 0,
-                    "output_digest": "not-a-digest",
-                    "observed_at": "2026-08-04T00:00:00+00:00",
-                    "authorization_id": authorization_id,
-                }
-            ],
-        )
+    record_evidence(
+        unit,
+        passed=True,
+        scope="receipt-derived Evidence",
+        recorded_by="test-validator",
+        commands=[{"authorization_id": authorization_id}],
+    )
 
-
-@pytest.mark.parametrize("invalid_exit_code", [None, "0", False])
-def test_output_evidence_rejects_non_integer_exit_codes(
-    tmp_path: Path,
-    invalid_exit_code: object,
-) -> None:
-    unit = make_unit(tmp_path)
-    start_construction(unit)
-    authorization_id = authorize_test(unit)
-
-    with pytest.raises(EvidenceError, match="exit_code must be an integer"):
-        record_evidence(
-            unit,
-            passed=True,
-            scope="invalid exit code",
-            recorded_by="test-validator",
-            commands=[
-                {
-                    "command": "pytest -q",
-                    "exit_code": invalid_exit_code,
-                    "output": "caller-observed output",
-                    "observed_at": datetime.now(timezone.utc).isoformat(),
-                    "authorization_id": authorization_id,
-                }
-            ],
-        )
-
-
-def test_output_evidence_rejects_a_missing_exit_code(tmp_path: Path) -> None:
-    unit = make_unit(tmp_path)
-    start_construction(unit)
-    authorization_id = authorize_test(unit)
-
-    with pytest.raises(EvidenceError, match="missing fields: exit_code"):
-        record_evidence(
-            unit,
-            passed=True,
-            scope="missing exit code",
-            recorded_by="test-validator",
-            commands=[
-                {
-                    "command": "pytest -q",
-                    "output": "caller-observed output",
-                    "observed_at": datetime.now(timezone.utc).isoformat(),
-                    "authorization_id": authorization_id,
-                }
-            ],
-        )
-
-
-def test_evidence_rejects_invalid_observation_timestamp(tmp_path: Path) -> None:
-    unit = make_unit(tmp_path)
-    start_construction(unit)
-    authorization_id = authorize_test(unit)
-
-    with pytest.raises(EvidenceError, match="observed_at"):
-        record_evidence(
-            unit,
-            passed=True,
-            scope="invalid evidence timestamp",
-            recorded_by="test-validator",
-            commands=[
-                {
-                    "command": "pytest -q",
-                    "exit_code": 0,
-                    "output_digest": "a" * 64,
-                    "observed_at": "not-a-timestamp",
-                    "authorization_id": authorization_id,
-                }
-            ],
-        )
+    ledger = json.loads((unit / "execution-authorizations.json").read_text())
+    execution = ledger["grants"][-1]["execution"]
+    evidence = json.loads((unit / "evidence/verification.json").read_text())
+    command = evidence["commands"][0]
+    assert command == {
+        "authorization_id": authorization_id,
+        "command": execution["evidence_command"],
+        "exit_code": execution["exit_code"],
+        "output_digest": execution["evidence_output_digest"],
+        "observed_at": execution["completed_at"],
+    }
+    assert evidence["schema_version"] == "1.1.0"
+    assert evidence["record_digest"].startswith("sha256:")
+    assert evidence["attestation"]["output_digest_verification"] == (
+        "core-receipt-derived"
+    )
+    assert evidence["attestation"]["execution_verification"] == (
+        "core-proof-receipt"
+    )
 
 
 @pytest.mark.parametrize(
-    ("observed_at", "message"),
+    ("field", "value"),
     [
-        ("2000-01-01T00:00:00+00:00", "precedes its authorization"),
-        ("2099-01-01T00:00:00+00:00", "after Evidence recorded_at"),
+        ("command", "forged security scan"),
+        ("exit_code", 99),
+        ("output_digest", "f" * 64),
+        ("observed_at", "2099-01-01T00:00:00+00:00"),
     ],
 )
-def test_evidence_rejects_observations_outside_the_authorized_time_window(
+def test_evidence_rejects_fields_that_disagree_with_the_core_proof_receipt(
     tmp_path: Path,
-    observed_at: str,
-    message: str,
+    field: str,
+    value: object,
 ) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)
     authorization_id = authorize_test(unit)
 
-    with pytest.raises(EvidenceError, match=message):
+    with pytest.raises(IntegrityError, match=f"{field} does not match"):
         record_evidence(
             unit,
             passed=True,
-            scope="invalid evidence chronology",
+            scope="forged Evidence field",
+            recorded_by="test-validator",
+            commands=[{"authorization_id": authorization_id, field: value}],
+        )
+
+
+def test_evidence_rejects_caller_output_for_a_core_proof(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+
+    with pytest.raises(EvidenceError, match="output is derived"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="caller output",
             recorded_by="test-validator",
             commands=[
-                {
-                    "command": "pytest -q",
-                    "exit_code": 0,
-                    "output_digest": "a" * 64,
-                    "observed_at": observed_at,
-                    "authorization_id": authorization_id,
-                }
+                {"authorization_id": authorization_id, "output": "forged output"}
             ],
         )
 
 
-def test_command_evidence_digest_is_derived_from_output(tmp_path: Path) -> None:
+def test_passing_evidence_rejects_an_incomplete_core_proof(tmp_path: Path) -> None:
     unit = make_unit(tmp_path)
     start_construction(unit)
     authorization_id = authorize_test(unit)
-    command = build_command_evidence(
-        "pytest -q",
-        0,
-        "all tests passed",
-        datetime.now(timezone.utc).isoformat(),
-    )
-    result = record_evidence(
-        unit,
-        passed=True,
-        scope="digest helper",
-        recorded_by="test-validator",
-        commands=[
-            {
-                "command": command["command"],
-                "exit_code": command["exit_code"],
-                "output": "all tests passed",
-                "observed_at": command["observed_at"],
-                "authorization_id": authorization_id,
-            }
-        ],
-    )
+    ledger_path = unit / "execution-authorizations.json"
+    ledger = json.loads(ledger_path.read_text())
+    execution = ledger["grants"][-1]["execution"]
+    execution["status"] = "output-limit-exceeded"
+    execution["output_limit_exceeded"] = True
+    write_json_atomic(ledger_path, ledger)
 
-    evidence = json.loads((unit / "evidence/verification.json").read_text(encoding="utf-8"))
-    assert evidence["commands"][0]["output_digest"] == command["output_digest"]
-    assert evidence["attestation"]["output_digest_verification"] == "core-derived"
+    with pytest.raises(EvidenceError, match="cannot pass with an incomplete"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="incomplete proof",
+            recorded_by="test-validator",
+            commands=[{"authorization_id": authorization_id}],
+        )
+
+
+def test_evidence_rejects_a_tampered_proof_output_binding(tmp_path: Path) -> None:
+    unit = make_unit(tmp_path)
+    start_construction(unit)
+    authorization_id = authorize_test(unit)
+    ledger_path = unit / "execution-authorizations.json"
+    ledger = json.loads(ledger_path.read_text())
+    ledger["grants"][-1]["execution"]["evidence_output_digest"] = "f" * 64
+    write_json_atomic(ledger_path, ledger)
+
+    with pytest.raises(EvidenceError, match="invalid Core proof Evidence output binding"):
+        record_evidence(
+            unit,
+            passed=True,
+            scope="tampered receipt binding",
+            recorded_by="test-validator",
+            commands=[{"authorization_id": authorization_id}],
+        )
 
 
 def test_operating_transition_rejects_evidence_staled_during_release(

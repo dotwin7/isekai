@@ -1,13 +1,13 @@
 {
   "id": "isekai-project-runtime",
   "kind": "project-local-runtime",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Version-pinned project-local ISEKAI AI-DLC runtime for existing agent hosts",
   "core": {
     "package": "isekai-ai-dlc-runtime",
     "interface": "isekai runtime",
     "user_interface": "isekai <action>",
-    "protocol_version": "1.1.0"
+    "protocol_version": "1.2.0"
   },
   "compatibility": {
     "matrix": "compatibility.json",
@@ -15,11 +15,11 @@
   },
   "trust_model": {
     "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
-    "action_execution": "core-managed-edit-and-test",
-    "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
+    "action_execution": "core-managed-edit-and-proof",
+    "proof_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
     "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
     "human_identity": "caller-attested-not-core-verified",
-    "evidence_execution": "core-receipted-for-managed-tests",
+    "evidence_execution": "core-receipted-for-proofs",
     "secret_resolution": "runtime-host-outside-core",
     "external_controls_required": [
       "host direct-write tools disabled in favor of the Core gateway",
@@ -82,7 +82,7 @@
     "envelope-approve",
     "authorize",
     "managed-edit",
-    "managed-test",
+    "prove",
     "artifact-write",
     "evidence",
     "decision",
@@ -100,7 +100,7 @@
     "envelope-approve",
     "authorize",
     "managed-edit",
-    "managed-test",
+    "prove",
     "artifact-write",
     "evidence",
     "decision",

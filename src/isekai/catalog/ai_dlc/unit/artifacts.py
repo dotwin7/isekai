@@ -168,7 +168,8 @@ _PLAN_STAGES = ("inception", "construction", "validation", "release", "operation
 # and progress-only detection must agree on what counts as a checkbox, or a
 # write accepted as "progress" could still change the approved snapshot digest.
 ACCEPTANCE_CHECKBOX = re.compile(
-    r"(?P<prefix>^[ \t]*[-*+][ \t]+\[)(?P<state>[ xX]*)(?P<suffix>\])",
+    r"(?P<prefix>^[ \t]*[-*+][ \t]+\[)(?P<state>[ xX])"
+    r"(?P<suffix>\][ \t]+[^\s\r\n][^\r\n]*)",
     re.MULTILINE,
 )
 _CHECKBOX = ACCEPTANCE_CHECKBOX

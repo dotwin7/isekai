@@ -134,5 +134,7 @@ def test_ci_uses_immutable_actions_and_explicit_runner_families() -> None:
     assert "python -m pip install" not in workflow
     assert "uv sync --frozen --extra test" in workflow
     assert "bubblewrap=0.9.0-1ubuntu0.1" in workflow
+    assert "proof_sandbox" in workflow
+    assert "managed_test" not in workflow
     assert "@anthropic-ai/claude-code-linux-x64@2.1.224" in workflow
     assert "npm install --global" not in workflow

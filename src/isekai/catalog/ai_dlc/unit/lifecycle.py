@@ -43,6 +43,7 @@ from isekai.support.errors import IntegrityError, LifecycleError, PreflightError
 from .evidence import (
     _current_authorization_context,
     _evidence_issues,
+    _historical_evidence_issues,
     _passing_evidence,
 )
 from .execution import _approve_execution_envelope, _execution_envelope_issues
@@ -447,6 +448,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     envelope_path = unit_dir / "execution-envelope.json"
     envelope: dict[str, Any] | None = None
     ledger: dict[str, Any] | None = None
+    authorization_contexts: list[tuple[dict[str, Any], dict[str, Any]]] = []
     try:
         maximum_agent_level = _unit_maximum_agent_level(unit_dir)
     except IntegrityError as exc:
@@ -476,6 +478,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                     ledger, unit, envelope, unit_dir=unit_dir
                 )
             )
+            authorization_contexts.append((envelope, ledger))
 
     authorization_records = unit_dir / EXECUTION_AUTHORIZATION_RECORDS_DIR
     if authorization_records.is_symlink():
@@ -509,6 +512,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                     )
                 )
                 archived_envelope = record.get("envelope")
+                archived_ledger = record.get("authorization_ledger")
                 if isinstance(archived_envelope, dict):
                     issues.extend(
                         "archived " + issue
@@ -519,6 +523,10 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                             maximum_agent_level=maximum_agent_level,
                         )
                     )
+                    if isinstance(archived_ledger, dict):
+                        authorization_contexts.append(
+                            (archived_envelope, archived_ledger)
+                        )
 
     decision_entries = decisions.get("decisions") if decisions is not None else None
     if decisions is not None:
@@ -595,6 +603,45 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
 
     evidence_path = unit_dir / "evidence/verification.json"
     evidence: dict[str, Any] | None = None
+
+    evidence_records = unit_dir / "evidence/records"
+    if evidence_records.is_symlink():
+        issues.append("verification Evidence records path contains a symlink")
+    elif evidence_records.exists() and not evidence_records.is_dir():
+        issues.append("verification Evidence records path must be a directory")
+    elif evidence_records.is_dir():
+        try:
+            evidence_record_paths = sorted(evidence_records.iterdir())
+        except OSError as exc:
+            issues.append(f"cannot inspect verification Evidence records: {exc}")
+            evidence_record_paths = []
+        for record_path in evidence_record_paths:
+            relative = record_path.relative_to(unit_dir).as_posix()
+            if (
+                record_path.is_symlink()
+                or not record_path.is_file()
+                or record_path.suffix != ".json"
+            ):
+                issues.append(
+                    f"verification Evidence record must be a regular JSON file: {relative}"
+                )
+                continue
+            record = read_artifact(relative)
+            if record is None:
+                continue
+            if record.get("id") != record_path.stem:
+                issues.append(
+                    "verification Evidence record id does not match its path: "
+                    + relative
+                )
+            issues.extend(
+                _historical_evidence_issues(
+                    record,
+                    str(unit.get("id")),
+                    authorization_contexts,
+                )
+            )
+
     if evidence_path.is_file():
         evidence = read_artifact("evidence/verification.json")
         if evidence is not None:

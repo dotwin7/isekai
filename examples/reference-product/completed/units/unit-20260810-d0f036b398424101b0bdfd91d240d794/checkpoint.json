@@ -1,5 +1,5 @@
 {
-  "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
+  "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
   "completed": [
     "기능 제안 우선순위 결정을 구현하고 검증했다."
   ],
@@ -10,8 +10,8 @@
     "type": "execution-authorization-cursor",
     "schema_version": "1.0.0",
     "work_grant_count": 4,
-    "last_work_grant_id": "AUTH-20260809103812718061",
-    "progress_digest": "sha256:9729bc012f16d293dee27cfbb9c0ab920e1f9db7b6bfbcf167ff8c26c8db5d7f"
+    "last_work_grant_id": "AUTH-20260810092542739330",
+    "progress_digest": "sha256:587d5a12299ae8b802cad73e86f09a0e27b3c073ee430a8b8fc31789da2c600b"
   },
-  "updated_at": "2026-08-09T10:38:13.401392+00:00"
+  "updated_at": "2026-08-10T09:25:43.798038+00:00"
 }

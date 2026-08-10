@@ -55,7 +55,7 @@ def test_codex_profile_preserves_config_and_forces_core_gateway(
         "catalog",
         "managed_edit",
         "artifact_write",
-        "managed_test",
+        "prove",
     ]
 
 
@@ -138,7 +138,7 @@ def test_codex_profile_upgrades_the_legacy_owned_mcp_entry(tmp_path: Path) -> No
         "catalog",
         "managed_edit",
         "artifact_write",
-        "managed_test",
+        "prove",
     ]
 
 
@@ -167,7 +167,7 @@ def test_reapply_upgrades_an_owned_codex_tool_allowlist(tmp_path: Path) -> None:
     config.write_text(
         config.read_text(encoding="utf-8").replace(
             'enabled_tools = ["runtime_action", "catalog", '
-            '"managed_edit", "artifact_write", "managed_test"]',
+            '"managed_edit", "artifact_write", "prove"]',
             'enabled_tools = ["runtime_action"]',
         ),
         encoding="utf-8",
@@ -184,5 +184,5 @@ def test_reapply_upgrades_an_owned_codex_tool_allowlist(tmp_path: Path) -> None:
         "catalog",
         "managed_edit",
         "artifact_write",
-        "managed_test",
+        "prove",
     ]

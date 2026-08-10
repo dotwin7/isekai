@@ -382,7 +382,7 @@ def test_resume_rejects_project_contract_drift(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     unit = initialize_unit(project, "Project Contract Drift", project.parent / "units")
     manifest = json.loads(project.read_text(encoding="utf-8"))
-    manifest["version"] = "0.2.1"
+    manifest["version"] = "0.3.0"
     manifest["profiles"] = ["software-delivery-profile"]
     project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -515,7 +515,7 @@ def test_unit_context_migration_rejects_project_contract_changes(
     unit = initialize_unit(project, "Contract Change", project.parent / "units")
     before = (unit / "context-receipt.json").read_bytes()
     manifest = json.loads(project.read_text(encoding="utf-8"))
-    manifest["version"] = "0.2.1"
+    manifest["version"] = "0.3.0"
     project.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     with pytest.raises(SessionError, match="project_version"):

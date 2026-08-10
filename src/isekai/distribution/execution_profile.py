@@ -26,7 +26,7 @@ CORE_MCP_TOOLS = [
     "catalog",
     "managed_edit",
     "artifact_write",
-    "managed_test",
+    "prove",
 ]
 _CLAUDE_DENY = ("Edit", "Write", "NotebookEdit", "Bash")
 

@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from isekai.catalog.ai_dlc.unit.managed_execution import execute_managed_test
-from isekai.catalog.ai_dlc.unit.managed_test_sandbox import (
-    MANAGED_TEST_ADDRESS_SPACE_BYTES,
-    MANAGED_TEST_FILE_SIZE_BYTES,
-    MANAGED_TEST_OPEN_FILES,
-    MANAGED_TEST_PROCESSES,
+from isekai.catalog.ai_dlc.unit.managed_execution import execute_proof
+from isekai.catalog.ai_dlc.unit.proof_sandbox import (
+    PROOF_ADDRESS_SPACE_BYTES,
+    PROOF_FILE_SIZE_BYTES,
+    PROOF_OPEN_FILES,
+    PROOF_PROCESSES,
     _linux_invocation,
     _macos_invocation,
     require_sandbox_provider,
@@ -29,7 +29,7 @@ from test_execution_envelope import approve_inception, make_enveloped_unit
 
 def test_unsupported_platform_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "isekai.catalog.ai_dlc.unit.managed_test_sandbox.platform.system",
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.platform.system",
         lambda: "Windows",
     )
 
@@ -48,7 +48,7 @@ def test_macos_provider_allows_only_declared_reads_and_temp_writes(
     workspace = tmp_path / "project"
     workspace.mkdir()
     monkeypatch.setattr(
-        "isekai.catalog.ai_dlc.unit.managed_test_sandbox.shutil.which",
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
         lambda name, **_kwargs: (
             "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
         ),
@@ -80,9 +80,9 @@ def test_macos_provider_allows_only_declared_reads_and_temp_writes(
     )
     assert invocation.resource_limits == {
         "cpu_seconds": 305,
-        "file_size_bytes": MANAGED_TEST_FILE_SIZE_BYTES,
-        "open_files": MANAGED_TEST_OPEN_FILES,
-        "processes": MANAGED_TEST_PROCESSES,
+        "file_size_bytes": PROOF_FILE_SIZE_BYTES,
+        "open_files": PROOF_OPEN_FILES,
+        "processes": PROOF_PROCESSES,
         "core_dump_bytes": 0,
     }
 
@@ -101,7 +101,7 @@ def test_linux_provider_unshares_network_and_binds_only_declared_roots(
         return real_which(name, **kwargs)
 
     monkeypatch.setattr(
-        "isekai.catalog.ai_dlc.unit.managed_test_sandbox.shutil.which",
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
         which,
     )
 
@@ -125,7 +125,7 @@ def test_linux_provider_unshares_network_and_binds_only_declared_roots(
     assert invocation.process_isolation == "pid-namespace-and-process-group-cleanup"
     assert invocation.resource_limits["cpu_seconds"] == 305
     assert invocation.resource_limits["address_space_bytes"] == (
-        MANAGED_TEST_ADDRESS_SPACE_BYTES
+        PROOF_ADDRESS_SPACE_BYTES
     )
 
 
@@ -140,7 +140,7 @@ def test_provider_rejects_an_executable_from_an_arbitrary_host_directory(
     executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     executable.chmod(0o755)
     monkeypatch.setattr(
-        "isekai.catalog.ai_dlc.unit.managed_test_sandbox.shutil.which",
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
         lambda name, **_kwargs: (
             "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
         ),
@@ -172,7 +172,7 @@ def test_macos_provider_allows_a_project_virtualenv_console_script(
     executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     executable.chmod(0o755)
     monkeypatch.setattr(
-        "isekai.catalog.ai_dlc.unit.managed_test_sandbox.shutil.which",
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
         lambda name, **_kwargs: (
             "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
         ),
@@ -192,7 +192,7 @@ def test_macos_provider_allows_a_project_virtualenv_console_script(
 
 @pytest.mark.skipif(
     not sandbox_available(),
-    reason="managed-test OS sandbox provider is unavailable",
+    reason="prove OS sandbox provider is unavailable",
 )
 def test_real_sandbox_blocks_external_read_write_and_network(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
@@ -307,7 +307,7 @@ raise SystemExit(0 if all((
 )) else 3)
 """
     try:
-        result = execute_managed_test(
+        result = execute_proof(
             unit,
             target="tests/sandbox.py",
             command=[

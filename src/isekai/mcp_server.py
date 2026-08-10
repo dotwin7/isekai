@@ -49,7 +49,7 @@ def _tool_schemas() -> list[dict[str, Any]]:
             "name": "runtime_action",
             "description": (
                 "Run an ISEKAI lifecycle action. Edit and test authorizations are "
-                "intentionally refused; use managed_edit or managed_test."
+                "intentionally refused; use managed_edit or prove."
             ),
             "inputSchema": {
                 "type": "object",
@@ -115,10 +115,10 @@ def _tool_schemas() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "managed_test",
+            "name": "prove",
             "description": (
-                "Authorize, execute, and receipt one test command in a disposable "
-                "copy of the Project."
+                "Authorize, execute, and receipt one verification command in a "
+                "disposable copy of the Project."
             ),
             "inputSchema": {
                 "type": "object",
@@ -255,11 +255,11 @@ class ProjectMcpServer:
                     }
                 ),
             )
-        elif name == "managed_test":
+        elif name == "prove":
             result = dispatch(
-                "managed-test",
+                "prove",
                 self._bound_payload(
-                    "managed-test",
+                    "prove",
                     {
                         "unit": arguments.get("unit"),
                         "target": arguments.get("target"),
@@ -303,7 +303,7 @@ class ProjectMcpServer:
                         "instructions": (
                             "ISEKAI Core is the exclusive writer. Use artifact_write "
                             "for Unit documents, managed_edit for Project files, and "
-                            "managed_test for tests. Never use host write tools."
+                            "prove for verification. Never use host write tools."
                         ),
                     },
                 )

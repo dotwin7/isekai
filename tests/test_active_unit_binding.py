@@ -191,10 +191,12 @@ def test_final_learned_transition_releases_the_core_binding(tmp_path: Path) -> N
 
 def test_detach_rejects_stale_checkpoint(tmp_path: Path) -> None:
     from isekai.workflow import (
-        authorize_action,
         propose_execution_envelope,
         record_decision,
         transition_unit,
+    )
+    from isekai.catalog.ai_dlc.unit.execution import (
+        _issue_action_grant as authorize_action,
     )
     from test_core_workflow import materialize_unit_artifacts
 

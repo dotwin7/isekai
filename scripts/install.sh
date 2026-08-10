@@ -27,7 +27,7 @@ Options:
 Example:
   scripts/install.sh \
     --source https://github.com/dotwin7/isekai.git \
-    --ref v0.2.1 \
+    --ref v0.3.0 \
     --path . \
     --runtime all \
     --init

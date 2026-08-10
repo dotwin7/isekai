@@ -48,6 +48,7 @@ def initialize_project(
 
 def __getattr__(name: str):
     """Lazy re-export of AI-DLC symbols that callers previously found here."""
+    from .authorization import authorize_action as _authorize_action
     from .project_knowledge import (
         current_project_knowledge as _current_project_knowledge,
         project_knowledge_status as _project_knowledge_status,
@@ -115,7 +116,6 @@ def __getattr__(name: str):
         _execution_envelope_approval_digest,
         _execution_envelope_issues,
         approve_execution_envelope as _approve_execution_envelope_func,
-        authorize_action as _authorize_action,
         propose_execution_envelope as _propose_execution_envelope,
     )
     from isekai.catalog.ai_dlc.unit.initialization import (

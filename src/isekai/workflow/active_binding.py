@@ -280,6 +280,14 @@ def active_unit_binding(project: str | Path) -> dict[str, Any]:
     project_value = _project_value(manifest)
     binding = _load_binding(manifest, str(project_value["id"]))
     current = _active_unit_value(manifest, binding)
+    return _binding_status(manifest, binding, current)
+
+
+def _binding_status(
+    manifest: Path,
+    binding: dict[str, Any],
+    current: tuple[Path, dict[str, Any]] | None,
+) -> dict[str, Any]:
     active = (
         current is not None
         and current[1].get("status") not in _TERMINAL_STATUSES
@@ -299,7 +307,9 @@ def active_unit_binding(project: str | Path) -> dict[str, Any]:
         ),
         "generation": binding.get("generation", 0),
         "updated_at": binding.get("updated_at"),
-        "state_path": str(_binding_path(manifest, create=False)),
+        "state_path": str(
+            manifest.parent / ACTIVE_BINDING_DIRECTORY / ACTIVE_BINDING_FILE
+        ),
     }
 
 
@@ -359,6 +369,43 @@ def _write_event(
     return candidate
 
 
+def _complete_terminal_binding(
+    project_manifest: Path,
+    binding: dict[str, Any],
+    current: tuple[Path, dict[str, Any]],
+) -> dict[str, Any]:
+    status = str(current[1].get("status"))
+    if status not in _TERMINAL_STATUSES:
+        raise LifecycleError(
+            "active Unit binding can complete only at learned or abandoned"
+        )
+    locator, path_base, _unit = _unit_locator(project_manifest, current[0])
+    event = _event(
+        binding,
+        action=status,
+        unit_id=str(current[1].get("id")),
+        path=locator,
+        path_base=path_base,
+        actor="runtime-core",
+        reason=(
+            "The final Operation Decision transitioned the Unit to learned."
+            if status == "learned"
+            else "An approved abandonment Decision closed this Unit."
+        ),
+    )
+    return _write_event(project_manifest, binding, event, None)
+
+
+def _reconcile_terminal_binding(
+    project_manifest: Path,
+    binding: dict[str, Any],
+    current: tuple[Path, dict[str, Any]] | None,
+) -> tuple[dict[str, Any], tuple[Path, dict[str, Any]] | None]:
+    if current is None or current[1].get("status") not in _TERMINAL_STATUSES:
+        return binding, current
+    return _complete_terminal_binding(project_manifest, binding, current), None
+
+
 def bind_active_unit(
     project: str | Path,
     unit: str | Path,
@@ -378,6 +425,7 @@ def bind_active_unit(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
+        binding, current = _reconcile_terminal_binding(manifest, binding, current)
         if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             if current[0] == Path(unit).expanduser().resolve():
                 return active_unit_binding(manifest)
@@ -421,6 +469,7 @@ def active_unit_creation_guard(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
+        binding, current = _reconcile_terminal_binding(manifest, binding, current)
         if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             raise LifecycleError(
                 f"unit-init blocked by unfinished active Unit {current[1].get('id')}; "
@@ -430,7 +479,7 @@ def active_unit_creation_guard(
         committed = False
 
         def commit(unit: str | Path, actor: str, reason: str) -> dict[str, Any]:
-            nonlocal committed
+            nonlocal binding, committed
             if committed:
                 raise IntegrityError("active Unit creation binding was already committed")
             locator, path_base, unit_value = _unit_locator(manifest, Path(unit))
@@ -443,7 +492,7 @@ def active_unit_creation_guard(
                 actor=actor,
                 reason=reason,
             )
-            _write_event(
+            binding = _write_event(
                 manifest,
                 binding,
                 event,
@@ -454,7 +503,11 @@ def active_unit_creation_guard(
                 },
             )
             committed = True
-            return active_unit_binding(manifest)
+            return _binding_status(
+                manifest,
+                binding,
+                (Path(unit).expanduser().resolve(), unit_value),
+            )
 
         yield commit
 
@@ -493,8 +546,8 @@ def active_unit_action_guard(
     unit: str | Path,
     *,
     action: str,
-) -> Iterator[None]:
-    """Keep the Project binding stable for one persistent Unit action."""
+) -> Iterator[Callable[[], dict[str, Any]]]:
+    """Keep the Project binding stable and optionally close it before unlock."""
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     requested = Path(unit).expanduser().resolve()
@@ -505,6 +558,7 @@ def active_unit_action_guard(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
+        binding, current = _reconcile_terminal_binding(manifest, binding, current)
         if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             if current[0] != requested:
                 raise LifecycleError(
@@ -524,7 +578,7 @@ def active_unit_action_guard(
                     actor="runtime-core",
                     reason=f"Core bound the first persistent Unit action: {action}.",
                 )
-                _write_event(
+                binding = _write_event(
                     manifest,
                     binding,
                     event,
@@ -534,7 +588,24 @@ def active_unit_action_guard(
                         "path_base": path_base,
                     },
                 )
-        yield
+                current = (requested, unit_value)
+
+        completed = False
+
+        def complete() -> dict[str, Any]:
+            nonlocal binding, completed, current
+            if completed:
+                return active_unit_binding(manifest)
+            if current is None or current[0] != requested:
+                return active_unit_binding(manifest)
+            refreshed = _unit_json(requested, "unit.json")
+            current = (requested, refreshed)
+            binding = _complete_terminal_binding(manifest, binding, current)
+            current = None
+            completed = True
+            return _binding_status(manifest, binding, None)
+
+        yield complete
 
 
 def detach_active_unit(
@@ -593,24 +664,5 @@ def complete_active_unit(project: str | Path, unit: str | Path) -> dict[str, Any
         current = _active_unit_value(manifest, binding)
         if current is None or current[0] != requested:
             return active_unit_binding(manifest)
-        status = str(current[1].get("status"))
-        if status not in _TERMINAL_STATUSES:
-            raise LifecycleError(
-                "active Unit binding can complete only at learned or abandoned"
-            )
-        locator, path_base, _unit = _unit_locator(manifest, current[0])
-        event = _event(
-            binding,
-            action=status,
-            unit_id=str(current[1].get("id")),
-            path=locator,
-            path_base=path_base,
-            actor="runtime-core",
-            reason=(
-                "The final Operation Decision transitioned the Unit to learned."
-                if status == "learned"
-                else "An approved abandonment Decision closed this Unit."
-            ),
-        )
-        _write_event(manifest, binding, event, None)
+        _complete_terminal_binding(manifest, binding, current)
     return active_unit_binding(manifest)

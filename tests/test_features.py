@@ -27,7 +27,7 @@ def test_catalog_contains_active_ai_dlc() -> None:
     assert set(entries) == {"ai-dlc"}
     assert entries["ai-dlc"]["active"] is True
     assert entries["ai-dlc"]["delivery"] == "core-bundled"
-    assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.2.1"
+    assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.3.0"
     assert all(
         entry["authority"]
         == "cannot-expand-foundation-project-or-unit-authority"
@@ -77,8 +77,8 @@ def test_catalog_is_managed_as_a_repository_distribution_component() -> None:
 
     assert entry == {
         "id": "ai-dlc",
-        "version": "0.2.1",
-        "manifest": "ai-dlc/0.2.1/manifest.json",
+        "version": "0.3.0",
+        "manifest": "ai-dlc/0.3.0/manifest.json",
     }
     assert (root / "catalog" / entry["manifest"]).is_file()
 
@@ -138,7 +138,7 @@ def test_unknown_feature_authority_fails_closed(
             {
                 "kind": "isekai-source-catalog",
                 "schema_version": "1.0.0",
-                "control_protocol": "1.1.0",
+                "control_protocol": "1.2.0",
                 "entries": [
                     {
                         "id": broken["id"],

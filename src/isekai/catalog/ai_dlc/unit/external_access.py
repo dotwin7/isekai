@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -53,6 +54,32 @@ def _external_path_issue(path: Any) -> bool:
     )
 
 
+def _host_is_ip_literal(host: str) -> bool:
+    """Reject canonical and legacy IPv4 spellings, plus any IPv6 literal."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return True
+    legacy_ipv4_label = re.compile(r"(?:0[xX][0-9A-Fa-f]+|0[0-7]*|[1-9][0-9]*)")
+    labels = host.split(".")
+    return 1 <= len(labels) <= 4 and all(
+        legacy_ipv4_label.fullmatch(label) for label in labels
+    )
+
+
+def _external_host_issue(host: Any, *, require_lowercase: bool) -> bool:
+    return (
+        not isinstance(host, str)
+        or (require_lowercase and host != host.lower())
+        or not _HOST_PATTERN.fullmatch(host)
+        or host == "localhost"
+        or "." not in host
+        or _host_is_ip_literal(host)
+    )
+
+
 def external_access_policy_issues(value: Any) -> list[str]:
     if not isinstance(value, list):
         return ["Execution Envelope external_access must be a list"]
@@ -92,13 +119,7 @@ def external_access_policy_issues(value: Any) -> list[str]:
         if entry.get("scheme") != "https":
             issues.append(f"{label} scheme must be https")
         host = entry.get("host")
-        if (
-            not isinstance(host, str)
-            or host != host.lower()
-            or not _HOST_PATTERN.fullmatch(host)
-            or host == "localhost"
-            or "." not in host
-        ):
+        if _external_host_issue(host, require_lowercase=True):
             issues.append(f"{label} host must be a lowercase external DNS name")
         path = entry.get("path")
         if _external_path_issue(path):
@@ -141,7 +162,7 @@ def normalize_external_api_request(
     if not parsed.hostname or parsed.username is not None or parsed.password is not None:
         return None, "External API target cannot contain user information"
     host = parsed.hostname.lower()
-    if not _HOST_PATTERN.fullmatch(host) or host == "localhost" or "." not in host:
+    if _external_host_issue(host, require_lowercase=False):
         return None, "External API target must use an external DNS hostname"
     if port not in {None, 443}:
         return None, "External API target may only use the default HTTPS port"

@@ -1,12 +1,12 @@
 {
   "kind": "isekai-source-catalog",
   "schema_version": "1.0.0",
-  "control_protocol": "1.1.0",
+  "control_protocol": "1.2.0",
   "entries": [
     {
       "id": "ai-dlc",
-      "version": "0.2.1",
-      "manifest": "ai-dlc/0.2.1/manifest.json"
+      "version": "0.3.0",
+      "manifest": "ai-dlc/0.3.0/manifest.json"
     }
   ]
 }

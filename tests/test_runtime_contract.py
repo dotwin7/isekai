@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -9,8 +8,9 @@ from isekai.runtime_contract import RuntimeContractError, dispatch
 from isekai.workflow.errors import AuthorizationError
 
 from test_core_workflow import make_project, materialize_unit_artifacts
+from test_decision_lifecycle import authorize_test
 from test_execution_envelope import approve_inception, make_enveloped_unit
-from isekai.workflow import authorize_action, initialize_unit
+from isekai.workflow import initialize_unit
 
 
 def test_runtime_golden_path_exposes_core_session_contract(tmp_path: Path) -> None:
@@ -183,8 +183,8 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.2.1",
-                "protocol_version": "1.1.0",
+                "adapter_version": "0.3.0",
+                "protocol_version": "1.2.0",
                 "project": str(project),
             },
         )
@@ -193,7 +193,7 @@ def test_runtime_handshake_fails_closed_without_a_project_lock(tmp_path: Path) -
             "handshake",
             {
                 "runtime": "codex",
-                "adapter_version": "0.2.1",
+                "adapter_version": "0.3.0",
                 "protocol_version": "2.0.0",
                 "project": str(project),
             },
@@ -266,12 +266,10 @@ def test_runtime_decision_and_transition_actions_enforce_gate(
 def test_runtime_evidence_action_records_structured_result(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
-    authorization = authorize_action(
+    authorization_id = authorize_test(
         unit,
-        action="test",
         target="tests/test_runtime_contract.py",
     )
-    assert authorization["allowed"] is True
 
     evidence = dispatch(
         "evidence",
@@ -280,15 +278,7 @@ def test_runtime_evidence_action_records_structured_result(tmp_path: Path) -> No
             "passed": True,
             "scope": "runtime evidence contract",
             "recorded_by": "test-validator",
-            "commands": [
-                {
-                    "command": "pytest -q",
-                    "exit_code": 0,
-                    "output_digest": "c" * 64,
-                    "observed_at": datetime.now(timezone.utc).isoformat(),
-                    "authorization_id": authorization["authorization_id"],
-                }
-            ],
+            "commands": [{"authorization_id": authorization_id}],
         },
     )
 

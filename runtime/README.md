@@ -15,8 +15,8 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 Install the project-local launcher and adapters from an immutable Git tag first:
 
 ```bash
-curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.2.1/scripts/install.sh
-bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.2.1 --path . --runtime all --init
+curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.3.0/scripts/install.sh
+bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.3.0 --path . --runtime all --init
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -45,8 +45,8 @@ The ISEKAI Catalog groups the versioned functions provided by ISEKAI on the Proj
 Git releases are pinned by `isekai.lock.json`. Check and apply an update separately so contract changes are reviewable:
 
 ```bash
-./.isekai/bin/isekai update --check --ref v0.2.1
-./.isekai/bin/isekai update --ref v0.2.1
+./.isekai/bin/isekai update --check --ref v0.3.0
+./.isekai/bin/isekai update --ref v0.3.0
 ./.isekai/bin/isekai rollback
 ```
 
@@ -67,9 +67,9 @@ After a human records an approved Foundation Decision and passing release Eviden
 
 The promotion command rejects missing approval or failing Evidence and does not mutate the Foundation on failure.
 
-Verification Evidence preserves command exit codes and output digests. `managed-test` executes and receipts a test inside Core using a fail-closed macOS Seatbelt or Linux Bubblewrap sandbox: only declared system/runtime roots and the disposable workspace are readable, writes stay in that workspace, and network access is denied. Windows requires protected external sandbox Evidence until a local provider exists. External CI Evidence may still submit a caller-attested result. Each command must reference the unique `authorization_id` from its test execution in the same stage. Core rejects pre-Construction, unapproved, non-test, reused, or stale grants. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
+Verification Evidence preserves command exit codes and output digests. `prove` executes and receipts a verification command inside Core using a fail-closed macOS Seatbelt or Linux Bubblewrap sandbox: only declared system/runtime roots and the disposable workspace are readable, writes stay in that workspace, and network access is denied. Windows has no local provider; validate a Windows Project by running the same ISEKAI Core `prove` on a supported Linux or macOS environment. A host-only or external-CI result cannot replace the Core receipt. Each Evidence request passes the unique `authorization_id`; Core derives the actual command, status, output digest, and completion time from that same-stage receipt. Core rejects pre-Construction, unapproved, unexecuted, non-test, reused, stale, incomplete, or caller-mismatched grants. `verify` audits every historical Evidence record against its authorization-ledger prefix and record digest. Release Decisions bind the current passing Evidence ID and digest, and lifecycle completion rejects unchecked acceptance criteria, missing artifacts, blockers, or pending work.
 
-Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, disposition, reason, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Depth is `light`, `standard`, or `deep`. A stage with `disposition: skip` must state a reason and cannot allow actions. Runtime adapters use `artifact-write`, `managed-edit`, and `managed-test`; Core canonicalizes every target, validates optimistic digests, executes the action, and records its receipt in `execution-authorizations.json`. Free-standing `authorize edit|test` calls are denied.
+Agent execution is bounded by a Unit-specific Execution Envelope. An agent may propose the scope, stages, depth, disposition, reason, allowed actions, forbidden actions, and iteration budget; an approved Inception Decision binds the Envelope ID and digest before Construction. Depth is `light`, `standard`, or `deep`. A stage with `disposition: skip` must state a reason and cannot allow actions. Runtime adapters use `artifact-write`, `managed-edit`, and `prove`; Core canonicalizes every target, validates optimistic digests, executes the action, and records its receipt in `execution-authorizations.json`. Free-standing `authorize edit|test` calls are denied.
 
 One Core-bound Unit is active for Project persistent work until it reaches `learned`. Every user addition, deletion, or behavior change before that boundary is recorded by `amend` with its affected Unit artifacts. Core appends a digest-bound Amendment Decision, rewinds the same Unit to the earliest required gate, invalidates stale Evidence, and requires the affected documents to change plus a fresh lifecycle Decision that references the amendment ID. Only an explicit request to start separate work, abandon the Unit, or switch Units permits the human-decision action `active-unit-detach`, which first requires a current Checkpoint and records requester and reason. Even a `**` Envelope cannot authorize `read`, `edit`, or `test` against the default Unit collection or a sibling Unit, including canonical Units under a custom Project-local output root. Project source, tests, and pinned Foundation/Profile/Extension context remain available within the Receipt and Envelope.
 

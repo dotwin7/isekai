@@ -11,12 +11,12 @@ from isekai.workflow import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
     EXECUTION_ENVELOPE_MAX_HOURS,
     approve_execution_envelope,
-    authorize_action,
     propose_execution_envelope,
     record_decision,
     transition_unit,
     verify_unit,
 )
+from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant as authorize_action
 from isekai.workflow.errors import AuthorizationError, IntegrityError
 from isekai.workflow.session import update_checkpoint
 

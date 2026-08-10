@@ -1,8 +1,8 @@
 {
-  "id": "ENV-UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4-20260809103811981021",
+  "id": "ENV-UNIT-20260810-D0F036B398424101B0BDFD91D240D794-20260810092541506563",
   "type": "execution-envelope",
   "schema_version": "1.0.0",
-  "unit_id": "UNIT-20260809-433CD6E88A38479CAC2AA6F73F5C6FD4",
+  "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
   "status": "approved",
   "scope": [
     "src/**",
@@ -73,10 +73,10 @@
   "external_access": [],
   "max_iterations": 4,
   "proposed_by": "codex-reference-agent",
-  "proposed_at": "2026-08-09T10:38:11.981021+00:00",
-  "expires_at": "2026-08-16T10:38:11.981021+00:00",
-  "approval_digest": "sha256:1026eda1926a9d2b0002874b31a60bd14e418e0f6d30d39b03c10c5e2273bbcc",
-  "approval_decision_id": "DEC-20260809103812261621",
-  "approval_decision_digest": "sha256:6480e81abd0f7adf6df29689b2ad6f1b6ea30e6dfc171de415696ea6dd3e0659",
-  "approved_at": "2026-08-09T10:38:12.331280+00:00"
+  "proposed_at": "2026-08-10T09:25:41.506563+00:00",
+  "expires_at": "2026-08-17T09:25:41.506563+00:00",
+  "approval_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+  "approval_decision_id": "DEC-20260810092541846502",
+  "approval_decision_digest": "sha256:9397eb01384a93b7a21ea658f402837abb3dbb9037b92027b902fadf4975bab6",
+  "approved_at": "2026-08-10T09:25:41.934078+00:00"
 }

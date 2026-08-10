@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import selectors
 import signal
@@ -9,13 +10,14 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any
+from typing import Mapping
 
 from isekai.support.errors import WorkflowError
 
 
-MAX_MANAGED_TEST_OUTPUT_BYTES = 256 * 1024
-MAX_MANAGED_TEST_CAPTURE_BYTES = 8 * 1024 * 1024
-MANAGED_TEST_IGNORED_NAMES = {
+MAX_PROOF_OUTPUT_BYTES = 256 * 1024
+MAX_PROOF_CAPTURE_BYTES = 8 * 1024 * 1024
+PROOF_IGNORED_NAMES = {
     ".git",
     ".isekai",
     ".isekai-runtime",
@@ -24,6 +26,33 @@ MANAGED_TEST_IGNORED_NAMES = {
     "node_modules",
     "units",
 }
+
+
+def proof_command_text(command: list[str]) -> str:
+    """Return the portable command representation stored in Evidence."""
+    return json.dumps(command, ensure_ascii=False, separators=(",", ":"))
+
+
+def proof_output_digest(execution: Mapping[str, Any]) -> str:
+    """Bind Evidence to both complete output streams without retaining output."""
+    subject = {
+        field: execution.get(field)
+        for field in (
+            "stdout_digest",
+            "stderr_digest",
+            "stdout_bytes",
+            "stderr_bytes",
+            "stdout_truncated",
+            "stderr_truncated",
+        )
+    }
+    encoded = json.dumps(
+        subject,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class CapturedOutput:
@@ -35,7 +64,7 @@ class CapturedOutput:
     def add(self, content: bytes) -> None:
         self._digest.update(content)
         self.byte_count += len(content)
-        remaining = MAX_MANAGED_TEST_OUTPUT_BYTES - len(self._returned)
+        remaining = MAX_PROOF_OUTPUT_BYTES - len(self._returned)
         if remaining > 0:
             self._returned.extend(content[:remaining])
 
@@ -57,7 +86,7 @@ def isolated_test_command(argv: list[str], project_root: Path) -> list[str]:
     for argument in argv:
         if project_text in argument:
             raise WorkflowError(
-                "managed test argv cannot reference the writable source Project; "
+                "proof argv cannot reference the writable source Project; "
                 "use paths relative to the isolated test workspace"
             )
     return argv
@@ -91,13 +120,13 @@ def _verified_source_fd(
         descriptor = os.open(name, flags, dir_fd=parent_fd)
     except OSError as exc:
         raise WorkflowError(
-            f"managed test source Project entry changed while copying: {relative}"
+            f"proof source Project entry changed while copying: {relative}"
         ) from exc
     current = os.fstat(descriptor)
     if _source_identity(current) != _source_identity(metadata):
         os.close(descriptor)
         raise WorkflowError(
-            f"managed test source Project entry changed while copying: {relative}"
+            f"proof source Project entry changed while copying: {relative}"
         )
     return descriptor
 
@@ -123,7 +152,7 @@ def _copy_regular_source_file(
         os.fchmod(destination_fd, stat.S_IMODE(metadata.st_mode) & 0o777)
         if _source_identity(os.fstat(source_fd)) != _source_identity(metadata):
             raise WorkflowError(
-                f"managed test source Project entry changed while copying: {relative}"
+                f"proof source Project entry changed while copying: {relative}"
             )
     finally:
         os.close(destination_fd)
@@ -137,18 +166,18 @@ def _copy_source_directory(
 ) -> None:
     entries = sorted(os.scandir(source_fd), key=lambda item: item.name)
     for entry in entries:
-        if entry.name in MANAGED_TEST_IGNORED_NAMES:
+        if entry.name in PROOF_IGNORED_NAMES:
             continue
         relative = relative_root / entry.name
         try:
             metadata = entry.stat(follow_symlinks=False)
         except OSError as exc:
             raise WorkflowError(
-                f"managed test source Project entry changed while copying: {relative}"
+                f"proof source Project entry changed while copying: {relative}"
             ) from exc
         if stat.S_ISLNK(metadata.st_mode):
             raise WorkflowError(
-                "managed test source Project cannot contain symlinks: "
+                "proof source Project cannot contain symlinks: "
                 f"{relative}"
             )
         destination_entry = destination / entry.name
@@ -170,7 +199,7 @@ def _copy_source_directory(
                 destination_entry.chmod(stat.S_IMODE(metadata.st_mode) & 0o777)
                 if _source_identity(os.fstat(child_fd)) != _source_identity(metadata):
                     raise WorkflowError(
-                        "managed test source Project entry changed while copying: "
+                        "proof source Project entry changed while copying: "
                         f"{relative}"
                     )
             finally:
@@ -178,7 +207,7 @@ def _copy_source_directory(
         elif stat.S_ISREG(metadata.st_mode):
             if metadata.st_nlink != 1:
                 raise WorkflowError(
-                    "managed test source Project cannot contain hardlinked files: "
+                    "proof source Project cannot contain hardlinked files: "
                     f"{relative}"
                 )
             child_fd = _verified_source_fd(
@@ -199,18 +228,18 @@ def _copy_source_directory(
                 os.close(child_fd)
         else:
             raise WorkflowError(
-                "managed test source Project cannot contain special files: "
+                "proof source Project cannot contain special files: "
                 f"{relative}"
             )
         try:
             current = os.stat(entry.name, dir_fd=source_fd, follow_symlinks=False)
         except OSError as exc:
             raise WorkflowError(
-                f"managed test source Project entry changed while copying: {relative}"
+                f"proof source Project entry changed while copying: {relative}"
             ) from exc
         if _source_identity(current) != _source_identity(metadata):
             raise WorkflowError(
-                f"managed test source Project entry changed while copying: {relative}"
+                f"proof source Project entry changed while copying: {relative}"
             )
 
 
@@ -221,23 +250,23 @@ def copy_test_workspace(project_root: Path, destination: Path) -> None:
         source_fd = os.open(project_root, flags)
     except OSError as exc:
         raise WorkflowError(
-            "managed test source Project cannot be opened without following links"
+            "proof source Project cannot be opened without following links"
         ) from exc
     try:
         before = os.fstat(source_fd)
         if not stat.S_ISDIR(before.st_mode):
-            raise WorkflowError("managed test source Project must be a directory")
+            raise WorkflowError("proof source Project must be a directory")
         destination.mkdir()
         _copy_source_directory(source_fd, destination, relative_root=Path())
         if _source_identity(os.fstat(source_fd)) != _source_identity(before):
             raise WorkflowError(
-                "managed test source Project changed while its workspace was copied"
+                "proof source Project changed while its workspace was copied"
             )
     finally:
         os.close(source_fd)
 
 
-def managed_test_environment(temp_root: Path) -> dict[str, str]:
+def proof_environment(temp_root: Path) -> dict[str, str]:
     home = temp_root / "home"
     temporary = temp_root / "tmp"
     home.mkdir()
@@ -269,7 +298,7 @@ def managed_test_environment(temp_root: Path) -> dict[str, str]:
     return environment
 
 
-def _terminate_managed_test(process: subprocess.Popen[bytes]) -> None:
+def _terminate_proof(process: subprocess.Popen[bytes]) -> None:
     if os.name == "posix":
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -308,19 +337,19 @@ def capture_managed_process(
             now = time.monotonic()
             if cleanup_deadline is None:
                 completed = process.poll()
-                if total_bytes >= MAX_MANAGED_TEST_CAPTURE_BYTES:
+                if total_bytes >= MAX_PROOF_CAPTURE_BYTES:
                     output_limit_exceeded = True
-                    _terminate_managed_test(process)
+                    _terminate_proof(process)
                     cleanup_deadline = now + 0.5
                 elif completed is not None:
                     exit_code = completed
                     # A successful test may leave same-session background children.
                     # Terminate the whole group before closing inherited pipes.
-                    _terminate_managed_test(process)
+                    _terminate_proof(process)
                     cleanup_deadline = now + 0.5
                 elif now >= deadline:
                     timed_out = True
-                    _terminate_managed_test(process)
+                    _terminate_proof(process)
                     cleanup_deadline = now + 0.5
 
             if cleanup_deadline is not None and now >= cleanup_deadline:
@@ -330,7 +359,7 @@ def capture_managed_process(
                 wait_seconds = min(wait_seconds, max(0.0, deadline - now))
             events = selector.select(wait_seconds)
             for key, _event in events:
-                remaining = MAX_MANAGED_TEST_CAPTURE_BYTES - total_bytes
+                remaining = MAX_PROOF_CAPTURE_BYTES - total_bytes
                 if remaining <= 0:
                     break
                 readable: Any = key.fileobj
@@ -353,7 +382,7 @@ def capture_managed_process(
             fileobj.close()
         selector.close()
         if process.poll() is None:
-            _terminate_managed_test(process)
+            _terminate_proof(process)
     if timed_out or output_limit_exceeded:
         exit_code = None
     return (

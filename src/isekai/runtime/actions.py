@@ -29,11 +29,11 @@ from ..workflow.active_binding import (
     active_unit_creation_guard,
     active_unit_binding,
     bind_active_unit,
-    complete_active_unit,
     detach_active_unit,
     project_manifest_for_unit,
     require_active_unit_match,
 )
+from ..workflow.authorization import authorize_action
 from ..workflow import initialize_project, load_catalog
 from ..workflow.project_knowledge import (
     project_knowledge_status,
@@ -47,14 +47,13 @@ from isekai.catalog.ai_dlc.unit.evidence import record_evidence
 from isekai.catalog.ai_dlc.unit.execution import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
     approve_execution_envelope,
-    authorize_action,
     propose_execution_envelope,
 )
 from isekai.catalog.ai_dlc.unit.initialization import initialize_unit
 from isekai.catalog.ai_dlc.unit.lifecycle import transition_unit, verify_unit
 from isekai.catalog.ai_dlc.unit.managed_execution import (
     execute_managed_edit,
-    execute_managed_test,
+    execute_proof,
     write_unit_artifacts,
 )
 from .catalog_contract import catalog_model_issues
@@ -75,7 +74,7 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     if value.get("schema_version") != "1.0.0":
         issues.append("compatibility matrix has an unsupported schema_version")
-    if value.get("protocol_version") != "1.1.0":
+    if value.get("protocol_version") != "1.2.0":
         issues.append("compatibility matrix has an unsupported protocol_version")
     runtime_contract = value.get("runtime_contract")
     if not isinstance(runtime_contract, dict):
@@ -106,11 +105,11 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
     trust_model = value.get("trust_model")
     expected_trust_model = {
         "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
-        "action_execution": "core-managed-edit-and-test",
-        "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
+        "action_execution": "core-managed-edit-and-proof",
+        "proof_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
         "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
         "human_identity": "caller-attested-not-core-verified",
-        "evidence_execution": "core-receipted-for-managed-tests",
+        "evidence_execution": "core-receipted-for-proofs",
         "secret_resolution": "runtime-host-outside-core",
         "external_controls_required": [
             "host direct-write tools disabled in favor of the Core gateway",
@@ -502,18 +501,26 @@ def _route(values: Mapping[str, Any]) -> dict[str, Any]:
 def _unit_init(values: Mapping[str, Any]) -> dict[str, Any]:
     project = discover_project(_required(values, "project"))
     with active_unit_creation_guard(project) as bind:
+        binding: dict[str, Any] | None = None
+
+        def bind_created(path: Path) -> None:
+            nonlocal binding
+            binding = bind(
+                path,
+                str(values.get("owner", "unassigned")),
+                "The approved plan created this active Unit.",
+            )
+
         path = initialize_unit(
             project,
             str(_required(values, "title")),
             values.get("output"),
             str(values.get("owner", "unassigned")),
             intent=values.get("intent"),
+            _postflight=bind_created,
         )
-        binding = bind(
-            path,
-            str(values.get("owner", "unassigned")),
-            "The approved plan created this active Unit.",
-        )
+        if binding is None:  # pragma: no cover - initialize_unit always calls postflight
+            raise RuntimeContractError("Unit initialization did not bind its Unit")
     return {
         "created": str(path),
         "active_unit_binding": binding,
@@ -568,15 +575,6 @@ def _envelope_propose(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _authorize(values: Mapping[str, Any]) -> dict[str, Any]:
     requested_action = str(_required(values, "requested_action"))
-    if requested_action in {"edit", "test"}:
-        return {
-            "allowed": False,
-            "reason_code": "core-managed-execution-required",
-            "reason": (
-                f"{requested_action} cannot be separated from execution; use the "
-                "Core managed execution action"
-            ),
-        }
     return authorize_action(
         _required(values, "unit"),
         action=requested_action,
@@ -601,8 +599,8 @@ def _artifact_write(values: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def _managed_test(values: Mapping[str, Any]) -> dict[str, Any]:
-    return execute_managed_test(
+def _prove(values: Mapping[str, Any]) -> dict[str, Any]:
+    return execute_proof(
         _required(values, "unit"),
         target=str(_required(values, "target")),
         command=_list_field(values, "command"),
@@ -678,7 +676,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "authorize": _authorize,
     "managed-edit": _managed_edit,
     "artifact-write": _artifact_write,
-    "managed-test": _managed_test,
+    "prove": _prove,
     "evidence": _evidence,
     "decision": _decision,
     "transition": _transition,
@@ -695,7 +693,7 @@ _UNIT_BOUND_ACTIONS = {
     "authorize",
     "managed-edit",
     "artifact-write",
-    "managed-test",
+    "prove",
     "evidence",
     "decision",
     "transition",
@@ -738,10 +736,13 @@ def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dic
         unit = Path(str(_required(values, "unit"))).expanduser().resolve()
         if unit.is_dir() and (unit / "unit.json").is_file():
             project = project_manifest_for_unit(unit)
-            with active_unit_action_guard(project, unit, action=action):
+            with active_unit_action_guard(project, unit, action=action) as complete:
                 result = handler(values)
-            if action == "transition" and values.get("to") in {"learned", "abandoned"}:
-                result["active_unit_binding"] = complete_active_unit(project, unit)
+                if action == "transition" and values.get("to") in {
+                    "learned",
+                    "abandoned",
+                }:
+                    result["active_unit_binding"] = complete()
             return result
     if action not in {"on", "off", "intake", "resume", "unit-init", "active-unit-detach"}:
         _guard_active_unit(action, values)

@@ -24,10 +24,10 @@ class SandboxInvocation:
     resource_limits: dict[str, int] = field(default_factory=dict)
 
 
-MANAGED_TEST_ADDRESS_SPACE_BYTES = 4 * 1024 * 1024 * 1024
-MANAGED_TEST_FILE_SIZE_BYTES = 256 * 1024 * 1024
-MANAGED_TEST_OPEN_FILES = 256
-MANAGED_TEST_PROCESSES = 512
+PROOF_ADDRESS_SPACE_BYTES = 4 * 1024 * 1024 * 1024
+PROOF_FILE_SIZE_BYTES = 256 * 1024 * 1024
+PROOF_OPEN_FILES = 256
+PROOF_PROCESSES = 512
 _RESOURCE_SUPERVISOR = """\
 import os
 import resource
@@ -159,7 +159,7 @@ def sandbox_status() -> dict[str, object]:
     return {
         "ready": False,
         "provider": None,
-        "issue": f"managed-test has no OS sandbox provider for {system}",
+        "issue": f"prove has no OS sandbox provider for {system}",
     }
 
 
@@ -173,7 +173,7 @@ def require_sandbox_provider() -> str:
         provider = status.get("provider") or "unsupported-platform"
         issue = status.get("issue") or "provider preflight failed"
         raise WorkflowError(
-            f"managed-test OS sandbox is unavailable ({provider}): {issue}"
+            f"prove OS sandbox is unavailable ({provider}): {issue}"
         )
     return str(status["provider"])
 
@@ -193,7 +193,7 @@ def _resolve_executable(
         found = shutil.which(argv[0], path=environment.get("PATH"))
         if found is None:
             raise WorkflowError(
-                f"managed test executable is not on the allowlisted PATH: {argv[0]}"
+                f"proof executable is not on the allowlisted PATH: {argv[0]}"
             )
         lexical = Path(found)
     lexical = lexical.absolute()
@@ -201,10 +201,10 @@ def _resolve_executable(
         resolved = lexical.resolve(strict=True)
     except OSError as exc:
         raise WorkflowError(
-            f"managed test executable cannot be resolved: {lexical}: {exc}"
+            f"proof executable cannot be resolved: {lexical}: {exc}"
         ) from exc
     if not resolved.is_file() or (os.name != "nt" and not os.access(resolved, os.X_OK)):
-        raise WorkflowError(f"managed test executable is not executable: {lexical}")
+        raise WorkflowError(f"proof executable is not executable: {lexical}")
     return lexical, resolved, [str(lexical), *argv[1:]]
 
 
@@ -271,13 +271,13 @@ def _resource_limited_command(
 ) -> tuple[list[str], dict[str, int]]:
     limits = {
         "cpu_seconds": timeout_seconds + 5,
-        "file_size_bytes": MANAGED_TEST_FILE_SIZE_BYTES,
-        "open_files": MANAGED_TEST_OPEN_FILES,
-        "processes": MANAGED_TEST_PROCESSES,
+        "file_size_bytes": PROOF_FILE_SIZE_BYTES,
+        "open_files": PROOF_OPEN_FILES,
+        "processes": PROOF_PROCESSES,
         "core_dump_bytes": 0,
     }
     address_space = (
-        MANAGED_TEST_ADDRESS_SPACE_BYTES if address_space_supported else 0
+        PROOF_ADDRESS_SPACE_BYTES if address_space_supported else 0
     )
     if address_space_supported:
         limits["address_space_bytes"] = address_space
@@ -333,7 +333,7 @@ def _validate_executable_scope(
     )
     if not lexical_allowed or not resolved_allowed:
         raise WorkflowError(
-            "managed test executable is outside trusted system, Core runtime, "
+            "proof executable is outside trusted system, Core runtime, "
             f"Project .venv, or disposable workspace roots: {lexical}"
         )
 
@@ -389,7 +389,7 @@ def _macos_invocation(
 ) -> SandboxInvocation:
     executable = shutil.which("sandbox-exec")
     if executable is None:  # pragma: no cover - guarded by provider preflight
-        raise WorkflowError("managed-test OS sandbox is unavailable: sandbox-exec")
+        raise WorkflowError("prove OS sandbox is unavailable: sandbox-exec")
     lexical, resolved, command = _resolve_executable(
         argv,
         workspace=workspace,
@@ -460,7 +460,7 @@ def _linux_invocation(
 ) -> SandboxInvocation:
     executable = shutil.which("bwrap")
     if executable is None:  # pragma: no cover - guarded by provider preflight
-        raise WorkflowError("managed-test OS sandbox is unavailable: bwrap")
+        raise WorkflowError("prove OS sandbox is unavailable: bwrap")
     lexical, resolved, command = _resolve_executable(
         argv,
         workspace=workspace,
@@ -554,4 +554,4 @@ def build_sandbox_invocation(
             environment=environment,
             timeout_seconds=timeout_seconds,
         )
-    raise WorkflowError(f"unsupported managed-test sandbox provider: {provider}")
+    raise WorkflowError(f"unsupported prove sandbox provider: {provider}")

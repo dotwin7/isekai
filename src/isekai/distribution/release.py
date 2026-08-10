@@ -17,7 +17,7 @@ from ..support.jsonio import write_json_atomic
 
 
 DISTRIBUTION_SCHEMA_VERSION = "1.0.0"
-PROTOCOL_VERSION = "1.1.0"
+PROTOCOL_VERSION = "1.2.0"
 LOCK_SCHEMA_VERSION = "1.0.0"
 MANIFEST_PATH = Path("distribution/release.json")
 LOCK_NAME = "isekai.lock.json"

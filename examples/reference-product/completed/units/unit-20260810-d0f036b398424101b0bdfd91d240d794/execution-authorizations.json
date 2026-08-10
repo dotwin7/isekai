@@ -1,0 +1,147 @@
+{
+  "type": "execution-authorization-ledger",
+  "schema_version": "1.0.0",
+  "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+  "envelope_id": "ENV-UNIT-20260810-D0F036B398424101B0BDFD91D240D794-20260810092541506563",
+  "approval_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+  "grants": [
+    {
+      "id": "AUTH-20260810092542021068",
+      "action": "edit",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 1,
+      "decision_id": "DEC-20260810092541846502",
+      "envelope_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+      "authorized_at": "2026-08-10T09:25:42.021068+00:00",
+      "targets": [
+        "tests/test_proposals.py"
+      ],
+      "execution": {
+        "type": "core-managed-edit",
+        "status": "completed",
+        "files": [
+          {
+            "target": "tests/test_proposals.py",
+            "before_digest": "sha256:7399277ea52d986057a929f5bccab47efd1fa8e87506cb59a2dd5e2cc6155ea2",
+            "after_digest": "sha256:8c52d710a7f25757753015a69a5896f3d30ee54e83f56c351854b5426fb218db"
+          }
+        ]
+      }
+    },
+    {
+      "id": "AUTH-20260810092542193253",
+      "action": "test",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 2,
+      "decision_id": "DEC-20260810092541846502",
+      "envelope_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+      "authorized_at": "2026-08-10T09:25:42.193253+00:00",
+      "execution": {
+        "type": "core-proof",
+        "status": "completed",
+        "workspace": "disposable-copy",
+        "sandbox_provider": "macos-seatbelt",
+        "filesystem_isolation": "source-and-user-data-read-denied-write-confined",
+        "network_isolation": "denied",
+        "process_isolation": "seatbelt-process-access-denied-and-process-group-cleanup",
+        "resource_limits": {
+          "cpu_seconds": 305,
+          "file_size_bytes": 268435456,
+          "open_files": 256,
+          "processes": 512,
+          "core_dump_bytes": 0
+        },
+        "environment": "core-allowlisted",
+        "command": [
+          "/Users/rocky/dev/git/isekai/.venv/bin/python3",
+          "-c",
+          "import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests'); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)"
+        ],
+        "exit_code": 1,
+        "timed_out": false,
+        "stdout_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_digest": "sha256:96d1d1bb322c269b93bc795bd071e899a59a9d313d875e50dde477f0a2627d53",
+        "stdout_bytes": 0,
+        "stderr_bytes": 1308,
+        "stdout_truncated": false,
+        "stderr_truncated": false,
+        "output_capture_limit_bytes": 8388608,
+        "output_limit_exceeded": false,
+        "completed_at": "2026-08-10T09:25:42.300194+00:00",
+        "evidence_command": "[\"/Users/rocky/dev/git/isekai/.venv/bin/python3\",\"-c\",\"import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests'); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)\"]",
+        "evidence_output_digest": "59bf412630ac5490012909f15b9a18552bc4cc482baa3624f16dca5af34acc0c"
+      }
+    },
+    {
+      "id": "AUTH-20260810092542564110",
+      "action": "edit",
+      "target": "src/reference_product/proposals.py",
+      "stage": "construction",
+      "iteration": 3,
+      "decision_id": "DEC-20260810092541846502",
+      "envelope_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+      "authorized_at": "2026-08-10T09:25:42.564110+00:00",
+      "targets": [
+        "src/reference_product/proposals.py"
+      ],
+      "execution": {
+        "type": "core-managed-edit",
+        "status": "completed",
+        "files": [
+          {
+            "target": "src/reference_product/proposals.py",
+            "before_digest": "sha256:f93689530ad78fb26a4ed2f13726fdc5e13ababc87f5cf6784ab7d11db60da39",
+            "after_digest": "sha256:1e6fdd2bb87a102669d5f162165aa69f5ae3a1f9c43cd11a2af276414dd42adc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "AUTH-20260810092542739330",
+      "action": "test",
+      "target": "tests/test_proposals.py",
+      "stage": "construction",
+      "iteration": 4,
+      "decision_id": "DEC-20260810092541846502",
+      "envelope_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+      "authorized_at": "2026-08-10T09:25:42.739330+00:00",
+      "execution": {
+        "type": "core-proof",
+        "status": "completed",
+        "workspace": "disposable-copy",
+        "sandbox_provider": "macos-seatbelt",
+        "filesystem_isolation": "source-and-user-data-read-denied-write-confined",
+        "network_isolation": "denied",
+        "process_isolation": "seatbelt-process-access-denied-and-process-group-cleanup",
+        "resource_limits": {
+          "cpu_seconds": 305,
+          "file_size_bytes": 268435456,
+          "open_files": 256,
+          "processes": 512,
+          "core_dump_bytes": 0
+        },
+        "environment": "core-allowlisted",
+        "command": [
+          "/Users/rocky/dev/git/isekai/.venv/bin/python3",
+          "-c",
+          "import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests'); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)"
+        ],
+        "exit_code": 0,
+        "timed_out": false,
+        "stdout_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_digest": "sha256:46039404b3084b4772d8842854a48b0a280e914bdb5f33a22411a5e5a45e3fca",
+        "stdout_bytes": 0,
+        "stderr_bytes": 566,
+        "stdout_truncated": false,
+        "stderr_truncated": false,
+        "output_capture_limit_bytes": 8388608,
+        "output_limit_exceeded": false,
+        "completed_at": "2026-08-10T09:25:42.839344+00:00",
+        "evidence_command": "[\"/Users/rocky/dev/git/isekai/.venv/bin/python3\",\"-c\",\"import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests'); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)\"]",
+        "evidence_output_digest": "0d2dc99e24e9dae248ded4a569e99ab4d39b5a8ef8c99db9d21b87c891cae4ab"
+      }
+    }
+  ]
+}

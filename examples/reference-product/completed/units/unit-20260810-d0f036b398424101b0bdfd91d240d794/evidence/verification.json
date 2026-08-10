@@ -1,0 +1,32 @@
+{
+  "id": "EVD-20260810092542930736",
+  "type": "verification-evidence",
+  "schema_version": "1.1.0",
+  "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+  "stage": "construction",
+  "passed": true,
+  "scope": "Reference Product 기능 제안 우선순위 결정",
+  "recorded_by": "reference-product-validator",
+  "recorded_at": "2026-08-10T09:25:42.930736+00:00",
+  "attestation": {
+    "type": "runtime-execution-attestation",
+    "reported_actor": "reference-product-validator",
+    "execution_verification": "core-proof-receipt",
+    "identity_verification": "not-performed-by-core",
+    "output_digest_verification": "core-receipt-derived"
+  },
+  "commands": [
+    {
+      "authorization_id": "AUTH-20260810092542739330",
+      "command": "[\"/Users/rocky/dev/git/isekai/.venv/bin/python3\",\"-c\",\"import sys, unittest; sys.path.insert(0, 'src'); suite = unittest.defaultTestLoader.discover('tests'); result = unittest.TextTestRunner(verbosity=2).run(suite); raise SystemExit(0 if result.wasSuccessful() else 1)\"]",
+      "exit_code": 0,
+      "output_digest": "0d2dc99e24e9dae248ded4a569e99ab4d39b5a8ef8c99db9d21b87c891cae4ab",
+      "observed_at": "2026-08-10T09:25:42.839344+00:00"
+    }
+  ],
+  "envelope_id": "ENV-UNIT-20260810-D0F036B398424101B0BDFD91D240D794-20260810092541506563",
+  "envelope_digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0",
+  "authorization_ledger_digest": "sha256:d0917e57c70b8942cb14d8359a94f3967daeccd98fe661e9f2b1811323d89ee7",
+  "authorization_count": 4,
+  "record_digest": "sha256:1002e18e2111ae58c8aed5e5d783e3879fc4719307152154f4bf3cafd4e86f15"
+}

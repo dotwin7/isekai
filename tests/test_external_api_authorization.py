@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -16,8 +15,10 @@ from isekai.workflow import (
 )
 from isekai.workflow.errors import AuthorizationError, EvidenceError
 from isekai.workflow.session import update_checkpoint
+from isekai.catalog.ai_dlc.unit.external_access import normalize_external_api_request
 
 from test_core_workflow import make_project, materialize_unit_artifacts
+from test_decision_lifecycle import authorize_test
 
 
 EXTERNAL_POLICY = {
@@ -162,6 +163,10 @@ def test_l1_project_cannot_propose_external_api_access(tmp_path: Path) -> None:
         {"environment": "production"},
         {"scheme": "http"},
         {"host": "localhost"},
+        {"host": "127.0.0.1"},
+        {"host": "169.254.169.254"},
+        {"host": "127.1"},
+        {"host": "0x7f.0.0.1"},
         {"token": "raw-secret"},
     ],
 )
@@ -194,6 +199,28 @@ def test_external_access_policy_rejects_secret_and_unsafe_fields(
         )
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://127.0.0.1/admin",
+        "https://10.0.0.1/api",
+        "https://169.254.169.254/latest/meta-data",
+        "https://127.1/admin",
+        "https://0177.0.0.1/admin",
+        "https://0x7f.0.0.1/admin",
+    ],
+)
+def test_external_api_request_rejects_ip_literals(target: str) -> None:
+    request, issue = normalize_external_api_request(
+        target,
+        "GET",
+        "secret://provider/development",
+    )
+
+    assert request is None
+    assert issue == "External API target must use an external DNS hostname"
+
+
 def test_external_authorization_can_be_bound_to_verification_evidence(
     tmp_path: Path,
 ) -> None:
@@ -212,19 +239,13 @@ def test_external_authorization_can_be_bound_to_verification_evidence(
         blocked_by=[],
         next_action="External API 결과를 통합 테스트로 검증한다.",
     )
-    test = authorize_action(unit, action="test", target="tests/test_external.py")
-    observed_at = datetime.now(timezone.utc).isoformat()
-
+    test_id = authorize_test(unit, target="tests/test_external.py")
     evidence = record_evidence(
         unit,
         passed=True,
         commands=[
             {
-                "command": "pytest -q tests/test_external.py",
-                "exit_code": 0,
-                "output": "1 passed",
-                "observed_at": observed_at,
-                "authorization_id": test["authorization_id"],
+                "authorization_id": test_id,
                 "external_authorization_ids": [external["authorization_id"]],
             }
         ],
@@ -242,7 +263,7 @@ def test_external_authorization_can_be_bound_to_verification_evidence(
 
 def test_external_evidence_rejects_unapproved_external_grant(tmp_path: Path) -> None:
     unit = make_l2_unit(tmp_path)
-    test = authorize_action(unit, action="test", target="tests/test_external.py")
+    test_id = authorize_test(unit, target="tests/test_external.py")
 
     with pytest.raises(EvidenceError, match="external-api authorization"):
         record_evidence(
@@ -250,11 +271,7 @@ def test_external_evidence_rejects_unapproved_external_grant(tmp_path: Path) -> 
             passed=True,
             commands=[
                 {
-                    "command": "pytest -q tests/test_external.py",
-                    "exit_code": 0,
-                    "output": "1 passed",
-                    "observed_at": datetime.now(timezone.utc).isoformat(),
-                    "authorization_id": test["authorization_id"],
+                    "authorization_id": test_id,
                     "external_authorization_ids": ["AUTH-NOT-FOUND"],
                 }
             ],

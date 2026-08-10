@@ -5,7 +5,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from isekai.support.errors import WorkflowError
 from isekai.catalog.ai_dlc.intake import normalize_intent
@@ -37,6 +37,7 @@ def initialize_unit(
     output_root: str | Path | None = None,
     owner: str = "unassigned",
     intent: dict[str, Any] | None = None,
+    _postflight: Callable[[Path], None] | None = None,
 ) -> Path:
     title = _validated_title(title)
     receipt = resolve_context(project_path, WorkRoute.UNIT)
@@ -274,5 +275,18 @@ def initialize_unit(
     )
     _write_json(unit_dir / "context-receipt.json", receipt)
     unit_dir.rename(final_unit_dir)
+    try:
+        if _postflight is not None:
+            _postflight(final_unit_dir)
+    except Exception as exc:
+        try:
+            final_unit_dir.rename(unit_dir)
+            staging.cleanup()
+        except Exception as restore_exc:  # pragma: no cover - secondary failure
+            raise WorkflowError(
+                "Unit initialization postflight failed and the staged Unit "
+                f"could not be rolled back: {restore_exc}"
+            ) from exc
+        raise
     staging.cleanup()
     return final_unit_dir

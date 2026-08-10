@@ -80,7 +80,7 @@ def test_mcp_server_advertises_only_core_mediated_write_tools(
         "catalog",
         "managed_edit",
         "artifact_write",
-        "managed_test",
+        "prove",
     }
 
 

@@ -12,21 +12,21 @@ import pytest
 import isekai.catalog.ai_dlc.unit.managed_execution as managed_execution_module
 from isekai.runtime_contract import dispatch
 from isekai.catalog.ai_dlc.unit.managed_execution import (
-    MAX_MANAGED_TEST_CAPTURE_BYTES,
-    MAX_MANAGED_TEST_OUTPUT_BYTES,
+    MAX_PROOF_CAPTURE_BYTES,
+    MAX_PROOF_OUTPUT_BYTES,
     execute_managed_edit,
-    execute_managed_test,
+    execute_proof,
     write_unit_artifacts,
 )
-from isekai.catalog.ai_dlc.unit.managed_test_sandbox import SandboxInvocation
-from isekai.workflow import record_unit_amendment
+from isekai.catalog.ai_dlc.unit.proof_sandbox import SandboxInvocation
+from isekai.workflow import authorize_action, record_unit_amendment
 from isekai.workflow.errors import IntegrityError, LifecycleError, WorkflowError
 
 from test_execution_envelope import approve_inception, make_enveloped_unit
 
 
 @pytest.fixture(autouse=True)
-def _managed_test_sandbox_double(monkeypatch: pytest.MonkeyPatch) -> None:
+def _proof_sandbox_double(monkeypatch: pytest.MonkeyPatch) -> None:
     def build(
         argv: list[str],
         **kwargs: object,
@@ -37,6 +37,13 @@ def _managed_test_sandbox_double(monkeypatch: pytest.MonkeyPatch) -> None:
             argv=list(argv),
             provider="test-double",
             environment=environment,
+            resource_limits={
+                "cpu_seconds": 305,
+                "file_size_bytes": 256 * 1024 * 1024,
+                "open_files": 256,
+                "processes": 512,
+                "core_dump_bytes": 0,
+            },
         )
 
     monkeypatch.setattr(
@@ -214,20 +221,35 @@ def test_runtime_refuses_free_standing_host_test_authorization(
     assert result["reason_code"] == "core-managed-execution-required"
 
 
-def test_managed_test_executes_and_binds_result_to_grant(tmp_path: Path) -> None:
+@pytest.mark.parametrize("action", ["edit", "test"])
+def test_stable_workflow_facade_refuses_free_standing_managed_grants(
+    tmp_path: Path,
+    action: str,
+) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
 
-    result = execute_managed_test(
+    result = authorize_action(unit, action=action, target="tests/smoke.py")
+
+    assert result["allowed"] is False
+    assert result["reason_code"] == "core-managed-execution-required"
+
+
+def test_proof_executes_and_binds_result_to_grant(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+
+    result = execute_proof(
         unit,
         target="tests/smoke.py",
-        command=[sys.executable, "-c", "print('managed-test-ok')"],
+        command=[sys.executable, "-c", "print('prove-ok')"],
     )
 
     assert result["allowed"] is True
     assert result["passed"] is True
-    assert result["stdout"] == "managed-test-ok\n"
+    assert result["stdout"] == "prove-ok\n"
     assert result["host_execution_required"] is False
+    assert result["execution"]["type"] == "core-proof"
     assert result["execution"]["workspace"] == "disposable-copy"
     assert result["execution"]["sandbox_provider"] == "test-double"
     assert result["execution"]["filesystem_isolation"] == (
@@ -240,12 +262,12 @@ def test_managed_test_executes_and_binds_result_to_grant(tmp_path: Path) -> None
     assert ledger["grants"][-1]["execution"] == result["execution"]
 
 
-def test_managed_test_writes_only_to_disposable_workspace(tmp_path: Path) -> None:
+def test_proof_writes_only_to_disposable_workspace(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     project = tmp_path / "project"
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/smoke.py",
         command=[
@@ -259,7 +281,7 @@ def test_managed_test_writes_only_to_disposable_workspace(tmp_path: Path) -> Non
     assert not (project / "generated.txt").exists()
 
 
-def test_managed_test_ignores_symlinks_inside_excluded_virtualenv(
+def test_proof_ignores_symlinks_inside_excluded_virtualenv(
     tmp_path: Path,
 ) -> None:
     unit = make_enveloped_unit(tmp_path)
@@ -268,7 +290,7 @@ def test_managed_test_ignores_symlinks_inside_excluded_virtualenv(
     virtualenv.mkdir(parents=True)
     (virtualenv / "python").symlink_to(sys.executable)
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/smoke.py",
         command=[sys.executable, "-c", "print('ok')"],
@@ -277,7 +299,7 @@ def test_managed_test_ignores_symlinks_inside_excluded_virtualenv(
     assert result["passed"] is True
 
 
-def test_managed_test_rejects_a_source_symlink(tmp_path: Path) -> None:
+def test_proof_rejects_a_source_symlink(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     project = tmp_path / "project"
@@ -285,7 +307,7 @@ def test_managed_test_rejects_a_source_symlink(tmp_path: Path) -> None:
     ledger_before = (unit / "execution-authorizations.json").read_bytes()
 
     with pytest.raises(WorkflowError, match="cannot contain symlinks"):
-        execute_managed_test(
+        execute_proof(
             unit,
             target="tests/smoke.py",
             command=[sys.executable, "-c", "print('must-not-run')"],
@@ -294,7 +316,7 @@ def test_managed_test_rejects_a_source_symlink(tmp_path: Path) -> None:
     assert (unit / "execution-authorizations.json").read_bytes() == ledger_before
 
 
-def test_managed_test_rejects_a_source_hardlink(tmp_path: Path) -> None:
+def test_proof_rejects_a_source_hardlink(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     project = tmp_path / "project"
@@ -304,7 +326,7 @@ def test_managed_test_rejects_a_source_hardlink(tmp_path: Path) -> None:
     ledger_before = (unit / "execution-authorizations.json").read_bytes()
 
     with pytest.raises(WorkflowError, match="cannot contain hardlinked files"):
-        execute_managed_test(
+        execute_proof(
             unit,
             target="tests/smoke.py",
             command=[sys.executable, "-c", "print('must-not-run')"],
@@ -314,7 +336,7 @@ def test_managed_test_rejects_a_source_hardlink(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO requires POSIX")
-def test_managed_test_rejects_a_source_special_file(tmp_path: Path) -> None:
+def test_proof_rejects_a_source_special_file(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
     project = tmp_path / "project"
@@ -322,7 +344,7 @@ def test_managed_test_rejects_a_source_special_file(tmp_path: Path) -> None:
     ledger_before = (unit / "execution-authorizations.json").read_bytes()
 
     with pytest.raises(WorkflowError, match="cannot contain special files"):
-        execute_managed_test(
+        execute_proof(
             unit,
             target="tests/smoke.py",
             command=[sys.executable, "-c", "print('must-not-run')"],
@@ -331,7 +353,7 @@ def test_managed_test_rejects_a_source_special_file(tmp_path: Path) -> None:
     assert (unit / "execution-authorizations.json").read_bytes() == ledger_before
 
 
-def test_managed_test_rejects_a_source_entry_swapped_during_copy(
+def test_proof_rejects_a_source_entry_swapped_during_copy(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -362,7 +384,7 @@ def test_managed_test_rejects_a_source_entry_swapped_during_copy(
     monkeypatch.setattr(managed_execution_module.os, "open", swap_before_open)
 
     with pytest.raises(WorkflowError, match="changed while copying"):
-        execute_managed_test(
+        execute_proof(
             unit,
             target="tests/race.py",
             command=[sys.executable, "-c", "print('must-not-run')"],
@@ -372,7 +394,7 @@ def test_managed_test_rejects_a_source_entry_swapped_during_copy(
     assert (unit / "execution-authorizations.json").read_bytes() == ledger_before
 
 
-def test_managed_test_fails_closed_when_os_sandbox_is_unavailable(
+def test_proof_fails_closed_when_os_sandbox_is_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -382,7 +404,7 @@ def test_managed_test_fails_closed_when_os_sandbox_is_unavailable(
     ledger_before = (unit / "execution-authorizations.json").read_bytes()
 
     def unavailable(*_args: object, **_kwargs: object) -> SandboxInvocation:
-        raise WorkflowError("managed-test OS sandbox is unavailable")
+        raise WorkflowError("prove OS sandbox is unavailable")
 
     monkeypatch.setattr(
         managed_execution_module,
@@ -391,7 +413,7 @@ def test_managed_test_fails_closed_when_os_sandbox_is_unavailable(
     )
 
     with pytest.raises(WorkflowError, match="OS sandbox is unavailable"):
-        execute_managed_test(
+        execute_proof(
             unit,
             target="tests/smoke.py",
             command=[
@@ -406,15 +428,15 @@ def test_managed_test_fails_closed_when_os_sandbox_is_unavailable(
     assert (unit / "execution-authorizations.json").read_bytes() == ledger_before
 
 
-def test_managed_test_digests_full_output_without_returning_it_all(
+def test_proof_digests_full_output_without_returning_it_all(
     tmp_path: Path,
 ) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
-    output_size = MAX_MANAGED_TEST_OUTPUT_BYTES + 4096
+    output_size = MAX_PROOF_OUTPUT_BYTES + 4096
     payload = b"x" * output_size
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/output.py",
         command=[
@@ -425,19 +447,19 @@ def test_managed_test_digests_full_output_without_returning_it_all(
     )
 
     assert result["passed"] is True
-    assert len(result["stdout"].encode("utf-8")) == MAX_MANAGED_TEST_OUTPUT_BYTES
+    assert len(result["stdout"].encode("utf-8")) == MAX_PROOF_OUTPUT_BYTES
     assert result["stdout_truncated"] is True
     assert result["execution"]["stdout_bytes"] == output_size
     assert result["execution"]["stdout_digest"] == digest(payload)
 
 
-def test_managed_test_stops_at_the_aggregate_output_capture_limit(
+def test_proof_stops_at_the_aggregate_output_capture_limit(
     tmp_path: Path,
 ) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/output-flood.py",
         command=[
@@ -451,17 +473,17 @@ def test_managed_test_stops_at_the_aggregate_output_capture_limit(
     assert result["execution"]["status"] == "output-limit-exceeded"
     assert result["execution"]["output_limit_exceeded"] is True
     assert result["execution"]["output_capture_limit_bytes"] == (
-        MAX_MANAGED_TEST_CAPTURE_BYTES
+        MAX_PROOF_CAPTURE_BYTES
     )
-    assert result["execution"]["stdout_bytes"] == MAX_MANAGED_TEST_CAPTURE_BYTES
+    assert result["execution"]["stdout_bytes"] == MAX_PROOF_CAPTURE_BYTES
     assert result["execution"]["stdout_digest"] == digest(
-        b"x" * MAX_MANAGED_TEST_CAPTURE_BYTES
+        b"x" * MAX_PROOF_CAPTURE_BYTES
     )
     assert result["stdout_truncated"] is True
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups require POSIX")
-def test_managed_test_cleans_up_same_group_background_children(
+def test_proof_cleans_up_same_group_background_children(
     tmp_path: Path,
 ) -> None:
     unit = make_enveloped_unit(tmp_path)
@@ -473,7 +495,7 @@ def test_managed_test_cleans_up_same_group_background_children(
         "print(child.pid, flush=True)\n"
     )
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/background.py",
         command=[sys.executable, "-c", program],
@@ -488,11 +510,11 @@ def test_managed_test_cleans_up_same_group_background_children(
         except ProcessLookupError:
             break
         if time.monotonic() >= deadline:
-            pytest.fail(f"managed-test background child survived: {child_pid}")
+            pytest.fail(f"prove background child survived: {child_pid}")
         time.sleep(0.01)
 
 
-def test_managed_test_uses_an_allowlisted_environment(
+def test_proof_uses_an_allowlisted_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -500,7 +522,7 @@ def test_managed_test_uses_an_allowlisted_environment(
     approve_inception(unit)
     monkeypatch.setenv("ISEKAI_TEST_SECRET", "must-not-cross-boundary")
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/environment.py",
         command=[
@@ -518,11 +540,11 @@ def test_managed_test_uses_an_allowlisted_environment(
     assert result["execution"]["environment"] == "core-allowlisted"
 
 
-def test_managed_test_timeout_is_receipted(tmp_path: Path) -> None:
+def test_proof_timeout_is_receipted(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)
 
-    result = execute_managed_test(
+    result = execute_proof(
         unit,
         target="tests/timeout.py",
         command=[sys.executable, "-c", "import time; time.sleep(10)"],

@@ -1,8 +1,8 @@
 {
-  "receipt_id": "CTX-1894218dd069320e",
-  "generated_at": "2026-08-09T10:38:11.890983+00:00",
+  "receipt_id": "CTX-478e5358090c1820",
+  "generated_at": "2026-08-10T09:25:41.326707+00:00",
   "project_id": "reference-product",
-  "project_version": "0.2.1",
+  "project_version": "0.3.0",
   "project_schema_version": "1.0.0",
   "document_language": "ko",
   "foundation_id": "isekai-foundation",
@@ -50,6 +50,61 @@
       "source_path": "extension/reference-product.json"
     }
   ],
+  "catalog": {
+    "type": "isekai-catalog",
+    "schema_version": "1.0.0",
+    "control_protocol": "1.2.0",
+    "entries": [
+      {
+        "id": "ai-dlc",
+        "kind": "isekai-catalog-entry",
+        "schema_version": "1.0.0",
+        "version": "0.3.0",
+        "status": "active",
+        "title": "AI-Driven Development Life Cycle",
+        "description": "Governed development cycle from intake through learning.",
+        "control_protocol": "1.2.0",
+        "delivery": "core-bundled",
+        "actions": [
+          "active-unit-detach",
+          "amend",
+          "artifact-write",
+          "authorize",
+          "checkpoint",
+          "decision",
+          "envelope-approve",
+          "envelope-propose",
+          "evidence",
+          "inception",
+          "intake",
+          "managed-edit",
+          "off",
+          "on",
+          "prove",
+          "resume",
+          "route",
+          "status",
+          "transition",
+          "unit-init",
+          "unit-migrate",
+          "verify"
+        ],
+        "resources": [
+          "Checkpoint",
+          "Decision",
+          "Evidence",
+          "Foundation",
+          "Project",
+          "Unit"
+        ],
+        "authority": "cannot-expand-foundation-project-or-unit-authority",
+        "package_path": "ai-dlc/0.3.0",
+        "active": true,
+        "entry_digest": "sha256:319b373c025863a27d2919c2caadc6f4b8814992589750a7e8c4de8f67682bc4"
+      }
+    ],
+    "catalog_digest": "sha256:cbef2e628b830865df17ed3324e8414feced927a70ba9b104f35e13d1f7323bc"
+  },
   "route": "unit",
   "maximum_agent_level": "L1",
   "rule_ids": [

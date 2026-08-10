@@ -11,10 +11,10 @@ Distribution, Core, Foundation과 각 Adapter version은 독립적으로 진화�
 
 ```bash
 curl -fsSLo /tmp/isekai-install.sh \
-  https://raw.githubusercontent.com/dotwin7/isekai/v0.2.1/scripts/install.sh
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.3.0/scripts/install.sh
 bash /tmp/isekai-install.sh \
   --source https://github.com/dotwin7/isekai.git \
-  --ref v0.2.1 \
+  --ref v0.3.0 \
   --path . \
   --runtime all \
   --init \
@@ -26,13 +26,13 @@ bash /tmp/isekai-install.sh \
 Windows PowerShell에서는 같은 tag의 스크립트를 사용한다.
 
 ```powershell
-$installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-v0.2.1.ps1"
+$installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-v0.3.0.ps1"
 Invoke-WebRequest `
-  https://raw.githubusercontent.com/dotwin7/isekai/v0.2.1/scripts/install.ps1 `
+  https://raw.githubusercontent.com/dotwin7/isekai/v0.3.0/scripts/install.ps1 `
   -OutFile $installer
 & $installer `
   -Source https://github.com/dotwin7/isekai.git `
-  -Ref v0.2.1 `
+  -Ref v0.3.0 `
   -Path . `
   -Runtime all `
   -Init `
@@ -45,7 +45,7 @@ py -3 .\.isekai\bin\isekai.py doctor --path .
 
 bootstrap은 전역 Python package를 설치하지 않는다. Git과 Python 3.11+만 확인한 뒤 지정한 tag를 임시 checkout하고, 해당 checkout의 설치 엔진을 실행한다. tag 입력은 `check-ref-format`을 통과한 실제 tag 이름이어야 하며 `^`, `~`, `^{}` 같은 revision 표현은 허용하지 않는다. 설치 엔진은 checkout의 origin, immutable ref, HEAD, clean worktree와 기록할 commit이 모두 일치하는지 확인해 다른 저장소나 수정된 checkout의 파일을 신뢰된 commit으로 기록하지 않는다. 같은 검증은 공개 `install_from_checkout` API에도 적용된다. `--init`은 설치 뒤 `project.json`이 없을 때 Project 초기화까지 수행한다. 초기화 시 agent level을 생략하면 read-only인 `L0`이 적용된다. 로컬 편집·테스트에는 `L1`, 승인된 개발·테스트 외부 API에는 `L2`를 `--init`/`-Init`과 함께 명시한다. L2 key 원문은 프로젝트나 명령 인자에 넣지 않고 호스트 secret store에 둔다.
 
-로컬 `managed-test`에는 OS sandbox provider가 필수다. macOS는 시스템 `/usr/bin/sandbox-exec`(Seatbelt)을 사용하고 Linux는 배포판 패키지의 `bwrap`(Bubblewrap)을 설치해야 한다(예: `sudo apt-get install bubblewrap`). Core는 provider 실행 preflight가 실패하면 테스트 command를 시작하지 않는다. 실행 시 stdout/stderr 합계가 8 MiB에 도달하거나 요청한 wall-clock timeout을 넘으면 process group을 종료하며, OS별 hard resource limit도 적용한다. Windows에는 현재 로컬 provider가 없으므로 보호된 CI나 원격 sandbox의 Evidence를 제출한다.
+로컬 `prove`에는 OS sandbox provider가 필수다. macOS는 시스템 `/usr/bin/sandbox-exec`(Seatbelt)을 사용하고 Linux는 배포판 패키지의 `bwrap`(Bubblewrap)을 설치해야 한다(예: `sudo apt-get install bubblewrap`). Core는 provider 실행 preflight가 실패하면 테스트 command를 시작하지 않는다. 실행 시 stdout/stderr 합계가 8 MiB에 도달하거나 요청한 wall-clock timeout을 넘으면 process group을 종료하며, OS별 hard resource limit도 적용한다. Windows에는 현재 로컬 provider가 없다. Windows Project의 Unit 검증은 지원되는 Linux/macOS 환경에서 같은 ISEKAI Core `prove`를 실행해야 하며, 독립적인 외부 test 결과만으로 Evidence를 만들 수 없다.
 
 macOS Seatbelt에는 PID namespace가 없다. command가 의도적으로 새 session을 만들고 daemonize하면 Core의 즉시 process-group 정리를 벗어날 수 있지만, 그 process는 상속한 Seatbelt와 hard resource policy 아래에 남는다. 적대적 code의 완전한 process-lifetime 격리가 필요하면 Linux Bubblewrap 또는 별도 VM/원격 sandbox를 사용한다.
 
@@ -61,14 +61,14 @@ Adapter `handshake`는 Project 실행 보호 설정의 read-only 선언이나 MC
 
 ## Update와 rollback
 
-### 0.1.x에서 0.2.1으로 업그레이드
+### 0.2.1에서 0.3.0으로 업그레이드
 
 업그레이드는 대상 Project 루트에서 그 Project에 설치된 launcher로 실행한다. 시작 전에 사용자 작업과 project-local ISEKAI 파일의 변경을 커밋하거나 백업한다. `doctor`가 현재 lock, 설치 파일과 Foundation pin의 무결성을 확인하고, `update --check`는 target commit과 component 변경을 읽기 전용으로 보고한다. 둘 중 하나가 실패하면 실제 update를 진행하기 전에 현재 설치나 source/ref 문제를 해결한다.
 
 ```bash
 ./.isekai/bin/isekai doctor --path .
-./.isekai/bin/isekai update --check --ref v0.2.1 --path .
-./.isekai/bin/isekai update --ref v0.2.1 --path .
+./.isekai/bin/isekai update --check --ref v0.3.0 --path .
+./.isekai/bin/isekai update --ref v0.3.0 --path .
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -77,9 +77,9 @@ Windows에서는 같은 Project에서 launcher만 `py -3 .\.isekai\bin\isekai.py
 기본 update는 Core와 Adapter만 교체하고 Project가 고정한 Foundation을 유지한다. 0.2.1 Foundation의 L2 외부 API 계약까지 채택하려면 진행 중 Unit이 이전 Foundation version·digest에 고정되어 있지 않은지 먼저 확인하고, Foundation diff에 대한 사람 승인을 받은 다음 두 opt-in을 함께 사용한다.
 
 ```bash
-./.isekai/bin/isekai update --check --ref v0.2.1 --path . \
+./.isekai/bin/isekai update --check --ref v0.3.0 --path . \
   --include-foundation --adopt-foundation
-./.isekai/bin/isekai update --ref v0.2.1 --path . \
+./.isekai/bin/isekai update --ref v0.3.0 --path . \
   --include-foundation --adopt-foundation
 ./.isekai/bin/isekai doctor --path .
 ```

@@ -39,7 +39,7 @@ EXPECTED_ACTIONS = {
     "envelope-approve",
     "authorize",
     "managed-edit",
-    "managed-test",
+    "prove",
     "artifact-write",
     "evidence",
     "decision",
@@ -57,7 +57,7 @@ EXPECTED_WRITES = {
     "envelope-approve",
     "authorize",
     "managed-edit",
-    "managed-test",
+    "prove",
     "artifact-write",
     "evidence",
     "decision",
@@ -187,11 +187,11 @@ def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
     assert human <= set(manifest["writes"])
     assert manifest["trust_model"] == {
         "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
-        "action_execution": "core-managed-edit-and-test",
-        "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
+        "action_execution": "core-managed-edit-and-proof",
+        "proof_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
         "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
         "human_identity": "caller-attested-not-core-verified",
-        "evidence_execution": "core-receipted-for-managed-tests",
+        "evidence_execution": "core-receipted-for-proofs",
         "secret_resolution": "runtime-host-outside-core",
         "external_controls_required": [
             "host direct-write tools disabled in favor of the Core gateway",

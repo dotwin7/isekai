@@ -14,11 +14,11 @@ from isekai.foundation import record_foundation_decision
 from isekai.support.locking import LockUnavailable, file_lock
 from isekai.support.files import metadata_is_path_alias
 from isekai.workflow import (
-    authorize_action,
     record_decision,
     transition_unit,
     verify_unit,
 )
+from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant as authorize_action
 
 from test_core_workflow import ROOT
 from test_execution_envelope import approve_inception, make_enveloped_unit

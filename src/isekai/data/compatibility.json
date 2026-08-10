@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0.0",
-  "protocol_version": "1.1.0",
+  "protocol_version": "1.2.0",
   "runtime_contract": {
     "high_risk_actions": [],
     "human_decision_actions": [
@@ -17,11 +17,11 @@
   },
   "trust_model": {
     "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
-    "action_execution": "core-managed-edit-and-test",
-    "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
+    "action_execution": "core-managed-edit-and-proof",
+    "proof_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
     "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
     "human_identity": "caller-attested-not-core-verified",
-    "evidence_execution": "core-receipted-for-managed-tests",
+    "evidence_execution": "core-receipted-for-proofs",
     "secret_resolution": "runtime-host-outside-core",
     "external_controls_required": [
       "host direct-write tools disabled in favor of the Core gateway",

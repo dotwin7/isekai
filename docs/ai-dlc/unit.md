@@ -71,7 +71,7 @@ Decision은 Unit의 `decisions.json`에 다음 최소 구조로 기록한다.
 {
   "id": "DEC-...",
   "type": "human-decision",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "unit_id": "UNIT-...",
   "gate": "inception|architecture|release|operation|amendment|knowledge",
   "outcome": "approved|rejected",
@@ -166,23 +166,24 @@ Verification Evidence는 실행 결과를 재현할 수 있도록 다음 최소 
   "authorization_count": 3,
   "commands": [
     {
-      "command": "PYTHONPATH=src python3 -m pytest -q",
+      "command": "[\"python3\",\"-m\",\"pytest\",\"-q\"]",
       "exit_code": 0,
       "output_digest": "sha256-hex-64-characters",
       "observed_at": "2026-08-04T00:00:00+00:00",
       "authorization_id": "AUTH-..."
     }
-  ]
+  ],
+  "record_digest": "sha256:..."
 }
 ```
 
-Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주체와 당시 Execution Envelope·authorization 원장 digest를 보존해야 한다. 각 command는 같은 stage의 `managed-test`가 실행과 함께 만든 최신 `test` grant의 `authorization_id`를 고유하게 참조한다. 승인 전, Construction 진입 전, non-test grant, 오래된 grant 또는 grant 뒤 edit가 있는 Evidence는 거부한다. 정식 release 검증은 `validation` lifecycle 상태와 stage에서 실행한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
+Evidence 기록 요청의 command 항목에는 `prove`가 반환한 `authorization_id`와 필요한 `external_authorization_ids`만 전달한다. Core는 실제 명령·exit code·결과 digest·완료 시각을 같은 stage의 최신 `core-proof` receipt에서 파생하며 호출자가 덮어쓴 값은 거부한다. 승인 전, Construction 진입 전, non-test grant, 오래된 grant, 실패·timeout·output-limit 상태를 passing으로 표시한 Evidence 또는 grant 뒤 edit가 있는 Evidence는 거부한다. 정식 release 검증은 `validation` lifecycle 상태와 stage에서 실행한다. Evidence를 기록하면 현재 상태는 `evidence/verification.json`에 갱신하고 같은 내용을 ID별 불변 레코드 `evidence/records/EVD-*.json`에도 보존한다. `verify`는 모든 ID 레코드를 당시 Envelope와 authorization 원장 prefix에 대조하고 자체 `record_digest`도 확인한다. Release Decision은 이 레코드의 경로·ID·digest를 결박하므로 Operations Evidence가 현재 파일을 교체한 뒤에도 과거 Release 승인을 검증할 수 있다. Evidence를 기록한 뒤 새 authorization grant가 추가되거나 Envelope가 교체되면 현재 Evidence는 stale로 판정한다. Release Decision만 있거나 현재 authorization 상태에 결박된 passing Evidence가 없으면 `releasing` 전이를 허용하지 않는다.
 
-`managed-test`는 원본 Project를 일회용 workspace로 복제하고 최소 허용 환경 변수만 전달해 OS sandbox 안에서 명령을 실행한다. descriptor 기반 복제는 `O_NOFOLLOW`와 inode·metadata 재검증으로 symlink·hardlink·특수 파일 및 복사 중 교체를 거부한다. macOS Seatbelt와 Linux Bubblewrap provider는 원본 Project·사용자 홈의 file data read를 차단하되 선택된 runtime root만 read-only로 노출하고, file write는 일회용 workspace에만 허용하며 network를 차단한다. Linux는 PID namespace를 사용하고 macOS는 외부 process signal/info와 Mach service 접근을 차단한다. Core는 종료 시 같은 process group의 후손을 정리한다. 모든 provider는 CPU·생성 파일 크기·open file·process 수·core dump hard limit를 적용하고 Linux는 4 GiB address-space limit도 적용한다. provider가 없거나 실제 namespace/profile 적용 preflight가 실패하면 authorization 원장을 복원하고 명령을 실행하지 않는다. Windows 로컬 실행은 현재 지원 provider가 없어 fail-closed하며 보호된 CI/원격 sandbox Evidence를 사용한다. stdout/stderr는 합계 8 MiB까지만 pipe에서 수집하며 한도를 채우면 `output-limit-exceeded`로 종료한다. exit code와 provider·격리/자원 제한·수집 출력 digest·byte count는 authorization grant의 `execution` receipt에 결박하고, 호출자에게는 stream별 최대 256 KiB만 반환한다. 외부 CI나 별도 runner가 만든 Evidence도 허용되며, 이 경로의 `attestation`은 원본 `output`이 전달된 명령과 digest만 전달된 명령을 `core-derived`, `caller-supplied`, `mixed`로 구분한다. Core는 어느 경로에서도 actor의 실제 신원을 인증하지 않는다.
+`prove`는 원본 Project를 일회용 workspace로 복제하고 최소 허용 환경 변수만 전달해 OS sandbox 안에서 명령을 실행한다. descriptor 기반 복제는 `O_NOFOLLOW`와 inode·metadata 재검증으로 symlink·hardlink·특수 파일 및 복사 중 교체를 거부한다. macOS Seatbelt와 Linux Bubblewrap provider는 원본 Project·사용자 홈의 file data read를 차단하되 선택된 runtime root만 read-only로 노출하고, file write는 일회용 workspace에만 허용하며 network를 차단한다. Linux는 PID namespace를 사용하고 macOS는 외부 process signal/info와 Mach service 접근을 차단한다. Core는 종료 시 같은 process group의 후손을 정리한다. 모든 provider는 CPU·생성 파일 크기·open file·process 수·core dump hard limit를 적용하고 Linux는 4 GiB address-space limit도 적용한다. provider가 없거나 실제 namespace/profile 적용 preflight가 실패하면 authorization 원장을 복원하고 명령을 실행하지 않는다. Windows 로컬 실행은 현재 지원 provider가 없어 fail-closed한다. Windows Project의 Unit 검증은 지원되는 Linux/macOS 환경에서 같은 ISEKAI Core `prove`를 실행해야 하며, host나 외부 CI가 독립적으로 보고한 결과는 Evidence를 대신할 수 없다. stdout/stderr는 합계 8 MiB까지만 pipe에서 수집하며 한도를 채우면 `output-limit-exceeded`로 종료한다. status·exit code·완료 시각과 provider·격리/자원 제한·수집 출력 digest·byte count는 authorization grant의 `core-proof` receipt에 결박하고, 호출자에게는 stream별 최대 256 KiB만 반환한다. Evidence의 command·output digest·observed time은 이 receipt에서만 파생되며 attestation에는 `execution_verification: core-proof-receipt`와 `output_digest_verification: core-receipt-derived`를 기록한다. Core는 actor의 실제 신원을 인증하지 않는다.
 
 macOS Seatbelt는 PID namespace를 제공하지 않으므로 command가 의도적으로 새 session을 만들고 daemonize하면 즉시 process-group 정리를 벗어날 수 있다. 이 후손도 상속한 Seatbelt·hard resource policy를 유지하지만, 적대적 code의 완전한 process-lifetime 격리는 Linux Bubblewrap 또는 별도 VM/원격 sandbox를 요구한다.
 
-Sandbox 계약에는 알려진 예외와 한계가 있다. 테스트 실행에 interpreter 환경이 필요하므로 실행 파일이 원본 Project의 `.venv` 안에 있으면 그 runtime root는 read-only로 노출된다. 즉 "원본 Project read 차단"은 `.venv`를 제외한 소스 트리에 적용된다. macOS Seatbelt profile은 allow-default 위에 network·Mach·signal/process-info·file read/write를 선별 차단하는 구조라, 명시적으로 차단하지 않은 리소스 클래스(예: sysctl 조회)와 read root 밖 파일의 metadata 조회는 허용된다. Apple이 `sandbox-exec`를 deprecated 상태로 유지하는 점도 함께 고려해, 적대적 code의 검증은 Linux Bubblewrap 또는 별도 VM/원격 sandbox Evidence를 권장한다. deny-default profile 전환은 로드맵 항목이다.
+Sandbox 계약에는 알려진 예외와 한계가 있다. 테스트 실행에 interpreter 환경이 필요하므로 실행 파일이 원본 Project의 `.venv` 안에 있으면 그 runtime root는 read-only로 노출된다. 즉 "원본 Project read 차단"은 `.venv`를 제외한 소스 트리에 적용된다. macOS Seatbelt profile은 allow-default 위에 network·Mach·signal/process-info·file read/write를 선별 차단하는 구조라, 명시적으로 차단하지 않은 리소스 클래스(예: sysctl 조회)와 read root 밖 파일의 metadata 조회는 허용된다. Apple이 `sandbox-exec`를 deprecated 상태로 유지하는 점도 함께 고려해, 적대적 code의 검증은 Linux Bubblewrap 또는 별도 Linux VM에서 실행하는 동일한 Core `prove`를 권장한다. deny-default profile 전환은 로드맵 항목이다.
 
 ## Execution Envelope
 
@@ -218,11 +219,11 @@ Agent 실행은 Unit별 Execution Envelope로 제한한다. Agent는 Context와 
 }
 ```
 
-Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. 읽기와 외부 API는 `authorize`가 grant를 기록하지만, `edit`와 `test`는 authorization과 실제 실행을 분리하지 않고 각각 `managed-edit`와 `managed-test`가 수행한다. multi-target edit receipt는 `targets`와 파일별 before/after digest를, test receipt는 command·exit code·output digest를 grant의 `execution`에 결박한다. Unit 문서는 별도 `artifact-write`로만 바꾸며 이미 승인된 의미를 바꾸려면 pending Amendment가 필요하다. `acceptance.md`의 기존 항목을 `[ ]`에서 `[x]`로만 진행하는 변경은 허용하지만 텍스트 변경이나 체크 해제는 이 예외에 포함하지 않는다. grant가 있는 Envelope를 교체하면 Core는 이전 Envelope와 authorization ledger를 `execution-authorization-records/ENV-*.json`에 digest-bound 불변 레코드로 보존한다. 저장된 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 control path로 바뀌면 즉시 원장을 거부한다.
+Inception Decision은 Envelope의 고유 ID와 `approval_digest`를 함께 결박하고, Envelope는 승인 당시의 `decision_digest`를 `approval_decision_digest`로 보존한다. 이후 Envelope나 Decision이 변경되면 다시 사람의 승인을 받아야 한다. 읽기와 외부 API는 `authorize`가 grant를 기록하지만, `edit`와 `test`는 authorization과 실제 실행을 분리하지 않고 각각 `managed-edit`와 `prove`가 수행한다. multi-target edit receipt는 `targets`와 파일별 before/after digest를, test receipt는 command·exit code·output digest를 grant의 `execution`에 결박한다. Unit 문서는 별도 `artifact-write`로만 바꾸며 이미 승인된 의미를 바꾸려면 pending Amendment가 필요하다. `acceptance.md`의 기존 항목을 `[ ]`에서 `[x]`로만 진행하는 변경은 허용하지만 텍스트 변경이나 체크 해제는 이 예외에 포함하지 않는다. grant가 있는 Envelope를 교체하면 Core는 이전 Envelope와 authorization ledger를 `execution-authorization-records/ENV-*.json`에 digest-bound 불변 레코드로 보존한다. 저장된 grant를 다시 검증할 때도 target을 현재 파일시스템 기준으로 resolve하며, 승인 뒤 symlink가 Project 외부 또는 control path로 바뀌면 즉시 원장을 거부한다.
 
 Context Receipt의 `maximum_agent_level`은 Envelope가 허용할 수 있는 action의 상한이다. `L0`은 `read`, `L1`은 `read`, `edit`, `test`, `L2`는 여기에 `external-api`를 추가한다. Core는 Envelope 제안·승인·authorization·Unit 검증에서 이 상한을 다시 확인하므로, 낮은 level의 Project에서 더 넓은 action을 적어 넣어도 권한이 생기지 않는다.
 
-L2 Envelope는 `external-api`와 함께 비어 있지 않은 `external_access`를 가져야 한다. 각 항목은 `id`, `credential_ref`, `environment`, `scheme`, `host`, `path`, `methods`, `max_requests`만 허용하며, `credential_ref`는 `secret://provider/name`, 환경은 `development|test`, scheme은 `https`로 제한된다. 실제 key 값이나 token 필드는 거부한다. 외부 authorization grant는 정책 ID·환경·method·reference를 원장에 기록하고 정책별 요청 예산도 별도로 소모한다. Evidence command가 외부 통합을 검증했다면 선행 grant ID를 `external_authorization_ids`에 기록한다.
+L2 Envelope는 `external-api`와 함께 비어 있지 않은 `external_access`를 가져야 한다. 각 항목은 `id`, `credential_ref`, `environment`, `scheme`, `host`, `path`, `methods`, `max_requests`만 허용하며, `credential_ref`는 `secret://provider/name`, 환경은 `development|test`, scheme은 `https`로 제한된다. Host는 소문자 외부 DNS 이름이어야 하고 IP literal은 거부한다. 실제 key 값이나 token 필드는 거부한다. 외부 authorization grant는 정책 ID·환경·method·reference를 원장에 기록하고 정책별 요청 예산도 별도로 소모한다. Evidence command가 외부 통합을 검증했다면 선행 grant ID를 `external_authorization_ids`에 기록한다.
 
 `scope` 패턴은 디렉토리 경계를 존중한다. `*`와 `?`는 한 경로 세그먼트 안에서만 매칭하고, 세그먼트 전체가 `**`일 때만 0개 이상의 세그먼트를 가로지른다. 예를 들어 `src/*.py`는 `src/main.py`만 허용하고 `src/vendor/deep.py`는 스코프 밖이다. 하위 트리 전체를 허용하려면 `src/**`처럼 명시해야 한다.
 

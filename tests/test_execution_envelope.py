@@ -13,7 +13,6 @@ import isekai.catalog.ai_dlc.unit.lifecycle as lifecycle_module
 from isekai.support.jsonio import write_json_atomic
 from isekai.workflow.errors import AuthorizationError, IntegrityError
 from isekai.workflow import (
-    authorize_action,
     initialize_unit,
     propose_execution_envelope,
     record_decision,
@@ -21,7 +20,10 @@ from isekai.workflow import (
     verify_unit,
 )
 from isekai.workflow.project import _context_receipt_id
-from isekai.catalog.ai_dlc.unit.execution import _scope_pattern_matches
+from isekai.catalog.ai_dlc.unit.execution import (
+    _issue_action_grant as authorize_action,
+    _scope_pattern_matches,
+)
 from isekai.workflow.session import resume_session, update_checkpoint
 
 from test_core_workflow import make_project, materialize_unit_artifacts
@@ -621,7 +623,7 @@ def test_authorization_rechecks_approval_after_acquiring_unit_lock(
 
     monkeypatch.setattr(execution_module, "unit_lock", lock_after_revocation)
 
-    result = execution_module.authorize_action(
+    result = execution_module._issue_action_grant(
         unit, action="edit", target="src/raced.py"
     )
     ledger = json.loads(

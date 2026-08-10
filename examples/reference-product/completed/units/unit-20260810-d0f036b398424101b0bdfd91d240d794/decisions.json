@@ -1,0 +1,270 @@
+{
+  "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+  "decisions": [
+    {
+      "id": "DEC-20260810092541846502",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+      "gate": "inception",
+      "outcome": "approved",
+      "summary": "범위가 제한된 Level-1 계획과 Execution Envelope를 승인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "plan.md",
+        "requirements.md",
+        "execution-envelope.json"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-10T09:25:41.846502+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": null,
+      "approval_subject": {
+        "type": "execution-envelope",
+        "id": "ENV-UNIT-20260810-D0F036B398424101B0BDFD91D240D794-20260810092541506563",
+        "digest": "sha256:d8bb8b845732a7837200f2168c14cef42fa32fba781b7d4f81e7996f1d6451e0"
+      },
+      "artifact_snapshot": {
+        "type": "unit-artifact-snapshot",
+        "version": "1.1.0",
+        "gate": "inception",
+        "artifacts": [
+          {
+            "reference": "intent.md",
+            "digest": "sha256:5008e71220be965b7448d9df1820b1837c12caca7bd73b5bf8b71abc21e839ab"
+          },
+          {
+            "reference": "requirements.md",
+            "digest": "sha256:91dda85af23f00191d4627930c7e69d4985455ca1aa54636deb48a079951f6fe"
+          },
+          {
+            "reference": "plan.md",
+            "digest": "sha256:3339aee4a1b9ff05b3d87c4aa245fd11b2156ecd60f2b67109729ac5220c57e8"
+          },
+          {
+            "reference": "acceptance.md",
+            "digest": "sha256:a1f529db67fd8336035d5488b71a9d1717050def356143be74d15dbda681a77c"
+          }
+        ],
+        "authorization_cursor": {
+          "type": "execution-authorization-cursor",
+          "schema_version": "1.0.0",
+          "work_grant_count": 0,
+          "last_work_grant_id": null,
+          "progress_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "digest": "sha256:6ffa92b24cf435d5e01438f032daa8b33ef44220574e1ae8cacc42534b6b69cf"
+      },
+      "decision_digest": "sha256:9397eb01384a93b7a21ea658f402837abb3dbb9037b92027b902fadf4975bab6"
+    },
+    {
+      "id": "DEC-20260810092543185058",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+      "gate": "architecture",
+      "outcome": "approved",
+      "summary": "순수 도메인 함수 구현을 승인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "architecture.md",
+        "implementation-guide.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-10T09:25:43.185058+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:9397eb01384a93b7a21ea658f402837abb3dbb9037b92027b902fadf4975bab6",
+      "artifact_snapshot": {
+        "type": "unit-artifact-snapshot",
+        "version": "1.1.0",
+        "gate": "architecture",
+        "artifacts": [
+          {
+            "reference": "architecture.md",
+            "digest": "sha256:cdae9ab585700f9d8bb9bfc44470dba23f6f7efeb6029502713f933c1798c745"
+          },
+          {
+            "reference": "implementation-guide.md",
+            "digest": "sha256:7445cd484887dee8eaf4dbdbf5c758919d34db13b8eea6c4b5481976fbd65587"
+          }
+        ],
+        "authorization_cursor": {
+          "type": "execution-authorization-cursor",
+          "schema_version": "1.0.0",
+          "work_grant_count": 4,
+          "last_work_grant_id": "AUTH-20260810092542739330",
+          "progress_digest": "sha256:587d5a12299ae8b802cad73e86f09a0e27b3c073ee430a8b8fc31789da2c600b"
+        },
+        "digest": "sha256:9722ec544995cf16a59e306bd9c86ab21e8653f49b321ee60369f884e98edc96"
+      },
+      "decision_digest": "sha256:cf9388ff4134d3b31e8d024e194cc415eb7cd3a0422ec332152ef291ae9ff4e6"
+    },
+    {
+      "id": "DEC-20260810092543444776",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+      "gate": "release",
+      "outcome": "approved",
+      "summary": "현재 Evidence를 승인하고 Release disposition을 skip으로 유지한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "release.md",
+        "evidence/verification.json",
+        "plan.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-10T09:25:43.444776+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:cf9388ff4134d3b31e8d024e194cc415eb7cd3a0422ec332152ef291ae9ff4e6",
+      "approval_subject": {
+        "type": "verification-evidence",
+        "id": "EVD-20260810092542930736",
+        "digest": "sha256:1002e18e2111ae58c8aed5e5d783e3879fc4719307152154f4bf3cafd4e86f15",
+        "reference": "evidence/records/EVD-20260810092542930736.json"
+      },
+      "artifact_snapshot": {
+        "type": "unit-artifact-snapshot",
+        "version": "1.1.0",
+        "gate": "release",
+        "artifacts": [
+          {
+            "reference": "release.md",
+            "digest": "sha256:b4b72cf7347a7712c08fc32bcaec48314eb452b64d77af7f67acf65985a4ced6"
+          }
+        ],
+        "authorization_cursor": {
+          "type": "execution-authorization-cursor",
+          "schema_version": "1.0.0",
+          "work_grant_count": 4,
+          "last_work_grant_id": "AUTH-20260810092542739330",
+          "progress_digest": "sha256:587d5a12299ae8b802cad73e86f09a0e27b3c073ee430a8b8fc31789da2c600b"
+        },
+        "digest": "sha256:2ddd289f272b58fda22391cdc57e934611f1c491edbf3fc756a95bfa6199dcde"
+      },
+      "decision_digest": "sha256:4e4b051f5ae7dc91db96f49e76c43194e11f2b7e42b33f1d70c72f0c01630651"
+    },
+    {
+      "id": "DEC-20260810092543713473",
+      "type": "human-decision",
+      "schema_version": "1.0.0",
+      "unit_id": "UNIT-20260810-D0F036B398424101B0BDFD91D240D794",
+      "gate": "operation",
+      "outcome": "approved",
+      "summary": "이 로컬 Unit에서 Operations를 의도적으로 건너뛰었음을 확인한다.",
+      "scope": "project:reference-product",
+      "decision_packet_version": "1.0.0",
+      "rationale": [
+        "승인된 Level-1 계획과 현재 Evidence가 이 Gate의 조건을 충족한다."
+      ],
+      "alternatives": [
+        {
+          "option": "Gate 결정을 연기한다.",
+          "reason": "범위가 제한된 Reference Unit이 준비되어 기각했다."
+        }
+      ],
+      "tradeoffs": [
+        "넓은 범위보다 작고 결정적인 기능을 우선한다."
+      ],
+      "risks": [
+        "이 E2E는 실제 원격 배포를 수행하지 않는다."
+      ],
+      "references": [
+        "operations.md",
+        "plan.md"
+      ],
+      "decided_by": "reference-product-owner",
+      "decided_at": "2026-08-10T09:25:43.713473+00:00",
+      "attestation": {
+        "type": "human-decision-attestation",
+        "reported_actor": "reference-product-owner",
+        "identity_verification": "not-performed-by-core",
+        "confirmation_source": "caller-attested"
+      },
+      "previous_decision_digest": "sha256:4e4b051f5ae7dc91db96f49e76c43194e11f2b7e42b33f1d70c72f0c01630651",
+      "artifact_snapshot": {
+        "type": "unit-artifact-snapshot",
+        "version": "1.1.0",
+        "gate": "operation",
+        "artifacts": [
+          {
+            "reference": "operations.md",
+            "digest": "sha256:faa7681ff9c17ccfed662a5ecb20a77e84feffb83e5afa94217a8ef537e40b3d"
+          }
+        ],
+        "authorization_cursor": {
+          "type": "execution-authorization-cursor",
+          "schema_version": "1.0.0",
+          "work_grant_count": 4,
+          "last_work_grant_id": "AUTH-20260810092542739330",
+          "progress_digest": "sha256:587d5a12299ae8b802cad73e86f09a0e27b3c073ee430a8b8fc31789da2c600b"
+        },
+        "digest": "sha256:041bb6086e0e27f148ef3b1cceb4e55a49d2a52f58130eb80a8970dcbc6021e0"
+      },
+      "decision_digest": "sha256:f5fe46514de5a3e03645b95838713037c71e8a33a18f87fe8cf94bfac87c2e38"
+    }
+  ]
+}

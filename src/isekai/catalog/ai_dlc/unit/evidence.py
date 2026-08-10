@@ -23,6 +23,7 @@ from .common import (
     _write_json,
     unit_lock,
 )
+from .proof_receipt import proof_receipt_issues
 
 
 EVIDENCE_REQUIRED_FIELDS = {
@@ -56,8 +57,6 @@ EVIDENCE_ALLOWED_STATUSES = {
     "operating",
 }
 EVIDENCE_ID_PATTERN = re.compile(r"EVD-[0-9]{20}")
-
-
 def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
     """Validate optional trust metadata while accepting pre-attestation records."""
     attestation = evidence.get("attestation")
@@ -72,7 +71,12 @@ def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
         issues.append(
             "verification evidence attestation reported_actor must match recorded_by"
         )
-    if attestation.get("execution_verification") != "not-performed-by-core":
+    expected_execution_verification = (
+        "core-proof-receipt"
+        if evidence.get("schema_version") == "1.1.0"
+        else "not-performed-by-core"
+    )
+    if attestation.get("execution_verification") != expected_execution_verification:
         issues.append(
             "verification evidence attestation must disclose the Core execution boundary"
         )
@@ -84,6 +88,7 @@ def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
         "caller-supplied",
         "core-derived",
         "mixed",
+        "core-receipt-derived",
     }:
         issues.append(
             "verification evidence attestation has an invalid output_digest_verification"
@@ -111,8 +116,17 @@ def _evidence_issues(
         issues.append("verification evidence unit_id does not match Unit")
     if evidence.get("type") != "verification-evidence":
         issues.append("verification evidence has an invalid type")
-    if evidence.get("schema_version") != "1.0.0":
+    schema_version = evidence.get("schema_version")
+    if schema_version not in {"1.0.0", "1.1.0"}:
         issues.append("verification evidence has an unsupported schema_version")
+    if schema_version == "1.1.0":
+        record_digest = evidence.get("record_digest")
+        if not isinstance(record_digest, str) or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", record_digest
+        ):
+            issues.append("verification evidence record_digest must be a SHA-256 digest")
+        elif record_digest != _verification_evidence_digest(evidence):
+            issues.append("verification evidence record_digest does not match its record")
     evidence_id = evidence.get("id")
     if not isinstance(evidence_id, str) or not EVIDENCE_ID_PATTERN.fullmatch(
         evidence_id
@@ -186,7 +200,10 @@ def _evidence_issues(
             if not isinstance(command.get("command"), str) or not command["command"].strip():
                 issues.append(f"evidence command {index} requires command text")
             exit_code = command.get("exit_code")
-            if not isinstance(exit_code, int) or isinstance(exit_code, bool):
+            if (
+                (not isinstance(exit_code, int) or isinstance(exit_code, bool))
+                and not (evidence.get("passed") is False and exit_code is None)
+            ):
                 issues.append(f"evidence command {index} exit_code must be an integer")
             digest = command.get("output_digest")
             if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
@@ -220,6 +237,15 @@ def _evidence_issues(
                             f"evidence command {index} is not bound to a current test authorization"
                         )
                     else:
+                        receipt_issues = proof_receipt_issues(
+                            grant,
+                            command,
+                            passed=evidence.get("passed") is True,
+                        )
+                        for receipt_issue in receipt_issues:
+                            issues.append(
+                                f"evidence command {index} {receipt_issue}"
+                            )
                         authorized_at = _parse_iso_timestamp(grant.get("authorized_at"))
                         if (
                             observed_at is not None
@@ -417,6 +443,60 @@ def _current_authorization_binding(
     return binding
 
 
+def _historical_evidence_issues(
+    evidence: Any,
+    unit_id: str,
+    authorization_contexts: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> list[str]:
+    """Validate one immutable Evidence record against its ledger prefix."""
+    if not isinstance(evidence, dict):
+        return ["historical verification evidence must be an object"]
+    from .authorization import _authorization_ledger_digest
+
+    authorization_count = evidence.get("authorization_count")
+    if (
+        not isinstance(authorization_count, int)
+        or isinstance(authorization_count, bool)
+        or authorization_count < 0
+    ):
+        return _evidence_issues(evidence, unit_id, require_passing=False)
+    for envelope, ledger in authorization_contexts:
+        if (
+            evidence.get("envelope_id") != envelope.get("id")
+            or evidence.get("envelope_digest") != envelope.get("approval_digest")
+        ):
+            continue
+        grants = ledger.get("grants")
+        if not isinstance(grants, list) or authorization_count > len(grants):
+            continue
+        prefix = dict(ledger)
+        prefix["grants"] = grants[:authorization_count]
+        ledger_digest = _authorization_ledger_digest(prefix)
+        if evidence.get("authorization_ledger_digest") != ledger_digest:
+            continue
+        grant_map = {
+            str(grant.get("id")): grant
+            for grant in prefix["grants"]
+            if isinstance(grant, dict) and isinstance(grant.get("id"), str)
+        }
+        binding = {
+            "envelope_id": envelope.get("id"),
+            "envelope_digest": envelope.get("approval_digest"),
+            "authorization_ledger_digest": ledger_digest,
+            "authorization_count": authorization_count,
+        }
+        return _evidence_issues(
+            evidence,
+            unit_id,
+            require_passing=False,
+            authorization_binding=binding,
+            authorization_grants=grant_map,
+        )
+    return [
+        "historical verification evidence has no matching authorization ledger prefix"
+    ] + _evidence_issues(evidence, unit_id, require_passing=False)
+
+
 def build_command_evidence(
     command: str,
     exit_code: int,
@@ -440,8 +520,9 @@ def build_command_evidence(
 
 
 def _verification_evidence_digest(evidence: dict[str, Any]) -> str:
+    subject = {key: value for key, value in evidence.items() if key != "record_digest"}
     encoded = json.dumps(
-        evidence,
+        subject,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -544,11 +625,37 @@ def _record_evidence_locked(
     )
     normalized_commands: list[dict[str, Any]] = []
     core_derived_outputs = 0
+    receipt_derived_outputs = 0
     for index, command in enumerate(commands):
         if not isinstance(command, dict):
             raise EvidenceError(f"command {index} must be an object")
         item = dict(command)
-        if "output" in item:
+        authorization_id = item.get("authorization_id")
+        grant = (
+            authorization_grants.get(authorization_id)
+            if isinstance(authorization_id, str)
+            else None
+        )
+        execution = grant.get("execution") if isinstance(grant, dict) else None
+        if isinstance(execution, dict) and execution.get("type") == "core-proof":
+            if "output" in item:
+                raise EvidenceError(
+                    f"command {index} output is derived from its Core proof receipt"
+                )
+            derived = {
+                "command": execution.get("evidence_command"),
+                "exit_code": execution.get("exit_code"),
+                "output_digest": execution.get("evidence_output_digest"),
+                "observed_at": execution.get("completed_at"),
+            }
+            for field, expected in derived.items():
+                if field in item and item[field] != expected:
+                    raise IntegrityError(
+                        f"command {index} {field} does not match its Core proof receipt"
+                    )
+            item.update(derived)
+            receipt_derived_outputs += 1
+        elif "output" in item:
             missing_input_fields = sorted(
                 {"command", "exit_code", "observed_at", "authorization_id"}
                 - item.keys()
@@ -576,9 +683,11 @@ def _record_evidence_locked(
         normalized_commands.append(item)
 
     now = datetime.now(timezone.utc)
-    if core_derived_outputs == len(commands):
+    if receipt_derived_outputs == len(commands):
+        output_digest_verification = "core-receipt-derived"
+    elif core_derived_outputs == len(commands):
         output_digest_verification = "core-derived"
-    elif core_derived_outputs:
+    elif core_derived_outputs or receipt_derived_outputs:
         output_digest_verification = "mixed"
     else:
         output_digest_verification = "caller-supplied"
@@ -586,7 +695,7 @@ def _record_evidence_locked(
     evidence = {
         "id": "EVD-" + now.strftime("%Y%m%d%H%M%S%f"),
         "type": "verification-evidence",
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "unit_id": unit.get("id"),
         "stage": unit.get("phase"),
         "passed": passed,
@@ -596,7 +705,7 @@ def _record_evidence_locked(
         "attestation": {
             "type": "runtime-execution-attestation",
             "reported_actor": recorded_by.strip(),
-            "execution_verification": "not-performed-by-core",
+            "execution_verification": "core-proof-receipt",
             "identity_verification": "not-performed-by-core",
             "output_digest_verification": output_digest_verification,
         },
@@ -605,6 +714,7 @@ def _record_evidence_locked(
     }
     if notes.strip():
         evidence["notes"] = notes.strip()
+    evidence["record_digest"] = _verification_evidence_digest(evidence)
     issues = _evidence_issues(
         evidence,
         str(unit.get("id")),
