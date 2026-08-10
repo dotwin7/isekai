@@ -33,7 +33,7 @@
     "id": "isekai-catalog",
     "version": "0.3.0",
     "path": "catalog",
-    "digest": "sha256:32da2eaf55d95b95944ceebac8ebd1efa122ad6b84acf18957ad72a0933162d0"
+    "digest": "sha256:cbce2b1fb1bc904e9fbde233290bce906f1cc3cec30081ad372233dd301e7cf0"
   },
   "foundation": {
     "id": "isekai-foundation",

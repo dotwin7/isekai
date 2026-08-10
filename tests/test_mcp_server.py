@@ -217,12 +217,13 @@ def test_mcp_exposes_isekai_catalog_and_resources(
     assert catalog_response is not None
     assert catalog_response["result"]["isError"] is False
     catalog = catalog_response["result"]["structuredContent"]["result"]
-    assert {entry["id"] for entry in catalog["entries"]} == {"ai-dlc"}
+    assert {entry["id"] for entry in catalog["entries"]} == {"ai-dlc", "agent-control"}
     assert resources_response is not None
     uris = {
         item["uri"] for item in resources_response["result"]["resources"]
     }
     assert "isekai://runtime/catalog/ai-dlc" in uris
+    assert "isekai://runtime/catalog/agent-control" in uris
     assert resource_response is not None
     catalog_entry = json.loads(resource_response["result"]["contents"][0]["text"])
     assert catalog_entry["id"] == "ai-dlc"

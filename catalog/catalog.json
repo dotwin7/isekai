@@ -7,6 +7,11 @@
       "id": "ai-dlc",
       "version": "0.3.0",
       "manifest": "ai-dlc/0.3.0/manifest.json"
+    },
+    {
+      "id": "agent-control",
+      "version": "0.1.0",
+      "manifest": "agent-control/0.1.0/manifest.json"
     }
   ]
 }

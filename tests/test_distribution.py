@@ -422,7 +422,9 @@ def test_project_install_is_pinned_idempotent_and_host_ready(tmp_path: Path) -> 
     )
     assert catalog_status_out.returncode == 0, catalog_status_out.stderr
     installed_catalog = json.loads(catalog_status_out.stdout)["result"]
-    assert [item["id"] for item in installed_catalog["entries"]] == ["ai-dlc"]
+    installed_ids = {item["id"] for item in installed_catalog["entries"]}
+    assert "ai-dlc" in installed_ids
+    assert "agent-control" in installed_ids
 
 
 def test_doctor_fails_closed_after_installed_catalog_tampering(

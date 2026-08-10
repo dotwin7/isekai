@@ -24,10 +24,14 @@ def test_catalog_contains_active_ai_dlc() -> None:
 
     assert catalog["type"] == "isekai-catalog"
     assert catalog["catalog_digest"].startswith("sha256:")
-    assert set(entries) == {"ai-dlc"}
+    assert "ai-dlc" in entries
+    assert "agent-control" in entries
     assert entries["ai-dlc"]["active"] is True
     assert entries["ai-dlc"]["delivery"] == "core-bundled"
     assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.3.0"
+    assert entries["agent-control"]["active"] is False
+    assert entries["agent-control"]["delivery"] == "core-bundled"
+    assert entries["agent-control"]["package_path"] == "agent-control/0.1.0"
     assert all(
         entry["authority"]
         == "cannot-expand-foundation-project-or-unit-authority"
@@ -51,7 +55,7 @@ def test_feature_status_is_available_through_runtime_contract() -> None:
     result = dispatch("catalog-status", {})
 
     assert result["action"] == "catalog-status"
-    assert {e["id"] for e in result["result"]["entries"]} == {"ai-dlc"}
+    assert {e["id"] for e in result["result"]["entries"]} == {"ai-dlc", "agent-control"}
 
 
 def test_catalog_is_exposed_as_mcp_resources() -> None:
@@ -61,6 +65,7 @@ def test_catalog_is_exposed_as_mcp_resources() -> None:
 
     assert "isekai://runtime/catalog" in uris
     assert "isekai://runtime/catalog/ai-dlc" in uris
+    assert "isekai://runtime/catalog/agent-control" in uris
     content = read_catalog_resource(
         catalog,
         "isekai://runtime/catalog/ai-dlc",
@@ -68,19 +73,32 @@ def test_catalog_is_exposed_as_mcp_resources() -> None:
     value = json.loads(content["text"])
     assert value["id"] == "ai-dlc"
     assert value["kind"] == "isekai-catalog-entry"
+    ac_content = read_catalog_resource(
+        catalog,
+        "isekai://runtime/catalog/agent-control",
+    )
+    ac_value = json.loads(ac_content["text"])
+    assert ac_value["id"] == "agent-control"
+    assert ac_value["kind"] == "isekai-catalog-entry"
 
 
 def test_catalog_is_managed_as_a_repository_distribution_component() -> None:
     root = Path(__file__).resolve().parents[1]
     source = json.loads((root / "catalog/catalog.json").read_text(encoding="utf-8"))
-    entry = source["entries"][0]
+    entries = {e["id"]: e for e in source["entries"]}
 
-    assert entry == {
+    assert entries["ai-dlc"] == {
         "id": "ai-dlc",
         "version": "0.3.0",
         "manifest": "ai-dlc/0.3.0/manifest.json",
     }
-    assert (root / "catalog" / entry["manifest"]).is_file()
+    assert entries["agent-control"] == {
+        "id": "agent-control",
+        "version": "0.1.0",
+        "manifest": "agent-control/0.1.0/manifest.json",
+    }
+    for entry in entries.values():
+        assert (root / "catalog" / entry["manifest"]).is_file()
 
 
 def test_feature_scaffold_template_contains_required_fields() -> None:

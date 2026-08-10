@@ -98,3 +98,9 @@ Core는 직접 CLI dispatch와 Project-local stdio MCP server를 함께 제공�
 |---|---|
 | [ai-dlc/workflow.md](ai-dlc/workflow.md) | Query·Quick Change·Unit 작업 라우팅과 AI-DLC 수명주기 |
 | [ai-dlc/unit.md](ai-dlc/unit.md) | Unit 구조, 인간 게이트, Decision·Evidence·Execution Envelope, 원장 동시성 |
+
+### Agent Control Plane
+
+| 문서 | 내용 |
+|---|---|
+| [agent-control.md](agent-control.md) | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어하는 범용 계약 |

@@ -26,6 +26,7 @@ catalog/
 | ID | Version | Status | Delivery | 설명 |
 |---|---|---|---|---|
 | `ai-dlc` | 0.3.0 | active | core-bundled | Intake부터 Learn까지 거버넌스 개발주기 |
+| `agent-control` | 0.1.0 | preview | core-bundled | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어 |
 
 ## 새 Entry 추가 절차
 
