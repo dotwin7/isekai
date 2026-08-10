@@ -51,7 +51,7 @@ ISEKAI 호스트 프로필은 Project 파일시스템을 호스트 Agent에게 �
 
 ISEKAI가 제공하는 기능은 Project-local Core MCP의 공통 Catalog에 등록된다. Core MCP는 Catalog와 개별 Catalog entry manifest resource를 노출하고 Unit Context Receipt는 Catalog digest를 고정한다. Adapter는 `active` entry만 사용하며, 각 entry action은 같은 active Unit·Envelope·Decision·Evidence 경계를 거쳐야 한다. 현재 등록된 실행 기능은 AI-DLC이며, 새 기능은 구현과 배포 계약이 준비된 뒤 고유한 entry ID로 추가한다. 구체 계약은 [ISEKAI Catalog](catalog.md)를 따른다.
 
-파일 변경은 grant와 실행을 분리하지 않는다. `artifact-write`는 승인 전 Unit 문서를 materialize하고, 승인된 문서의 의미 변경에는 먼저 같은 Unit의 pending Amendment를 요구한다. 기존 acceptance 항목을 `[ ]`에서 `[x]`로만 진행시키는 것은 예외지만 문구 변경이나 역방향 변경은 허용하지 않는다. `managed-edit`는 모든 target의 Envelope 범위와 expected digest를 검증하고 한 Core batch에서 쓰기와 receipt 기록을 완료한다. `managed-test`는 일회용 Project 복제본에서 실행해 테스트가 만든 상대 경로 쓰기를 원본으로 되돌리지 않는다. Runtime `authorize --action edit|test`는 의도적으로 거부된다. 이 구조는 훅의 사후 감지에 의존하지 않는다.
+파일 변경은 grant와 실행을 분리하지 않는다. `artifact-write`는 승인 전 Unit 문서를 materialize하고, 승인된 문서의 의미 변경에는 먼저 같은 Unit의 pending Amendment를 요구한다. 기존 acceptance 항목을 `[ ]`에서 `[x]`로만 진행시키는 것은 예외지만 문구 변경이나 역방향 변경은 허용하지 않는다. `managed-edit`는 모든 target의 Envelope 범위와 expected digest를 검증하고 한 Core batch에서 쓰기와 receipt 기록을 완료한다. `managed-test`는 descriptor 검증으로 만든 일회용 Project 복제본을 macOS Seatbelt 또는 Linux Bubblewrap 안에서 실행한다. 원본 Project·사용자 홈 file data read, workspace 밖 write와 network를 OS 정책으로 차단하고 process/resource/output 상한을 적용하며 provider가 없으면 실행하지 않는다. Runtime `authorize --action edit|test`는 의도적으로 거부된다. 이 구조는 훅의 사후 감지에 의존하지 않는다.
 
 이 프로필 밖에서 사용자가 IDE나 별도 프로세스로 직접 파일을 바꾸는 행위까지 같은 OS 사용자 권한으로 금지하는 것은 Core의 범위가 아니다. 그런 외부 변경은 다음 Core write의 expected digest나 artifact snapshot 검증에서 충돌로 처리한다. 호스트 실행 옵션이나 조직 관리 정책이 Project 설정을 덮어쓸 수 있는 환경은 해당 상위 정책에서도 read-only/MCP 전용 경계를 강제해야 한다.
 

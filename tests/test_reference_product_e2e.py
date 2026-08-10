@@ -9,11 +9,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from isekai.distribution.install import (
     _install_from_verified_checkout as install_from_checkout,
 )
 from isekai.distribution import apply_execution_profile
 from isekai.catalog.ai_dlc.unit.lifecycle import verify_unit
+from isekai.catalog.ai_dlc.unit.managed_test_sandbox import sandbox_available
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -527,6 +530,10 @@ mapping 레코드 iterable을 `prioritize_proposals`에 전달한다. 함수는 
     )
 
 
+@pytest.mark.skipif(
+    not sandbox_available(),
+    reason="managed-test OS sandbox provider is unavailable",
+)
 def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
     tmp_path: Path,
 ) -> None:

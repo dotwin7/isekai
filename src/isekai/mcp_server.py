@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, Mapping
 
 from . import __version__
+from .distribution.install import doctor_install
 from .distribution.execution_profile import execution_profile_status
 from .runtime.actions import ACTION_HANDLERS
 from .runtime_contract import dispatch
@@ -15,11 +16,18 @@ from .workflow.catalog import (
     read_catalog_resource,
 )
 from .workflow.active_binding import project_manifest_for_unit
+from .workflow.project import load_project
 from .workflow.session import discover_project
 
 
 MCP_SERVER_NAME = "isekai-core"
 MCP_PROTOCOL_VERSION = "2025-06-18"
+_FOUNDATION_ACTIONS = {
+    "release-check",
+    "foundation-decision",
+    "foundation-evidence",
+    "foundation-promote",
+}
 
 
 def _tool_schemas() -> list[dict[str, Any]]:
@@ -144,13 +152,24 @@ class ProjectMcpServer:
     def _same_project(self, candidate: Path) -> bool:
         return candidate.resolve() == self.project_manifest
 
-    def _bound_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    def _selected_foundation(self) -> Path:
+        _manifest, _project, foundation, _extensions = load_project(
+            self.project_manifest
+        )
+        return foundation.root.resolve()
+
+    def _bound_payload(
+        self,
+        action: str,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
         values = dict(payload)
         project = values.get("project")
         if project is not None and not self._same_project(discover_project(project)):
             raise ValueError("Core broker request targets a different Project")
-        if "project" in values:
-            values["project"] = str(self.project_manifest)
+        # Project-scoped defaults must not depend on the MCP process working
+        # directory. Bind every action, including calls that omitted --project.
+        values["project"] = str(self.project_manifest)
         unit = values.get("unit")
         if unit is not None:
             unit_path = Path(str(unit)).expanduser().resolve()
@@ -161,11 +180,43 @@ class ProjectMcpServer:
             requested_path = Path(str(values["path"])).expanduser().resolve()
             if requested_path != self.project_root:
                 raise ValueError("Core broker init path must be its fixed Project root")
+        if action == "init":
+            values["path"] = str(self.project_root)
+        if action in _FOUNDATION_ACTIONS:
+            selected_foundation = self._selected_foundation()
+            requested_foundation = values.get("foundation")
+            if requested_foundation is not None:
+                requested_path = Path(str(requested_foundation)).expanduser()
+                if not requested_path.is_absolute():
+                    requested_path = self.project_root / requested_path
+                if requested_path.resolve() != selected_foundation:
+                    raise ValueError(
+                        "Core broker request targets a Foundation not selected by "
+                        "its fixed Project"
+                    )
+            values["foundation"] = str(selected_foundation)
         return values
+
+    def _ensure_project_ready(self) -> None:
+        health = doctor_install(self.project_root)
+        runtimes = health.get("runtimes")
+        if (
+            health.get("ready") is not True
+            or not isinstance(runtimes, list)
+            or self.runtime not in runtimes
+        ):
+            issues = health.get("issues")
+            details = (
+                "; ".join(str(issue) for issue in issues)
+                if isinstance(issues, list) and issues
+                else f"{self.runtime} Runtime is not installed for this Project"
+            )
+            raise ValueError("Project installation is not healthy: " + details)
 
     def _call_tool(self, name: str, arguments: object) -> dict[str, Any]:
         if not isinstance(arguments, dict):
             raise ValueError("MCP tool arguments must be an object")
+        self._ensure_project_ready()
         profile = execution_profile_status(self.project_root, self.runtime)
         if not profile["ready"]:
             raise ValueError(
@@ -181,11 +232,12 @@ class ProjectMcpServer:
                 raise ValueError("unsupported ISEKAI runtime action")
             if not isinstance(payload, dict):
                 raise ValueError("runtime_action payload must be an object")
-            result = dispatch(action, self._bound_payload(payload))
+            result = dispatch(action, self._bound_payload(action, payload))
         elif name == "managed_edit":
             result = dispatch(
                 "managed-edit",
                 self._bound_payload(
+                    "managed-edit",
                     {"unit": arguments.get("unit"), "changes": arguments.get("changes")}
                 ),
             )
@@ -193,6 +245,7 @@ class ProjectMcpServer:
             result = dispatch(
                 "artifact-write",
                 self._bound_payload(
+                    "artifact-write",
                     {
                         "unit": arguments.get("unit"),
                         "artifacts": arguments.get("artifacts"),
@@ -203,6 +256,7 @@ class ProjectMcpServer:
             result = dispatch(
                 "managed-test",
                 self._bound_payload(
+                    "managed-test",
                     {
                         "unit": arguments.get("unit"),
                         "target": arguments.get("target"),
@@ -231,18 +285,10 @@ class ProjectMcpServer:
             return None
         try:
             if method == "initialize":
-                params = request.get("params")
-                requested_version = (
-                    params.get("protocolVersion") if isinstance(params, dict) else None
-                )
                 return self._result(
                     request_id,
                     {
-                        "protocolVersion": (
-                            requested_version
-                            if isinstance(requested_version, str)
-                            else MCP_PROTOCOL_VERSION
-                        ),
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
                         "capabilities": {
                             "tools": {"listChanged": False},
                             "resources": {"listChanged": False},
@@ -263,6 +309,7 @@ class ProjectMcpServer:
             if method == "tools/list":
                 return self._result(request_id, {"tools": _tool_schemas()})
             if method == "resources/list":
+                self._ensure_project_ready()
                 profile = execution_profile_status(self.project_root, self.runtime)
                 if not profile["ready"]:
                     raise ValueError(
@@ -280,6 +327,7 @@ class ProjectMcpServer:
                     params.get("uri"), str
                 ):
                     raise ValueError("resources/read requires uri")
+                self._ensure_project_ready()
                 profile = execution_profile_status(self.project_root, self.runtime)
                 if not profile["ready"]:
                     raise ValueError(

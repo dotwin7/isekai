@@ -26,11 +26,11 @@ Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`,
 
 | 영역 | 구현 경계 |
 |---|---|
-| Project와 Unit workflow | `workflow/project.py`, `workflow/routing.py`, `workflow/session.py`, `workflow/active_binding.py`, `workflow/unit/` |
-| ISEKAI Catalog entrys | `workflow/features.py`가 AI-DLC와 추가 기능 manifest를 검증하고 digest-bound catalog와 MCP resource를 생성 |
+| Project와 Unit workflow | `workflow/project.py`, `workflow/session.py`, `workflow/active_binding.py`, `catalog/ai_dlc/routing.py`, `catalog/ai_dlc/unit/` |
+| ISEKAI Catalog entries | `workflow/catalog.py`가 AI-DLC와 추가 기능 manifest를 검증하고 digest-bound catalog와 MCP resource를 생성 |
 | Project Knowledge | `workflow/project_knowledge.py` service, `project_knowledge_schema.py` 검증·선택·호환 정책, `project_knowledge_storage.py` 안전한 파일 경계, `project_knowledge_observability.py` candidate·Decision 상태 결합 |
 | 배포와 설치 | `distribution/release.py`, `distribution/marketplace.py`, `distribution/install.py`, `distribution/execution_profile.py`, `distribution/git.py` |
-| Core tool gateway | `mcp_server.py`, `workflow/unit/managed_execution.py` |
+| Core tool gateway | `mcp_server.py`, `catalog/ai_dlc/unit/managed_execution.py` |
 | Foundation | `foundation/types.py`, `foundation/validation.py`, `foundation/evaluation.py`, `foundation/promotion.py` |
 | Project Runtime | `runtime/actions.py`가 host-neutral action을 실행하고 `runtime_contract.py`가 protocol envelope를 생성 |
 | CLI | `cli/parser.py`가 명령 표면을, `cli/runtime_request.py`가 runtime payload와 exit code를 담당 |

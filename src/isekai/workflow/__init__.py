@@ -15,14 +15,6 @@ from .catalog import (
     load_catalog,
     read_catalog_resource,
 )
-from .project_knowledge import (
-    current_project_knowledge,
-    project_knowledge_status,
-    promote_project_knowledge,
-    propose_project_knowledge,
-    select_project_knowledge_context,
-    summarize_project_knowledge,
-)
 from isekai.support.errors import (
     AuthorizationError,
     EvidenceError,
@@ -56,6 +48,14 @@ def initialize_project(
 
 def __getattr__(name: str):
     """Lazy re-export of AI-DLC symbols that callers previously found here."""
+    from .project_knowledge import (
+        current_project_knowledge as _current_project_knowledge,
+        project_knowledge_status as _project_knowledge_status,
+        promote_project_knowledge as _promote_project_knowledge,
+        propose_project_knowledge as _propose_project_knowledge,
+        select_project_knowledge_context as _select_project_knowledge_context,
+        summarize_project_knowledge as _summarize_project_knowledge,
+    )
     from isekai.catalog.ai_dlc.routing import (
         AGENT_ALLOWED_ACTIONS as _AGENT_ALLOWED_ACTIONS,
         AGENT_LEVEL_ALLOWED_ACTIONS as _AGENT_LEVEL_ALLOWED_ACTIONS,
@@ -171,11 +171,17 @@ def __getattr__(name: str):
         "authorize_action": _authorize_action,
         "build_command_evidence": _build_command_evidence,
         "classify_work": _classify_work,
+        "current_project_knowledge": _current_project_knowledge,
         "initialize_unit": _initialize_unit,
         "propose_execution_envelope": _propose_execution_envelope,
+        "project_knowledge_status": _project_knowledge_status,
+        "promote_project_knowledge": _promote_project_knowledge,
+        "propose_project_knowledge": _propose_project_knowledge,
         "record_decision": _record_decision,
         "record_evidence": _record_evidence,
         "record_unit_amendment": _record_unit_amendment,
+        "select_project_knowledge_context": _select_project_knowledge_context,
+        "summarize_project_knowledge": _summarize_project_knowledge,
         "transition_unit": _transition_unit,
         "unit_lock": _unit_lock,
         "unit_status": _unit_status,

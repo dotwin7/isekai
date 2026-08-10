@@ -1,0 +1,557 @@
+from __future__ import annotations
+
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Mapping
+
+from isekai.support.errors import WorkflowError
+
+
+@dataclass(frozen=True)
+class SandboxInvocation:
+    argv: list[str]
+    provider: str
+    environment: dict[str, str]
+    filesystem_isolation: str = "source-and-user-data-read-denied-write-confined"
+    network_isolation: str = "denied"
+    process_isolation: str = "process-group-cleanup"
+    resource_limits: dict[str, int] = field(default_factory=dict)
+
+
+MANAGED_TEST_ADDRESS_SPACE_BYTES = 4 * 1024 * 1024 * 1024
+MANAGED_TEST_FILE_SIZE_BYTES = 256 * 1024 * 1024
+MANAGED_TEST_OPEN_FILES = 256
+MANAGED_TEST_PROCESSES = 512
+_RESOURCE_SUPERVISOR = """\
+import os
+import resource
+import sys
+
+cpu, address_space, file_size, open_files, processes = map(int, sys.argv[1:6])
+for name, value in (
+    ("RLIMIT_CORE", 0),
+    ("RLIMIT_CPU", cpu),
+    ("RLIMIT_AS", address_space),
+    ("RLIMIT_FSIZE", file_size),
+    ("RLIMIT_NOFILE", open_files),
+    ("RLIMIT_NPROC", processes),
+):
+    if value <= 0 and name != "RLIMIT_CORE":
+        continue
+    resource_id = getattr(resource, name, None)
+    if resource_id is None:
+        continue
+    _soft, hard = resource.getrlimit(resource_id)
+    limited = value if hard == resource.RLIM_INFINITY else min(value, hard)
+    resource.setrlimit(resource_id, (limited, limited))
+command = sys.argv[6:]
+os.execv(command[0], command)
+"""
+
+
+_LINUX_SYSTEM_ROOTS = (
+    "/bin",
+    "/lib",
+    "/lib64",
+    "/sbin",
+    "/usr",
+)
+_LINUX_SYSTEM_FILES = (
+    "/etc/alternatives",
+    "/etc/group",
+    "/etc/hosts",
+    "/etc/ld.so.cache",
+    "/etc/nsswitch.conf",
+    "/etc/passwd",
+    "/etc/resolv.conf",
+    "/etc/ssl",
+)
+_TRUSTED_EXECUTABLE_ROOTS = (
+    "/bin",
+    "/Library",
+    "/opt/homebrew",
+    "/sbin",
+    "/System",
+    "/usr",
+    "/usr/local",
+)
+_MACOS_SYSTEM_READ_ROOTS = (
+    "/bin",
+    "/dev",
+    "/etc",
+    "/Library",
+    "/opt/homebrew",
+    "/private/etc",
+    "/private/var/db",
+    "/sbin",
+    "/System",
+    "/usr",
+    "/usr/local",
+)
+
+
+def _probe(command: list[str]) -> tuple[bool, str | None]:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={"PATH": os.defpath},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    if completed.returncode == 0:
+        return True, None
+    detail = (completed.stderr or completed.stdout).strip()
+    return False, detail[:500] or f"provider exited {completed.returncode}"
+
+
+def sandbox_status() -> dict[str, object]:
+    system = platform.system()
+    if system == "Darwin":
+        executable = shutil.which("sandbox-exec")
+        if executable is None:
+            return {
+                "ready": False,
+                "provider": "macos-seatbelt",
+                "issue": "sandbox-exec is not installed",
+            }
+        ready, issue = _probe(
+            [
+                executable,
+                "-p",
+                "(version 1) (allow default)",
+                "/usr/bin/true",
+            ]
+        )
+        return {"ready": ready, "provider": "macos-seatbelt", "issue": issue}
+    if system == "Linux":
+        executable = shutil.which("bwrap")
+        if executable is None:
+            return {
+                "ready": False,
+                "provider": "linux-bubblewrap",
+                "issue": "Bubblewrap (bwrap) is not installed",
+            }
+        command = [
+            executable,
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-all",
+        ]
+        for value in _LINUX_SYSTEM_ROOTS:
+            root = Path(value)
+            if root.exists():
+                command.extend(["--ro-bind", value, value])
+        command.extend(
+            ["--proc", "/proc", "--dev", "/dev", "--", "/usr/bin/true"]
+        )
+        ready, issue = _probe(command)
+        return {"ready": ready, "provider": "linux-bubblewrap", "issue": issue}
+    return {
+        "ready": False,
+        "provider": None,
+        "issue": f"managed-test has no OS sandbox provider for {system}",
+    }
+
+
+def sandbox_available() -> bool:
+    return sandbox_status()["ready"] is True
+
+
+def require_sandbox_provider() -> str:
+    status = sandbox_status()
+    if status["ready"] is not True:
+        provider = status.get("provider") or "unsupported-platform"
+        issue = status.get("issue") or "provider preflight failed"
+        raise WorkflowError(
+            f"managed-test OS sandbox is unavailable ({provider}): {issue}"
+        )
+    return str(status["provider"])
+
+
+def _resolve_executable(
+    argv: list[str],
+    *,
+    workspace: Path,
+    environment: Mapping[str, str],
+) -> tuple[Path, Path, list[str]]:
+    requested = Path(argv[0])
+    if requested.is_absolute():
+        lexical = requested
+    elif len(requested.parts) > 1:
+        lexical = workspace / requested
+    else:
+        found = shutil.which(argv[0], path=environment.get("PATH"))
+        if found is None:
+            raise WorkflowError(
+                f"managed test executable is not on the allowlisted PATH: {argv[0]}"
+            )
+        lexical = Path(found)
+    lexical = lexical.absolute()
+    try:
+        resolved = lexical.resolve(strict=True)
+    except OSError as exc:
+        raise WorkflowError(
+            f"managed test executable cannot be resolved: {lexical}: {exc}"
+        ) from exc
+    if not resolved.is_file() or (os.name != "nt" and not os.access(resolved, os.X_OK)):
+        raise WorkflowError(f"managed test executable is not executable: {lexical}")
+    return lexical, resolved, [str(lexical), *argv[1:]]
+
+
+def _runtime_root(executable: Path) -> Path:
+    parent = executable.parent
+    if parent.name in {"bin", "Scripts"}:
+        candidate = parent.parent
+        if (candidate / "pyvenv.cfg").is_file() or (candidate / "lib").is_dir():
+            return candidate
+    return parent
+
+
+def _minimal_roots(candidates: list[Path]) -> list[Path]:
+    roots: list[Path] = []
+    for candidate in sorted(
+        {item.absolute() for item in candidates if item.exists()},
+        key=lambda item: (len(item.parts), str(item)),
+    ):
+        if any(candidate == root or root in candidate.parents for root in roots):
+            continue
+        roots.append(candidate)
+    return roots
+
+
+def _command_roots(
+    lexical: Path,
+    resolved: Path,
+    *,
+    temp_root: Path,
+) -> list[Path]:
+    candidates = [_runtime_root(lexical), _runtime_root(resolved)]
+    return [
+        root
+        for root in _minimal_roots(candidates)
+        if root != temp_root and temp_root not in root.parents
+    ]
+
+
+def _execution_roots(
+    lexical: Path,
+    resolved: Path,
+    *,
+    temp_root: Path,
+) -> list[Path]:
+    supervisor = Path(sys.executable).absolute()
+    supervisor_resolved = supervisor.resolve()
+    return _minimal_roots(
+        [
+            *_command_roots(lexical, resolved, temp_root=temp_root),
+            *_command_roots(
+                supervisor,
+                supervisor_resolved,
+                temp_root=temp_root,
+            ),
+        ]
+    )
+
+
+def _resource_limited_command(
+    command: list[str],
+    *,
+    timeout_seconds: int,
+    address_space_supported: bool,
+) -> tuple[list[str], dict[str, int]]:
+    limits = {
+        "cpu_seconds": timeout_seconds + 5,
+        "file_size_bytes": MANAGED_TEST_FILE_SIZE_BYTES,
+        "open_files": MANAGED_TEST_OPEN_FILES,
+        "processes": MANAGED_TEST_PROCESSES,
+        "core_dump_bytes": 0,
+    }
+    address_space = (
+        MANAGED_TEST_ADDRESS_SPACE_BYTES if address_space_supported else 0
+    )
+    if address_space_supported:
+        limits["address_space_bytes"] = address_space
+    supervisor = str(Path(sys.executable).absolute())
+    wrapped = [
+        supervisor,
+        "-I",
+        "-c",
+        _RESOURCE_SUPERVISOR,
+        str(limits["cpu_seconds"]),
+        str(address_space),
+        str(limits["file_size_bytes"]),
+        str(limits["open_files"]),
+        str(limits["processes"]),
+        *command,
+    ]
+    return wrapped, limits
+
+
+def _inside(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _validate_executable_scope(
+    lexical: Path,
+    resolved: Path,
+    *,
+    workspace: Path,
+    source_project: Path,
+    temp_root: Path,
+) -> None:
+    current = Path(sys.executable).absolute()
+    current_resolved = current.resolve()
+    current_roots = _minimal_roots(
+        [_runtime_root(current), _runtime_root(current_resolved)]
+    )
+    system_roots = [
+        Path(value) for value in _TRUSTED_EXECUTABLE_ROOTS if Path(value).exists()
+    ]
+    source_virtualenv = source_project / ".venv"
+
+    lexical_allowed = (
+        _inside(lexical, workspace)
+        or _inside(lexical, temp_root)
+        or _inside(lexical, source_virtualenv)
+        or any(_inside(lexical, root) for root in [*system_roots, *current_roots])
+    )
+    resolved_allowed = (
+        _inside(resolved, workspace)
+        or _inside(resolved, temp_root)
+        or _inside(resolved, source_virtualenv)
+        or any(_inside(resolved, root) for root in [*system_roots, *current_roots])
+    )
+    if not lexical_allowed or not resolved_allowed:
+        raise WorkflowError(
+            "managed test executable is outside trusted system, Core runtime, "
+            f"Project .venv, or disposable workspace roots: {lexical}"
+        )
+
+
+def _sandbox_environment(
+    environment: Mapping[str, str],
+    *,
+    lexical: Path,
+    resolved: Path,
+    temp_root: Path,
+) -> dict[str, str]:
+    safe_roots = _minimal_roots(
+        [
+            *(Path(value) for value in _LINUX_SYSTEM_ROOTS),
+            Path("/opt/homebrew"),
+            Path("/usr/local"),
+            *_execution_roots(lexical, resolved, temp_root=temp_root),
+            temp_root,
+        ]
+    )
+    safe_path: list[str] = []
+    for value in environment.get("PATH", os.defpath).split(os.pathsep):
+        if not value:
+            continue
+        candidate = Path(value).absolute()
+        if not any(
+            candidate == root or root in candidate.parents for root in safe_roots
+        ):
+            continue
+        text = str(candidate)
+        if text not in safe_path:
+            safe_path.append(text)
+    executable_directory = str(lexical.parent)
+    if executable_directory not in safe_path:
+        safe_path.insert(0, executable_directory)
+    sanitized = dict(environment)
+    sanitized["PATH"] = os.pathsep.join(safe_path)
+    return sanitized
+
+
+def _seatbelt_string(value: Path) -> str:
+    return json.dumps(str(value), ensure_ascii=True)
+
+
+def _macos_invocation(
+    argv: list[str],
+    *,
+    temp_root: Path,
+    workspace: Path,
+    source_project: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int = 300,
+) -> SandboxInvocation:
+    executable = shutil.which("sandbox-exec")
+    if executable is None:  # pragma: no cover - guarded by provider preflight
+        raise WorkflowError("managed-test OS sandbox is unavailable: sandbox-exec")
+    lexical, resolved, command = _resolve_executable(
+        argv,
+        workspace=workspace,
+        environment=environment,
+    )
+    _validate_executable_scope(
+        lexical,
+        resolved,
+        workspace=workspace,
+        source_project=source_project,
+        temp_root=temp_root,
+    )
+    sandbox_environment = _sandbox_environment(
+        environment,
+        lexical=lexical,
+        resolved=resolved,
+        temp_root=temp_root,
+    )
+    read_roots = _minimal_roots(
+        [
+            *(Path(value) for value in _MACOS_SYSTEM_READ_ROOTS),
+            *_execution_roots(lexical, resolved, temp_root=temp_root),
+            temp_root,
+        ]
+    )
+    read_filter = " ".join(
+        [
+            '(literal "/")',
+            *(f"(subpath {_seatbelt_string(item)})" for item in read_roots),
+        ]
+    )
+
+    profile = [
+        "(version 1)",
+        "(allow default)",
+        "(deny network*)",
+        "(deny mach-lookup)",
+        "(deny mach-register)",
+        "(deny signal (require-not (target self)))",
+        "(deny process-info* (require-not (target self)))",
+        "(deny file-read-data (require-not (require-any " + read_filter + ")))",
+        "(deny file-write* (require-not (subpath "
+        + _seatbelt_string(temp_root)
+        + ")))",
+    ]
+    limited_command, limits = _resource_limited_command(
+        command,
+        timeout_seconds=timeout_seconds,
+        address_space_supported=False,
+    )
+    return SandboxInvocation(
+        argv=[executable, "-p", " ".join(profile), *limited_command],
+        provider="macos-seatbelt",
+        environment=sandbox_environment,
+        process_isolation="seatbelt-process-access-denied-and-process-group-cleanup",
+        resource_limits=limits,
+    )
+
+
+def _linux_invocation(
+    argv: list[str],
+    *,
+    temp_root: Path,
+    workspace: Path,
+    source_project: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int = 300,
+) -> SandboxInvocation:
+    executable = shutil.which("bwrap")
+    if executable is None:  # pragma: no cover - guarded by provider preflight
+        raise WorkflowError("managed-test OS sandbox is unavailable: bwrap")
+    lexical, resolved, command = _resolve_executable(
+        argv,
+        workspace=workspace,
+        environment=environment,
+    )
+    _validate_executable_scope(
+        lexical,
+        resolved,
+        workspace=workspace,
+        source_project=source_project,
+        temp_root=temp_root,
+    )
+    sandbox_environment = _sandbox_environment(
+        environment,
+        lexical=lexical,
+        resolved=resolved,
+        temp_root=temp_root,
+    )
+    read_roots = _minimal_roots(
+        [
+            *(Path(value) for value in _LINUX_SYSTEM_ROOTS),
+            *(Path(value) for value in _LINUX_SYSTEM_FILES),
+            *_execution_roots(lexical, resolved, temp_root=temp_root),
+        ]
+    )
+    wrapped = [
+        executable,
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-all",
+        "--clearenv",
+    ]
+    for key, value in sorted(sandbox_environment.items()):
+        wrapped.extend(["--setenv", key, value])
+    for root in read_roots:
+        wrapped.extend(["--ro-bind", str(root), str(root)])
+    limited_command, limits = _resource_limited_command(
+        command,
+        timeout_seconds=timeout_seconds,
+        address_space_supported=True,
+    )
+    wrapped.extend(
+        [
+            "--bind",
+            str(temp_root),
+            str(temp_root),
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--chdir",
+            str(workspace),
+            "--",
+            *limited_command,
+        ]
+    )
+    return SandboxInvocation(
+        argv=wrapped,
+        provider="linux-bubblewrap",
+        environment=sandbox_environment,
+        process_isolation="pid-namespace-and-process-group-cleanup",
+        resource_limits=limits,
+    )
+
+
+def build_sandbox_invocation(
+    argv: list[str],
+    *,
+    temp_root: Path,
+    workspace: Path,
+    source_project: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: int = 300,
+) -> SandboxInvocation:
+    provider = require_sandbox_provider()
+    if provider == "macos-seatbelt":
+        return _macos_invocation(
+            argv,
+            temp_root=temp_root,
+            workspace=workspace,
+            source_project=source_project,
+            environment=environment,
+            timeout_seconds=timeout_seconds,
+        )
+    if provider == "linux-bubblewrap":
+        return _linux_invocation(
+            argv,
+            temp_root=temp_root,
+            workspace=workspace,
+            source_project=source_project,
+            environment=environment,
+            timeout_seconds=timeout_seconds,
+        )
+    raise WorkflowError(f"unsupported managed-test sandbox provider: {provider}")

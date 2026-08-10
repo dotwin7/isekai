@@ -188,6 +188,7 @@ def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
     assert manifest["trust_model"] == {
         "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
         "action_execution": "core-managed-edit-and-test",
+        "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
         "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
         "human_identity": "caller-attested-not-core-verified",
         "evidence_execution": "core-receipted-for-managed-tests",

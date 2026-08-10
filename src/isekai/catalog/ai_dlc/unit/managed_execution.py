@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -24,12 +23,20 @@ from .common import (
     unit_lock,
 )
 from .execution import _authorize_action_locked
+from .managed_test_sandbox import build_sandbox_invocation
+from .managed_test_runtime import (
+    MAX_MANAGED_TEST_CAPTURE_BYTES,
+    MAX_MANAGED_TEST_OUTPUT_BYTES,
+    capture_managed_process as _capture_managed_process,
+    copy_test_workspace as _copy_test_workspace,
+    isolated_test_command as _isolated_test_command,
+    managed_test_environment as _managed_test_environment,
+)
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 ABSENT_DIGEST = "absent"
 MAX_MANAGED_FILE_BYTES = 8 * 1024 * 1024
-MAX_MANAGED_TEST_OUTPUT_BYTES = 256 * 1024
 MAX_MANAGED_TEST_SECONDS = 1800
 
 
@@ -294,44 +301,6 @@ def _normalize_command(command: object) -> list[str]:
     return list(command)
 
 
-def _bounded_output(value: str) -> tuple[str, bool]:
-    encoded = value.encode("utf-8", errors="replace")
-    if len(encoded) <= MAX_MANAGED_TEST_OUTPUT_BYTES:
-        return value, False
-    bounded = encoded[:MAX_MANAGED_TEST_OUTPUT_BYTES].decode(
-        "utf-8", errors="replace"
-    )
-    return bounded, True
-
-
-def _isolated_test_command(argv: list[str], project_root: Path) -> list[str]:
-    project_text = str(project_root)
-    for argument in argv:
-        if project_text in argument:
-            raise WorkflowError(
-                "managed test argv cannot reference the writable source Project; "
-                "use paths relative to the isolated test workspace"
-            )
-    return argv
-
-
-def _copy_test_workspace(project_root: Path, destination: Path) -> None:
-    shutil.copytree(
-        project_root,
-        destination,
-        symlinks=False,
-        ignore=shutil.ignore_patterns(
-            ".git",
-            ".isekai",
-            ".isekai-runtime",
-            ".venv",
-            "node_modules",
-            "units",
-            "__pycache__",
-        ),
-    )
-
-
 def execute_managed_test(
     path: str | Path,
     *,
@@ -378,33 +347,49 @@ def execute_managed_test(
         if authorization.get("allowed") is not True:
             raise LifecycleError(str(authorization.get("reason", "managed test blocked")))
         try:
-            timed_out = False
             with tempfile.TemporaryDirectory(prefix="isekai-managed-test-") as temp:
-                sandbox_project = Path(temp) / "project"
+                # Seatbelt evaluates canonical filesystem paths.  macOS exposes
+                # its per-user temporary directory through /var -> /private/var,
+                # so bind the sandbox contract to the resolved spelling.
+                temp_root = Path(temp).resolve()
+                sandbox_project = temp_root / "project"
                 _copy_test_workspace(project_root, sandbox_project)
-                environment = os.environ.copy()
-                environment.pop("PYTHONPATH", None)
-                environment.pop("VIRTUAL_ENV", None)
-                try:
-                    completed = subprocess.run(
-                        argv,
-                        cwd=sandbox_project,
-                        env=environment,
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        timeout=timeout_seconds,
-                    )
-                    exit_code: int | None = completed.returncode
-                    stdout = completed.stdout
-                    stderr = completed.stderr
-                except subprocess.TimeoutExpired as exc:
-                    timed_out = True
-                    exit_code = None
-                    stdout = exc.stdout if isinstance(exc.stdout, str) else ""
-                    stderr = exc.stderr if isinstance(exc.stderr, str) else ""
-            stdout, stdout_truncated = _bounded_output(stdout)
-            stderr, stderr_truncated = _bounded_output(stderr)
+                environment = _managed_test_environment(temp_root)
+                sandbox = build_sandbox_invocation(
+                    argv,
+                    temp_root=temp_root,
+                    workspace=sandbox_project,
+                    source_project=project_root,
+                    environment=environment,
+                    timeout_seconds=timeout_seconds,
+                )
+                process = subprocess.Popen(
+                    sandbox.argv,
+                    cwd=sandbox_project,
+                    env=sandbox.environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=os.name == "posix",
+                )
+                (
+                    exit_code,
+                    timed_out,
+                    output_limit_exceeded,
+                    stdout_capture,
+                    stderr_capture,
+                ) = _capture_managed_process(
+                    process,
+                    timeout_seconds=timeout_seconds,
+                )
+                stdout_digest = stdout_capture.digest
+                stderr_digest = stderr_capture.digest
+                stdout = stdout_capture.text
+                stderr = stderr_capture.text
+                stdout_truncated = stdout_capture.truncated
+                stderr_truncated = stderr_capture.truncated
+                stdout_bytes = stdout_capture.byte_count
+                stderr_bytes = stderr_capture.byte_count
             candidate_ledger = _unit_json(
                 unit_dir, "execution-authorizations.json"
             )
@@ -418,12 +403,32 @@ def execute_managed_test(
                 raise IntegrityError("managed test authorization grant changed concurrently")
             execution = {
                 "type": "core-managed-test",
-                "status": "timed-out" if timed_out else "completed",
-                "workspace": "isolated-copy",
+                "status": (
+                    "timed-out"
+                    if timed_out
+                    else (
+                        "output-limit-exceeded"
+                        if output_limit_exceeded
+                        else "completed"
+                    )
+                ),
+                "workspace": "disposable-copy",
+                "sandbox_provider": sandbox.provider,
+                "filesystem_isolation": sandbox.filesystem_isolation,
+                "network_isolation": sandbox.network_isolation,
+                "process_isolation": sandbox.process_isolation,
+                "resource_limits": sandbox.resource_limits,
+                "environment": "core-allowlisted",
                 "command": argv,
                 "exit_code": exit_code,
-                "stdout_digest": _content_digest(stdout.encode("utf-8")),
-                "stderr_digest": _content_digest(stderr.encode("utf-8")),
+                "stdout_digest": stdout_digest,
+                "stderr_digest": stderr_digest,
+                "stdout_bytes": stdout_bytes,
+                "stderr_bytes": stderr_bytes,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
+                "output_capture_limit_bytes": MAX_MANAGED_TEST_CAPTURE_BYTES,
+                "output_limit_exceeded": output_limit_exceeded,
             }
             grant["execution"] = execution
             issues = _authorization_ledger_issues(
@@ -450,7 +455,9 @@ def execute_managed_test(
             raise
         return {
             **authorization,
-            "passed": exit_code == 0 and not timed_out,
+            "passed": (
+                exit_code == 0 and not timed_out and not output_limit_exceeded
+            ),
             "execution": execution,
             "stdout": stdout,
             "stderr": stderr,

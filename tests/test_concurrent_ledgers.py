@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import stat
 import threading
@@ -218,6 +219,36 @@ def test_file_lock_release_does_not_delete_a_reclaimed_lock(tmp_path: Path) -> N
     assert lock.exists()
 
     _release(lock, second)
+    assert not lock.exists()
+
+
+def test_file_lock_retries_an_inode_unlinked_during_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from isekai.locking import _acquire, _release
+    from isekai.support import locking as locking_module
+
+    lock = tmp_path / "artifact.lock"
+    real_fstat = locking_module.os.fstat
+    reported_unlinked = False
+
+    def fstat_with_release_race(descriptor: int) -> os.stat_result:
+        nonlocal reported_unlinked
+        metadata = real_fstat(descriptor)
+        if reported_unlinked:
+            return metadata
+        reported_unlinked = True
+        fields = list(metadata)
+        fields[3] = 0  # st_nlink
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(locking_module.os, "fstat", fstat_with_release_race)
+
+    claim = _acquire(lock, timeout=0.2)
+
+    assert claim is not None
+    _release(lock, claim)
     assert not lock.exists()
 
 

@@ -1,4 +1,4 @@
-# ISEKAI Catalog entrys
+# ISEKAI Catalog entries
 
 - 설명: AI-DLC와 추가 기능을 동등한 Catalog entry로 결합하는 Runtime 패키지 및 MCP 제어 계약
 - 문서 역할: [ISEKAI canonical 문서 집합](isekai.md)의 일부
@@ -57,7 +57,7 @@ isekai/
 - package와 구성요소 digest
 - migration과 rollback 계약
 
-`distribution/release.json`은 `catalog/` 전체를 독립 release component와 SHA-256 digest로 결박한다. 설치기는 검증된 Catalog와 package를 Project-local `.isekai/catalog/`에 그대로 배치하고 `isekai.lock.json.features`에 source digest와 설치 digest를 기록한다. `doctor`는 이 디렉터리의 변조나 누락을 fail-closed로 보고한다. 사용자 홈이나 Host 전역 Plugin에는 설치하지 않는다.
+`distribution/release.json`은 `catalog/` 전체를 독립 release component와 SHA-256 digest로 결박한다. 설치기는 검증된 Catalog와 package를 Project-local `.isekai/catalog/`에 그대로 배치하고 `isekai.lock.json.catalog`에 source digest와 설치 digest를 기록한다. `doctor`는 이 디렉터리의 변조나 누락을 fail-closed로 보고한다. 사용자 홈이나 Host 전역 Plugin에는 설치하지 않는다.
 
 현재 배포 원본은 `catalog/ai-dlc/0.2.1/manifest.json`이다. AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, Catalog entry manifest와 Catalog는 독립 release component로 배포된다. 새로운 기능은 controller와 검증 계약을 자기 ID·version package에 구현한 뒤 `catalog/catalog.json`에 등록한다. Git release 설치와 update가 Catalog 전체를 대상 Project에 배포한다.
 
@@ -76,7 +76,7 @@ cp catalog/_template/manifest.json.example \
    catalog/<entry-id>/<version>/manifest.json
 ```
 
-3. **Source catalog 등록**: `catalog.json`의 `features` 배열에 항목을 추가한다.
+3. **Source catalog 등록**: `catalog.json`의 `entries` 배열에 항목을 추가한다.
 
 ```json
 {
@@ -130,8 +130,8 @@ Catalog entry별 controller는 자기 상태와 동작을 소유하지만 Core�
 현재 구현된 공통 Catalog 표면은 다음과 같다.
 
 ```text
-tool:     feature_catalog
-resource: isekai://runtime/features
+tool:     catalog
+resource: isekai://runtime/catalog
 resource: isekai://runtime/catalog/<entry-id>
 CLI:      catalog-status
 ```

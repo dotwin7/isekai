@@ -96,7 +96,20 @@ def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> _LockClaim 
             os.close(descriptor)
             return None
         metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        if not stat.S_ISREG(metadata.st_mode):
+            os.close(descriptor)
+            return None
+        if metadata.st_nlink == 0:
+            # A POSIX owner can unlink the shared path just before releasing
+            # its advisory lock. A waiter that already opened that inode sees
+            # link count zero; this is a normal release race, not a hardlink
+            # attack. Retry against the new path instead of failing early.
+            os.close(descriptor)
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_POLL_SECONDS)
+            continue
+        if metadata.st_nlink != 1:
             os.close(descriptor)
             return None
         if metadata.st_size == 0:

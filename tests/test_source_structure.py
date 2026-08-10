@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import ast
+import os
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -99,3 +103,42 @@ def test_no_new_module_level_import_cycles_are_introduced() -> None:
 
     for module in sorted(modules):
         visit(module)
+
+
+def test_every_source_module_imports_in_a_fresh_interpreter() -> None:
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(ROOT / "src")
+    failures = []
+    for path in _sources():
+        module = _module_name(path)
+        completed = subprocess.run(
+            [sys.executable, "-c", f"import {module}"],
+            cwd=ROOT,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if completed.returncode != 0:
+            failures.append(f"{module}: {completed.stderr.strip()}")
+    assert failures == []
+
+
+def test_ci_uses_immutable_actions_and_explicit_runner_families() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    uses = re.findall(r"^\s*uses:\s+[^@\s]+@([^\s#]+)", workflow, re.MULTILINE)
+
+    assert uses
+    assert all(re.fullmatch(r"[0-9a-f]{40}", reference) for reference in uses)
+    assert "-latest" not in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert workflow.count("persist-credentials: false") == workflow.count(
+        "actions/checkout@"
+    )
+    assert "pip install --upgrade" not in workflow
+    assert "python -m pip install" not in workflow
+    assert "uv sync --frozen --extra test" in workflow
+    assert "bubblewrap=0.9.0-1ubuntu0.1" in workflow
+    assert "@anthropic-ai/claude-code-linux-x64@2.1.224" in workflow
+    assert "npm install --global" not in workflow

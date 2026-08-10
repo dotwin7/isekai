@@ -34,9 +34,8 @@ from ..workflow.active_binding import (
     project_manifest_for_unit,
     require_active_unit_match,
 )
-from ..workflow import (
-    initialize_project,
-    load_catalog,
+from ..workflow import initialize_project, load_catalog
+from ..workflow.project_knowledge import (
     project_knowledge_status,
     promote_project_knowledge,
     propose_project_knowledge,
@@ -108,6 +107,7 @@ def _compatibility_issues(value: dict[str, Any]) -> list[str]:
     expected_trust_model = {
         "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
         "action_execution": "core-managed-edit-and-test",
+        "managed_test_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
         "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
         "human_identity": "caller-attested-not-core-verified",
         "evidence_execution": "core-receipted-for-managed-tests",

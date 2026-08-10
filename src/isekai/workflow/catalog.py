@@ -140,7 +140,7 @@ def _load_catalog_entry(
 def load_catalog() -> dict[str, Any]:
     root = CATALOG_ROOT
     if not root.is_dir():
-        raise FoundationError("ISEKAI Catalog Catalog directory is missing")
+        raise FoundationError("ISEKAI Catalog directory is missing")
     source = _load_json(
         root / SOURCE_CATALOG_FILE,
         root=root,
@@ -159,7 +159,7 @@ def load_catalog() -> dict[str, Any]:
     entries = source.get("entries")
     if not isinstance(entries, list) or not entries:
         raise FoundationError("ISEKAI Catalog source catalog cannot be empty")
-    features: list[dict[str, Any]] = []
+    loaded_entries: list[dict[str, Any]] = []
     manifest_paths: list[str] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -179,7 +179,7 @@ def load_catalog() -> dict[str, Any]:
                 f"ISEKAI Catalog source catalog has an invalid manifest path for {entry_id}"
             )
         manifest_paths.append(manifest)
-        features.append(
+        loaded_entries.append(
             _load_catalog_entry(
                 root / expected,
                 root=root,
@@ -187,7 +187,7 @@ def load_catalog() -> dict[str, Any]:
                 expected_version=version,
             )
         )
-    identifiers = [str(e["id"]) for e in features]
+    identifiers = [str(entry["id"]) for entry in loaded_entries]
     if len(set(identifiers)) != len(identifiers):
         raise FoundationError("ISEKAI catalog has duplicate IDs")
     if len(set(manifest_paths)) != len(manifest_paths):
@@ -196,7 +196,7 @@ def load_catalog() -> dict[str, Any]:
         "type": "isekai-catalog",
         "schema_version": CATALOG_SCHEMA_VERSION,
         "control_protocol": "1.1.0",
-        "entries": features,
+        "entries": loaded_entries,
     }
     catalog["catalog_digest"] = _digest(catalog, "catalog_digest")
     return catalog

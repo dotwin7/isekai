@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -186,6 +187,18 @@ def test_checked_in_distribution_manifest_matches_release_components() -> None:
     )
 
 
+def test_uv_lock_package_version_matches_pyproject() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    package = next(
+        entry
+        for entry in lock["package"]
+        if entry.get("name") == project["project"]["name"]
+    )
+
+    assert package["version"] == project["project"]["version"]
+
+
 def test_distribution_rejects_an_invalid_source_catalog(
     tmp_path: Path,
 ) -> None:
@@ -196,6 +209,25 @@ def test_distribution_rejects_an_invalid_source_catalog(
     catalog_path.write_text(json.dumps(catalog) + "\n", encoding="utf-8")
 
     with pytest.raises(DistributionError, match="must stay inside the release"):
+        build_distribution_manifest(release)
+
+
+def test_distribution_rejects_a_runtime_version_that_differs_from_package(
+    tmp_path: Path,
+) -> None:
+    release = _copy_release(tmp_path)
+    runtime_manifest_path = release / "runtime/manifest.json"
+    runtime_manifest = json.loads(runtime_manifest_path.read_text(encoding="utf-8"))
+    runtime_manifest["version"] = "9.9.9"
+    runtime_manifest_path.write_text(
+        json.dumps(runtime_manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        DistributionError,
+        match="runtime manifest version does not match pyproject.toml",
+    ):
         build_distribution_manifest(release)
 
 

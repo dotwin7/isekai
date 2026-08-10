@@ -306,6 +306,10 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
     release_version = runtime_manifest.get("version")
     if not isinstance(release_version, str) or not release_version:
         raise DistributionError("runtime manifest must declare the distribution version")
+    if release_version != version:
+        raise DistributionError(
+            "runtime manifest version does not match pyproject.toml"
+        )
     runtime_core = runtime_manifest.get("core")
     if (
         not isinstance(runtime_core, dict)

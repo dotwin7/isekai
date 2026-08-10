@@ -4,10 +4,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -15,14 +18,32 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.15"
+          python-version: ${{ matrix.python-version }}
+          activate-environment: true
+          enable-cache: true
+      - name: Install Linux managed-test sandbox provider
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --yes --no-install-recommends
+          bubblewrap=0.9.0-1ubuntu0.1
       - name: Install package and test dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+        run: uv sync --frozen --extra test
+      - name: Require Linux managed-test sandbox provider
+        run: >-
+          python -c
+          "from isekai.catalog.ai_dlc.unit.managed_test_sandbox import require_sandbox_provider;
+          assert require_sandbox_provider() == 'linux-bubblewrap'"
       - name: Run tests
         run: python -m pytest -q
       - name: Type check
@@ -36,13 +57,13 @@ jobs:
       - name: Verify release component digests
         run: python -m isekai distribution-check --root .
       - name: Build wheel
-        run: python -m pip wheel --no-deps . --wheel-dir dist
+        run: uv build --wheel --out-dir dist
       - name: Smoke-test installed wheel
         shell: bash
         run: |
-          python -m venv .wheel-smoke
-          .wheel-smoke/bin/python -m pip install --no-index --no-deps --find-links dist isekai-ai-dlc-runtime
-          .wheel-smoke/bin/python -m pip check
+          uv venv .wheel-smoke --python "$(command -v python)"
+          uv pip install --python .wheel-smoke/bin/python --no-index --no-deps dist/*.whl
+          uv pip check --python .wheel-smoke/bin/python
           .wheel-smoke/bin/isekai runtime compatibility
       - name: Validate Foundation structure
         run: isekai validate --foundation foundation
@@ -55,68 +76,139 @@ jobs:
           set -e
           test "$status" -eq 0 -o "$status" -eq 1
 
-  adapter-contract:
-    name: Adapter contract
-    runs-on: ubuntu-latest
+  macos-managed-test-sandbox:
+    name: macOS managed-test sandbox
+    runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.15"
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
       - name: Install package and test dependencies
-        run: python -m pip install -e ".[test]"
+        run: uv sync --frozen --extra test
+      - name: Require macOS managed-test sandbox provider
+        run: >-
+          python -c
+          "from isekai.catalog.ai_dlc.unit.managed_test_sandbox import require_sandbox_provider;
+          assert require_sandbox_provider() == 'macos-seatbelt'"
+      - name: Verify Seatbelt filesystem and network isolation
+        run: >-
+          python -m pytest -q
+          tests/test_managed_test_sandbox.py::test_real_sandbox_blocks_external_read_write_and_network
+
+  adapter-contract:
+    name: Adapter contract
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.15"
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
+      - name: Install package and test dependencies
+        run: uv sync --frozen --extra test
       - name: Run adapter contract tests
         run: python -m pytest -q tests/test_adapter_contract.py
 
   claude-runtime-contract:
     name: Claude Code project Skill contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "22"
+          package-manager-cache: false
       - name: Install verified Claude Code CLI
-        run: npm install --global @anthropic-ai/claude-code@2.1.224
+        shell: bash
+        run: |
+          archive="$(npm pack @anthropic-ai/claude-code-linux-x64@2.1.224 --ignore-scripts --silent)"
+          actual="sha512-$(openssl dgst -sha512 -binary "$archive" | openssl base64 -A)"
+          expected='sha512-X9irQAhHb727EuvOo+Mi06wmNxHqdR7Fww17AaHSvuMGFBHkfsxLJSUTcPPhDDhQwoyr2lViplQxWA+noD51HQ=='
+          test "$actual" = "$expected"
+          mkdir -p /tmp/claude-code
+          tar -xzf "$archive" --strip-components=1 -C /tmp/claude-code
+          chmod 0755 /tmp/claude-code/claude
+          echo /tmp/claude-code >> "$GITHUB_PATH"
       - name: Validate Claude project Skill
         run: python scripts/runtime-host-check.py --runtime claude --require-cli
 
   kiro-runtime-contract:
     name: Kiro workspace Skill contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
-      - name: Install current stable Kiro CLI
-        run: curl -fsSL https://cli.kiro.dev/install | bash
+      - name: Install verified Kiro CLI 2.16.2
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            https://prod.download.cli.kiro.dev/stable/2.16.2/kirocli-x86_64-linux.zip \
+            --output /tmp/kirocli.zip
+          echo '0e88b51c894b08915ae47f48da70b8b9c94c267c157f778f54e1c5f5f42b682f  /tmp/kirocli.zip' \
+            | sha256sum --check
+          unzip -q /tmp/kirocli.zip -d /tmp/kirocli
+          KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh
+          "$HOME/.local/bin/kiro-cli" --version | grep -F '2.16.2'
       - name: Validate Kiro CLI and workspace Skill
         run: PATH="$HOME/.local/bin:$PATH" python scripts/runtime-host-check.py --runtime kiro --require-cli
 
   windows-runtime:
     name: Windows runtime and PowerShell bootstrap
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
-          cache: pip
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.15"
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
       - name: Install package and test dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+        run: uv sync --frozen --extra test
       - name: Run Windows locking and reparse-point tests
         run: python -m pytest -q tests/test_windows_runtime.py
       - name: Run PowerShell bootstrap end to end
