@@ -64,7 +64,8 @@ def _tool_schemas() -> list[dict[str, Any]]:
         {
             "name": "catalog",
             "description": (
-                "Read versioned entries in to this ISEKAI Runtime."
+                "Read the versioned Catalog entries registered to this "
+                "ISEKAI Runtime."
             ),
             "inputSchema": {
                 "type": "object",
@@ -197,6 +198,14 @@ class ProjectMcpServer:
             values["foundation"] = str(selected_foundation)
         return values
 
+    def _ensure_execution_ready(self) -> None:
+        self._ensure_project_ready()
+        profile = execution_profile_status(self.project_root, self.runtime)
+        if not profile["ready"]:
+            raise ValueError(
+                "Project execution guard changed: " + "; ".join(profile["issues"])
+            )
+
     def _ensure_project_ready(self) -> None:
         health = doctor_install(self.project_root)
         runtimes = health.get("runtimes")
@@ -216,13 +225,7 @@ class ProjectMcpServer:
     def _call_tool(self, name: str, arguments: object) -> dict[str, Any]:
         if not isinstance(arguments, dict):
             raise ValueError("MCP tool arguments must be an object")
-        self._ensure_project_ready()
-        profile = execution_profile_status(self.project_root, self.runtime)
-        if not profile["ready"]:
-            raise ValueError(
-                "Project execution guard changed: "
-                + "; ".join(profile["issues"])
-            )
+        self._ensure_execution_ready()
         if name == "catalog":
             result = dispatch("catalog-status", {})
         elif name == "runtime_action":
@@ -309,13 +312,7 @@ class ProjectMcpServer:
             if method == "tools/list":
                 return self._result(request_id, {"tools": _tool_schemas()})
             if method == "resources/list":
-                self._ensure_project_ready()
-                profile = execution_profile_status(self.project_root, self.runtime)
-                if not profile["ready"]:
-                    raise ValueError(
-                        "Project execution guard changed: "
-                        + "; ".join(profile["issues"])
-                    )
+                self._ensure_execution_ready()
                 catalog = load_catalog()
                 return self._result(
                     request_id,
@@ -327,13 +324,7 @@ class ProjectMcpServer:
                     params.get("uri"), str
                 ):
                     raise ValueError("resources/read requires uri")
-                self._ensure_project_ready()
-                profile = execution_profile_status(self.project_root, self.runtime)
-                if not profile["ready"]:
-                    raise ValueError(
-                        "Project execution guard changed: "
-                        + "; ".join(profile["issues"])
-                    )
+                self._ensure_execution_ready()
                 catalog = load_catalog()
                 content = read_catalog_resource(catalog, str(params["uri"]))
                 return self._result(request_id, {"contents": [content]})

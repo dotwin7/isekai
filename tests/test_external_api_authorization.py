@@ -15,7 +15,7 @@ from isekai.workflow import (
     transition_unit,
 )
 from isekai.workflow.errors import AuthorizationError, EvidenceError
-from isekai.session import update_checkpoint
+from isekai.workflow.session import update_checkpoint
 
 from test_core_workflow import make_project, materialize_unit_artifacts
 

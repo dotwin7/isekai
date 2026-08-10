@@ -20,13 +20,16 @@ from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
 from .project import _receipt_source_manifest_path
 from isekai.catalog.ai_dlc.unit.checkpointing import checkpoint_progress_issues
 from isekai.catalog.ai_dlc.unit.common import _unit_json
+from isekai.catalog.ai_dlc.unit.decisions import (
+    TERMINAL_STATUSES as _TERMINAL_STATUSES,
+)
 
 
 ACTIVE_BINDING_SCHEMA_VERSION = "1.0.0"
 ACTIVE_BINDING_DIRECTORY = ".isekai-runtime"
 ACTIVE_BINDING_FILE = "active-unit.json"
 ACTIVE_BINDING_LOCK = ".active-unit.lock"
-_EVENT_ACTIONS = {"bind", "detach", "learned"}
+_EVENT_ACTIONS = {"bind", "detach", "learned", "abandoned"}
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -277,7 +280,10 @@ def active_unit_binding(project: str | Path) -> dict[str, Any]:
     project_value = _project_value(manifest)
     binding = _load_binding(manifest, str(project_value["id"]))
     current = _active_unit_value(manifest, binding)
-    active = current is not None and current[1].get("status") != "learned"
+    active = (
+        current is not None
+        and current[1].get("status") not in _TERMINAL_STATUSES
+    )
     return {
         "active": active,
         "unit": (
@@ -363,7 +369,7 @@ def bind_active_unit(
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     locator, path_base, unit_value = _unit_locator(manifest, Path(unit))
-    if unit_value.get("status") == "learned":
+    if unit_value.get("status") in _TERMINAL_STATUSES:
         return active_unit_binding(manifest)
     runtime_dir = _runtime_directory(manifest, create=True)
     with file_lock(
@@ -372,7 +378,7 @@ def bind_active_unit(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
-        if current is not None and current[1].get("status") != "learned":
+        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             if current[0] == Path(unit).expanduser().resolve():
                 return active_unit_binding(manifest)
             raise LifecycleError(
@@ -415,7 +421,7 @@ def active_unit_creation_guard(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
-        if current is not None and current[1].get("status") != "learned":
+        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             raise LifecycleError(
                 f"unit-init blocked by unfinished active Unit {current[1].get('id')}; "
                 "amend it or record active-unit-detach first"
@@ -499,7 +505,7 @@ def active_unit_action_guard(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
-        if current is not None and current[1].get("status") != "learned":
+        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
             if current[0] != requested:
                 raise LifecycleError(
                     f"{action} is outside the unfinished active Unit "
@@ -508,7 +514,7 @@ def active_unit_action_guard(
                 )
         else:
             locator, path_base, unit_value = _unit_locator(manifest, requested)
-            if unit_value.get("status") != "learned":
+            if unit_value.get("status") not in _TERMINAL_STATUSES:
                 event = _event(
                     binding,
                     action="bind",
@@ -550,7 +556,7 @@ def detach_active_unit(
     ):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
-        if current is None or current[1].get("status") == "learned":
+        if current is None or current[1].get("status") in _TERMINAL_STATUSES:
             raise LifecycleError("Project has no unfinished active Unit to detach")
         if current[0] != requested:
             raise LifecycleError("active-unit-detach unit does not match the active Unit")
@@ -587,17 +593,24 @@ def complete_active_unit(project: str | Path, unit: str | Path) -> dict[str, Any
         current = _active_unit_value(manifest, binding)
         if current is None or current[0] != requested:
             return active_unit_binding(manifest)
-        if current[1].get("status") != "learned":
-            raise LifecycleError("active Unit binding can complete only at learned")
+        status = str(current[1].get("status"))
+        if status not in _TERMINAL_STATUSES:
+            raise LifecycleError(
+                "active Unit binding can complete only at learned or abandoned"
+            )
         locator, path_base, _unit = _unit_locator(manifest, current[0])
         event = _event(
             binding,
-            action="learned",
+            action=status,
             unit_id=str(current[1].get("id")),
             path=locator,
             path_base=path_base,
             actor="runtime-core",
-            reason="The final Operation Decision transitioned the Unit to learned.",
+            reason=(
+                "The final Operation Decision transitioned the Unit to learned."
+                if status == "learned"
+                else "An approved abandonment Decision closed this Unit."
+            ),
         )
         _write_event(manifest, binding, event, None)
     return active_unit_binding(manifest)

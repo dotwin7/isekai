@@ -9,7 +9,7 @@ import pytest
 
 from isekai.foundation import FoundationError
 from isekai.workflow.errors import WorkflowError
-from isekai.session import (
+from isekai.workflow.session import (
     SessionError,
     build_session,
     discover_project,

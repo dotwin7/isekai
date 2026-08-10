@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from isekai.jsonio import write_json_atomic
-from isekai.session import SessionError, build_project_session, build_session
+from isekai.support.jsonio import write_json_atomic
+from isekai.workflow.session import SessionError, build_project_session, build_session
 from isekai.workflow import (
     initialize_unit,
     project_knowledge_status,

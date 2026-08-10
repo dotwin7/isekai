@@ -13,6 +13,8 @@ from isekai.support.jsonio import write_bytes_atomic
 from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
 from isekai.workflow.project import _receipt_source_manifest_path
 from .amendments import AMENDABLE_ARTIFACT_GATES, amendment_status
+from .artifacts import ACCEPTANCE_CHECKBOX
+from .decisions import TERMINAL_STATUSES
 from .authorization import _authorization_ledger_issues
 from .authorization_request import resolve_authorization_request
 from .common import (
@@ -163,8 +165,10 @@ def execute_managed_edit(
     records = _normalize_change_records(changes)
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") == "learned":
-            raise LifecycleError("a learned Unit cannot execute managed edits")
+        if unit.get("status") in TERMINAL_STATUSES:
+            raise LifecycleError(
+                f"a {unit.get('status')} Unit cannot execute managed edits"
+            )
         receipt = _unit_json(unit_dir, "context-receipt.json")
         project_root = _receipt_source_manifest_path(
             receipt, unit_dir=unit_dir
@@ -325,8 +329,10 @@ def execute_managed_test(
         )
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") == "learned":
-            raise LifecycleError("a learned Unit cannot execute managed tests")
+        if unit.get("status") in TERMINAL_STATUSES:
+            raise LifecycleError(
+                f"a {unit.get('status')} Unit cannot execute managed tests"
+            )
         receipt = _unit_json(unit_dir, "context-receipt.json")
         project_root = _receipt_source_manifest_path(
             receipt, unit_dir=unit_dir
@@ -478,17 +484,22 @@ def _approved_gate_exists(decisions: dict[str, Any], gate: str) -> bool:
 
 
 def _acceptance_progress_only(before: bytes, after: bytes) -> bool:
-    before_text = before.decode("utf-8")
-    after_text = after.decode("utf-8")
-    marker = re.compile(r"\[([ xX])\]")
-    before_states = marker.findall(before_text)
-    after_states = marker.findall(after_text)
+    try:
+        before_text = before.decode("utf-8")
+        after_text = after.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    marker = ACCEPTANCE_CHECKBOX
+    before_states = [item.group("state") for item in marker.finditer(before_text)]
+    after_states = [item.group("state") for item in marker.finditer(after_text)]
     if not before_states or len(before_states) != len(after_states):
         return False
-    if marker.sub("[ ]", before_text) != marker.sub("[ ]", after_text):
+    normalizer = r"\g<prefix> \g<suffix>"
+    if marker.sub(normalizer, before_text) != marker.sub(normalizer, after_text):
         return False
     return all(
-        old == " " or new.lower() == "x"
+        new.strip().lower() in {"", "x"}
+        and (old.strip() == "" or new.strip().lower() == "x")
         for old, new in zip(before_states, after_states, strict=True)
     )
 
@@ -506,8 +517,10 @@ def write_unit_artifacts(
     records = _normalize_change_records(artifacts)
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") == "learned":
-            raise LifecycleError("a learned Unit cannot change Unit artifacts")
+        if unit.get("status") in TERMINAL_STATUSES:
+            raise LifecycleError(
+                f"a {unit.get('status')} Unit cannot change Unit artifacts"
+            )
         decisions = _unit_json(unit_dir, "decisions.json")
         amendment = amendment_status(unit_dir, unit=unit, decisions=decisions)
         if amendment["issues"]:

@@ -395,7 +395,7 @@ def _resume(values: Mapping[str, Any]) -> dict[str, Any]:
     project = discover_project(values.get("project", "."))
     result = resume_session(project, values.get("unit"))
     unit = result.get("unit")
-    if isinstance(unit, dict) and unit.get("status") != "learned":
+    if isinstance(unit, dict) and unit.get("status") not in {"learned", "abandoned"}:
         result["active_unit_binding"] = bind_active_unit(
             project,
             str(unit.get("path")),
@@ -740,7 +740,7 @@ def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dic
             project = project_manifest_for_unit(unit)
             with active_unit_action_guard(project, unit, action=action):
                 result = handler(values)
-            if action == "transition" and values.get("to") == "learned":
+            if action == "transition" and values.get("to") in {"learned", "abandoned"}:
                 result["active_unit_binding"] = complete_active_unit(project, unit)
             return result
     if action not in {"on", "off", "intake", "resume", "unit-init", "active-unit-detach"}:

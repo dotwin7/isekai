@@ -657,7 +657,7 @@ def test_install_fails_closed_while_another_install_holds_the_project_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from isekai.distribution import install as distribution_module
-    from isekai.locking import file_lock as real_file_lock
+    from isekai.support.locking import file_lock as real_file_lock
 
     project = _project_with_foundation(tmp_path)
     lock = project / distribution_module.INSTALL_LOCK_NAME

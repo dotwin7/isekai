@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import FoundationError, load_foundation
-from isekai.session import SessionError, migrate_unit_context, resume_session
+from isekai.workflow.session import SessionError, migrate_unit_context, resume_session
 from isekai.workflow.errors import PreflightError, WorkflowError
 from isekai.workflow import (
     UNIT_REQUIRED_FILES,
@@ -664,7 +664,7 @@ def test_repository_root_project_resolves_local_foundation() -> None:
 def test_unit_default_and_relative_outputs_are_project_relative(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from isekai.session import activate_session
+    from isekai.workflow.session import activate_session
 
     project = make_project(tmp_path)
     unrelated_cwd = tmp_path / "unrelated-cwd"

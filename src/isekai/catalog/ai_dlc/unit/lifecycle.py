@@ -196,7 +196,12 @@ def _human_gate_status(
 
     status = unit.get("status")
     next_statuses = ALLOWED_TRANSITIONS.get(str(status), ())
-    next_status = next_statuses[0] if len(next_statuses) == 1 else None
+    # Abandonment is always available from a non-terminal status; the advisory
+    # gate describes the forward delivery edge, not the escape hatch.
+    forward_statuses = [
+        candidate for candidate in next_statuses if candidate != "abandoned"
+    ]
+    next_status = forward_statuses[0] if len(forward_statuses) == 1 else None
     gate = (
         REQUIRED_DECISIONS_FOR_TRANSITIONS.get(next_status)
         if next_status is not None
@@ -562,7 +567,9 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     if checkpoint is not None:
         if checkpoint.get("unit_id") != unit.get("id"):
             issues.append("checkpoint unit_id does not match Unit")
-        if checkpoint.get("blocked_by"):
+        # An abandoned Unit may legitimately close with blockers and pending
+        # work; that unfinished state is why it was abandoned.
+        if checkpoint.get("blocked_by") and unit.get("status") != "abandoned":
             issues.append("checkpoint has blockers")
         if unit.get("status") == "learned" and checkpoint.get("pending"):
             issues.append("learned Unit cannot have pending work")

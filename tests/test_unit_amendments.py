@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai.session import update_checkpoint
+from isekai.workflow.session import update_checkpoint
 from isekai.workflow import (
     record_decision,
     record_unit_amendment,

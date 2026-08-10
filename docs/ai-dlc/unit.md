@@ -49,6 +49,8 @@ proposed
 → releasing
 → operating
 → learned
+
+모든 비종결 상태 → abandoned
 ```
 
 | 게이트 | 사람이 확인할 내용 |
@@ -113,9 +115,13 @@ Core는 lifecycle을 임의로 건너뛰는 전이를 허용하지 않는다.
 proposed → inception → awaiting-inception-decision
 → construction → validation → awaiting-release-decision → releasing
 → operating → learned
+
+모든 비종결 상태 → abandoned
 ```
 
 `construction` 진입에는 승인된 Inception Decision, `validation` 진입에는 승인된 Architecture Decision, `releasing` 진입에는 승인된 Release Decision과 passing verification Evidence, `learned` 진입에는 승인된 Operation Decision이 필요하다. `awaiting-release-decision`은 Validation을 완료한 뒤에만 진입할 수 있다. 같은 게이트의 최신 Decision이 `rejected`이면 승인으로 간주하지 않는다.
+
+`abandoned`는 계속하지 않기로 한 Unit의 명시적 종결 상태다. 진입에는 승인된 Abandonment Decision과 현재 Checkpoint가 필요하며, phase는 `closed`가 된다. 폐기된 Unit은 `learned`와 동일하게 managed edit/test, Unit artifact 변경과 Amendment를 거부하고 active Unit binding을 기계적으로 완료한다. 폐기 사유·대안·위험은 Abandonment Decision Packet에 보존되므로 이후 세션이 중단 맥락을 재구성할 수 있다.
 
 `status`와 `resume`은 다음 전환의 승인 경계를 기계가 읽을 수 있는 `human_gate`로 반환한다. `next_transition`, `gate`, `decision`, `latest_decision_id`, `review_round`, `revision_requested`, `reconfirmation_required`, `blocks_next_transition`, `confirmation_required`, `confirmation_channel`, `core_identity_verification`을 포함하며, 필요한 Decision이 없으면 Adapter는 packet을 사람에게 보여주고 중단해야 한다. 호스트의 도구 실행 권한이나 headless trust 설정은 이 확인을 충족하지 않는다.
 
@@ -125,9 +131,9 @@ Decision은 해당 게이트를 실제로 검토할 수 있는 lifecycle 상태�
 
 Unit 생성 전 Level-1 plan 승인과 lifecycle Decision은 역할이 다르다. 전자는 Agent가 제안한 전체 작업을 시작해도 되는지 확인하고, 후자는 확정된 artifact의 ID와 digest를 다음 상태 전이에 결박한다. 최초 계획에 최종 Inception packet과 정확한 Envelope가 함께 제시되었다면 한 번의 명시적 사용자 응답을 두 기록의 근거로 사용할 수 있지만, 승인 뒤 내용이 달라졌다면 새 Decision이 필요하다.
 
-Unit의 종료 경계는 구현 완료 선언이 아니라 승인된 Operation Decision 뒤의 `learned` 상태다. 그 전까지 사용자의 후속 대화는 기본적으로 같은 active Unit에 속한다. `amend --request ... --affected-artifact ... --requested-by ...`는 정확한 요청, 영향 문서의 변경 전 digest, 필요한 gate, 요청자와 시각을 append-only `amendments.json`에 기록하고 같은 digest를 Amendment Decision에 결박한다. Intent·Requirements·Plan·Acceptance 변경은 Inception, Architecture·Implementation Guide 변경은 Construction, Release 변경은 Validation, Operations 변경은 Operating으로 같은 Unit을 필요한 만큼 되돌리며 현재 Verification Evidence를 무효화한다.
+Unit의 종료 경계는 구현 완료 선언이 아니라 승인된 Operation Decision 뒤의 `learned` 상태 또는 승인된 Abandonment Decision 뒤의 `abandoned` 상태다. 그 전까지 사용자의 후속 대화는 기본적으로 같은 active Unit에 속한다. `amend --request ... --affected-artifact ... --requested-by ...`는 정확한 요청, 영향 문서의 변경 전 digest, 필요한 gate, 요청자와 시각을 append-only `amendments.json`에 기록하고 같은 digest를 Amendment Decision에 결박한다. Intent·Requirements·Plan·Acceptance 변경은 Inception, Architecture·Implementation Guide 변경은 Construction, Release 변경은 Validation, Operations 변경은 Operating으로 같은 Unit을 필요한 만큼 되돌리며 현재 Verification Evidence를 무효화한다.
 
-Core는 `unit-init` 또는 `resume` 시 하나의 unfinished Unit을 Project-scoped active Unit으로 결박하고 ignored `.isekai-runtime/active-unit.json`의 digest chain에 bind 사건을 기록한다. 이 결박이 있으면 새 `intake`·`route`·`inception`·`unit-init`과 형제 Unit을 대상으로 한 persistent Runtime action은 거부된다. `off`나 새 대화는 결박을 풀지 않으며 `learned` 전환만 이를 기계적으로 완료한다. 사용자가 unfinished Unit을 남기고 별도 작업·포기·전환을 명시적으로 선택한 경우에는 현재 Checkpoint가 authorization progress와 일치해야 하며, `active-unit-detach --unit ... --requested-by ... --reason ...`가 detach 사건을 기록한 뒤에만 다른 경로를 열 수 있다.
+Core는 `unit-init` 또는 `resume` 시 하나의 unfinished Unit을 Project-scoped active Unit으로 결박하고 ignored `.isekai-runtime/active-unit.json`의 digest chain에 bind 사건을 기록한다. 이 결박이 있으면 새 `intake`·`route`·`inception`·`unit-init`과 형제 Unit을 대상으로 한 persistent Runtime action은 거부된다. `off`나 새 대화는 결박을 풀지 않으며 `learned` 또는 `abandoned` 전환만 이를 기계적으로 완료한다. 사용자가 unfinished Unit을 남기고 별도 작업·포기·전환을 명시적으로 선택한 경우에는 현재 Checkpoint가 authorization progress와 일치해야 하며, `active-unit-detach --unit ... --requested-by ... --reason ...`가 detach 사건을 기록한 뒤에만 다른 경로를 열 수 있다.
 
 Amendment가 열린 동안에는 영향받는 문서의 digest가 실제로 바뀌고 새 gate Decision의 `references`가 amendment ID를 포함해야 다시 전진할 수 있다. 따라서 이 대화처럼 단순 추가 요구도 `rejected`가 아니면서 문서·Decision·Checkpoint에 남고, 구현만 바꾼 뒤 이전 승인으로 통과할 수 없다. 여러 종류의 문서가 함께 영향을 받으면 가장 이른 gate를 다시 거친다. 이미 `learned`인 Unit은 수정하지 않고 새 Unit으로 시작한다.
 
@@ -175,6 +181,8 @@ Evidence는 명령·exit code·결과 digest·관찰 시각·범위·기록 주�
 `managed-test`는 원본 Project를 일회용 workspace로 복제하고 최소 허용 환경 변수만 전달해 OS sandbox 안에서 명령을 실행한다. descriptor 기반 복제는 `O_NOFOLLOW`와 inode·metadata 재검증으로 symlink·hardlink·특수 파일 및 복사 중 교체를 거부한다. macOS Seatbelt와 Linux Bubblewrap provider는 원본 Project·사용자 홈의 file data read를 차단하되 선택된 runtime root만 read-only로 노출하고, file write는 일회용 workspace에만 허용하며 network를 차단한다. Linux는 PID namespace를 사용하고 macOS는 외부 process signal/info와 Mach service 접근을 차단한다. Core는 종료 시 같은 process group의 후손을 정리한다. 모든 provider는 CPU·생성 파일 크기·open file·process 수·core dump hard limit를 적용하고 Linux는 4 GiB address-space limit도 적용한다. provider가 없거나 실제 namespace/profile 적용 preflight가 실패하면 authorization 원장을 복원하고 명령을 실행하지 않는다. Windows 로컬 실행은 현재 지원 provider가 없어 fail-closed하며 보호된 CI/원격 sandbox Evidence를 사용한다. stdout/stderr는 합계 8 MiB까지만 pipe에서 수집하며 한도를 채우면 `output-limit-exceeded`로 종료한다. exit code와 provider·격리/자원 제한·수집 출력 digest·byte count는 authorization grant의 `execution` receipt에 결박하고, 호출자에게는 stream별 최대 256 KiB만 반환한다. 외부 CI나 별도 runner가 만든 Evidence도 허용되며, 이 경로의 `attestation`은 원본 `output`이 전달된 명령과 digest만 전달된 명령을 `core-derived`, `caller-supplied`, `mixed`로 구분한다. Core는 어느 경로에서도 actor의 실제 신원을 인증하지 않는다.
 
 macOS Seatbelt는 PID namespace를 제공하지 않으므로 command가 의도적으로 새 session을 만들고 daemonize하면 즉시 process-group 정리를 벗어날 수 있다. 이 후손도 상속한 Seatbelt·hard resource policy를 유지하지만, 적대적 code의 완전한 process-lifetime 격리는 Linux Bubblewrap 또는 별도 VM/원격 sandbox를 요구한다.
+
+Sandbox 계약에는 알려진 예외와 한계가 있다. 테스트 실행에 interpreter 환경이 필요하므로 실행 파일이 원본 Project의 `.venv` 안에 있으면 그 runtime root는 read-only로 노출된다. 즉 "원본 Project read 차단"은 `.venv`를 제외한 소스 트리에 적용된다. macOS Seatbelt profile은 allow-default 위에 network·Mach·signal/process-info·file read/write를 선별 차단하는 구조라, 명시적으로 차단하지 않은 리소스 클래스(예: sysctl 조회)와 read root 밖 파일의 metadata 조회는 허용된다. Apple이 `sandbox-exec`를 deprecated 상태로 유지하는 점도 함께 고려해, 적대적 code의 검증은 Linux Bubblewrap 또는 별도 VM/원격 sandbox Evidence를 권장한다. deny-default profile 전환은 로드맵 항목이다.
 
 ## Execution Envelope
 

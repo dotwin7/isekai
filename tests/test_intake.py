@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai.intake import intake, normalize_intent
+from isekai.catalog.ai_dlc.intake import intake, normalize_intent
 from isekai.workflow import initialize_unit
 from isekai.workflow.errors import WorkflowError
 

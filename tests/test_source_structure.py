@@ -14,13 +14,7 @@ STABLE_FACADES = {
     "cli/__init__.py",
     "distribution/__init__.py",
     "foundation/__init__.py",
-    "intake.py",
-    "jsonio.py",
-    "locking.py",
     "runtime_contract.py",
-    "project.py",
-    "routing.py",
-    "session.py",
     "workflow/__init__.py",
 }
 

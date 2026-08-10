@@ -352,7 +352,8 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
     return {
         **session,
         "resume": {
-            "active_unit": session["unit"].get("status") != "learned",
+            "active_unit": session["unit"].get("status")
+            not in {"learned", "abandoned"},
             "amendments": session["unit"].get("amendments"),
             "completed": checkpoint.get("completed", []),
             "pending": checkpoint.get("pending", []),

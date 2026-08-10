@@ -18,7 +18,7 @@ from isekai.workflow import (
     verify_unit,
 )
 from isekai.workflow.errors import AuthorizationError, IntegrityError
-from isekai.session import update_checkpoint
+from isekai.workflow.session import update_checkpoint
 
 from test_core_workflow import make_project
 from test_decision_lifecycle import (

@@ -23,6 +23,7 @@ from .decisions import (
     DECISION_PACKET_VERSION,
     LIFECYCLE_STATUSES,
     STATUS_PHASE,
+    TERMINAL_STATUSES,
     _decision_description_language_issues,
     _decision_ledger_issues,
     _decision_record_digest,
@@ -252,7 +253,7 @@ def amendment_status(
     )
     pending = _pending_amendments(ledger, current_decisions) if not issues else []
     return {
-        "active_unit": current_unit.get("status") != "learned",
+        "active_unit": current_unit.get("status") not in TERMINAL_STATUSES,
         "count": len(ledger.get("amendments", [])),
         "pending_count": len(pending),
         "pending": [
@@ -354,9 +355,10 @@ def record_unit_amendment(
 
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") == "learned":
+        if unit.get("status") in TERMINAL_STATUSES:
             raise LifecycleError(
-                "a learned Unit is complete and cannot be amended; start a new Unit"
+                f"a {unit.get('status')} Unit is closed and cannot be amended; "
+                "start a new Unit"
             )
         if unit.get("status") not in LIFECYCLE_STATUSES:
             raise LifecycleError("Unit has an invalid lifecycle status")

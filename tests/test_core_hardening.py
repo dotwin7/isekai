@@ -10,8 +10,8 @@ import pytest
 from isekai.cli import DIRECT_RUNTIME_ACTIONS, _parser, main
 from isekai.distribution import DistributionError, install_from_git, plan_git_update
 from isekai.foundation import load_foundation
-from isekai.jsonio import write_json_atomic
-from isekai.session import _descendant_project_candidates, update_checkpoint
+from isekai.support.jsonio import write_json_atomic
+from isekai.workflow.session import _descendant_project_candidates, update_checkpoint
 from isekai.workflow import authorize_action, initialize_unit, verify_unit
 from isekai.workflow.errors import IntegrityError
 

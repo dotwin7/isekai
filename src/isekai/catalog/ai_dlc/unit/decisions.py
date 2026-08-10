@@ -15,6 +15,7 @@ from isekai.support.errors import (
     WorkflowError,
 )
 from .common import (
+    _decision_description_language_issues,
     _is_iso_timestamp,
     _parse_iso_timestamp,
     _unit_json,
@@ -41,21 +42,32 @@ LIFECYCLE_STATUSES = (
     "releasing",
     "operating",
     "learned",
+    "abandoned",
 )
+TERMINAL_STATUSES = frozenset({"learned", "abandoned"})
 
 ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
-    "proposed": ("inception",),
-    "inception": ("awaiting-inception-decision",),
-    "awaiting-inception-decision": ("construction",),
-    "construction": ("validation",),
-    "validation": ("awaiting-release-decision",),
-    "awaiting-release-decision": ("releasing",),
-    "releasing": ("operating",),
-    "operating": ("learned",),
+    "proposed": ("inception", "abandoned"),
+    "inception": ("awaiting-inception-decision", "abandoned"),
+    "awaiting-inception-decision": ("construction", "abandoned"),
+    "construction": ("validation", "abandoned"),
+    "validation": ("awaiting-release-decision", "abandoned"),
+    "awaiting-release-decision": ("releasing", "abandoned"),
+    "releasing": ("operating", "abandoned"),
+    "operating": ("learned", "abandoned"),
     "learned": (),
+    "abandoned": (),
 }
 
-DECISION_GATES = ("inception", "architecture", "release", "operation", "knowledge", "amendment")
+DECISION_GATES = (
+    "inception",
+    "architecture",
+    "release",
+    "operation",
+    "knowledge",
+    "amendment",
+    "abandonment",
+)
 DECISION_OUTCOMES = ("approved", "rejected")
 DECISION_ALLOWED_STATUSES = {
     "inception": {
@@ -70,6 +82,9 @@ DECISION_ALLOWED_STATUSES = {
     "release": {"awaiting-release-decision", "releasing"},
     "operation": {"operating"},
     "knowledge": {"operating", "learned"},
+    "abandonment": {
+        status for status in LIFECYCLE_STATUSES if status not in TERMINAL_STATUSES
+    },
 }
 REQUIRED_DECISIONS_FOR_TRANSITIONS = {
     "construction": "inception",
@@ -78,6 +93,7 @@ REQUIRED_DECISIONS_FOR_TRANSITIONS = {
     "releasing": "release",
     "operating": "release",
     "learned": "operation",
+    "abandoned": "abandonment",
 }
 STATUS_PHASE = {
     "proposed": "inception",
@@ -89,6 +105,7 @@ STATUS_PHASE = {
     "releasing": "release",
     "operating": "operations",
     "learned": "operations",
+    "abandoned": "closed",
 }
 DECISION_PACKET_VERSION = "1.0.0"
 DECISION_REQUIRED_FIELDS = {
@@ -120,7 +137,6 @@ DECISION_PACKET_FIELDS = {
     "risks",
     "references",
 }
-_HANGUL = re.compile(r"[가-힣]")
 
 
 def _decision_record_digest(decision: dict[str, Any]) -> str:
@@ -170,34 +186,6 @@ def _decision_packet_issues(decision: Any) -> list[str]:
             if not isinstance(alternative.get("reason"), str) or not alternative["reason"].strip():
                 issues.append(f"Decision Packet alternative {index} needs reason")
     return issues
-
-
-def _decision_description_language_issues(
-    decision: dict[str, Any],
-    document_language: str,
-) -> list[str]:
-    if document_language != "ko":
-        return []
-    descriptions: list[tuple[str, Any]] = [("summary", decision.get("summary"))]
-    for field in ("rationale", "tradeoffs", "risks"):
-        values = decision.get(field)
-        if isinstance(values, list):
-            descriptions.extend((field, value) for value in values)
-    alternatives = decision.get("alternatives")
-    if isinstance(alternatives, list):
-        for alternative in alternatives:
-            if isinstance(alternative, dict):
-                descriptions.extend(
-                    (
-                        ("alternatives.option", alternative.get("option")),
-                        ("alternatives.reason", alternative.get("reason")),
-                    )
-                )
-    return [
-        f"{field} must use Korean for document_language ko"
-        for field, value in descriptions
-        if isinstance(value, str) and value.strip() and not _HANGUL.search(value)
-    ]
 
 
 def _decision_attestation_issues(decision: dict[str, Any]) -> list[str]:

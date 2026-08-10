@@ -15,7 +15,7 @@
     "package": "isekai-ai-dlc-runtime",
     "version": "0.2.1",
     "path": "src/isekai",
-    "digest": "sha256:24e9d2962b3981ccae5e12eb5a998d5dcc13270de921ed90b6317a3c701d7b55"
+    "digest": "sha256:5a383591854b323445ab886b21ba282165b8f86c26d8f263614461ab7292e1c1"
   },
   "bootstrap": {
     "id": "bootstrap",

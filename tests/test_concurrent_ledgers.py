@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import record_foundation_decision
-from isekai.locking import LockUnavailable, file_lock
+from isekai.support.locking import LockUnavailable, file_lock
 from isekai.support.files import metadata_is_path_alias
 from isekai.workflow import (
     authorize_action,
@@ -205,7 +205,7 @@ def test_file_lock_reports_a_live_holder_instead_of_corrupting(tmp_path: Path) -
 
 
 def test_file_lock_release_does_not_delete_a_reclaimed_lock(tmp_path: Path) -> None:
-    from isekai.locking import _acquire, _release
+    from isekai.support.locking import _acquire, _release
 
     lock = tmp_path / "artifact.lock"
     first = _acquire(lock)
@@ -226,7 +226,7 @@ def test_file_lock_retries_an_inode_unlinked_during_release(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from isekai.locking import _acquire, _release
+    from isekai.support.locking import _acquire, _release
     from isekai.support import locking as locking_module
 
     lock = tmp_path / "artifact.lock"

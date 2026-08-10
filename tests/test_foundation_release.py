@@ -250,7 +250,7 @@ def test_foundation_mutations_fail_closed_while_the_release_lock_is_held(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from isekai.locking import file_lock as real_file_lock
+    from isekai.support.locking import file_lock as real_file_lock
 
     foundation = make_foundation(tmp_path)
     lock = foundation / ".isekai-foundation.lock"

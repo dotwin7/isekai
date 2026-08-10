@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from isekai.jsonio import write_json_atomic
+from isekai.support.jsonio import write_json_atomic
 from isekai.workflow.errors import (
     AuthorizationError,
     EvidenceError,
@@ -24,7 +24,7 @@ from isekai.workflow import (
     transition_unit,
     verify_unit,
 )
-from isekai.session import update_checkpoint
+from isekai.workflow.session import update_checkpoint
 
 from test_core_workflow import make_project, materialize_unit_artifacts
 

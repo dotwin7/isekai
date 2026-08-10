@@ -423,6 +423,7 @@ def _parser() -> argparse.ArgumentParser:
             "releasing",
             "operating",
             "learned",
+            "abandoned",
         ),
         required=True,
     )

@@ -130,3 +130,18 @@ Plan → Clarify → Human Decision → Execute → Verify → Persist
 ```
 
 AI는 승인되지 않은 중요한 결정을 암묵적으로 대신하지 않는다.
+
+### 수명주기 상태 전이
+
+Unit은 아래 전진 경로와 두 개의 종결 상태를 가진다. 각 화살표에 필요한 인간 Decision gate는 Core의 전이 표(`REQUIRED_DECISIONS_FOR_TRANSITIONS`)가 강제한다.
+
+```text
+proposed → inception → awaiting-inception-decision → construction
+→ validation → awaiting-release-decision → releasing → operating → learned
+
+모든 비종결 상태 → abandoned
+```
+
+`learned`는 승인된 Operation Decision 뒤의 정상 완료이고, `abandoned`는 승인된 Abandonment Decision 뒤의 명시적 폐기다. 두 종결 상태 모두 active Unit binding을 기계적으로 완료하며, 이후 managed edit/test, Unit artifact 변경과 Amendment를 fail-closed로 거부한다. 폐기 전이도 다른 전이처럼 현재 Checkpoint를 요구하므로 중단 시점의 맥락이 보존된다.
+
+전이 표에는 후진 간선이 없지만 재작업이 불가능한 것은 아니다. 수정·보완 요청은 Unit Amendment로 기록하며, Amendment는 영향 artifact의 gate에 따라 상태를 필요한 만큼 되돌린다 — Intent·Requirements·Plan·Acceptance는 `inception`, Architecture·Implementation Guide는 `construction`, Release는 `validation`, Operations는 `operating`으로. 이때 현재 Verification Evidence는 무효화되고 새 gate Decision을 받아야 다시 전진한다. 즉 전진 표가 강제하는 것은 "되돌아갈 수 없다"가 아니라 "기록 없이 되돌아갈 수 없다"이다.

@@ -164,7 +164,14 @@ _INTENT_PLACEHOLDERS = {
     "Define verifiable acceptance criteria.",
 }
 _PLAN_STAGES = ("inception", "construction", "validation", "release", "operations", "learn")
-_CHECKBOX = re.compile(r"(?P<prefix>^[ \t]*[-*+][ \t]+\[)[ xX]*(?P<suffix>\])", re.MULTILINE)
+# Single source of truth for acceptance checkbox syntax. Digest normalization
+# and progress-only detection must agree on what counts as a checkbox, or a
+# write accepted as "progress" could still change the approved snapshot digest.
+ACCEPTANCE_CHECKBOX = re.compile(
+    r"(?P<prefix>^[ \t]*[-*+][ \t]+\[)(?P<state>[ xX]*)(?P<suffix>\])",
+    re.MULTILINE,
+)
+_CHECKBOX = ACCEPTANCE_CHECKBOX
 
 
 def _required_artifacts(stage: str) -> tuple[str, ...]:

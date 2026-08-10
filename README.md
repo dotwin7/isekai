@@ -16,7 +16,7 @@ ISEKAI를 켜면 일반 채팅 요청을 먼저 정규화하고 작업의 지속
 | Quick Change | 작고 명확하며 되돌리기 쉬운 변경 | 최소 변경과 관련 검증 |
 | Unit | 제품 계약, 여러 컴포넌트, 고위험·장기 작업 | Inception부터 Operations까지 AI-DLC 적용 |
 
-Unit 작업에서는 Intent, Decision, Evidence, Receipt와 Checkpoint를 저장해 사람과 에이전트가 다른 세션에서도 같은 맥락을 이어갈 수 있습니다. 중요한 수명주기 전환과 고위험 판단은 사람의 명시적 결정을 요구합니다.
+Unit 작업에서는 Intent, Decision, Evidence, Receipt와 Checkpoint를 저장해 사람과 에이전트가 다른 세션에서도 같은 맥락을 이어갈 수 있습니다. 중요한 수명주기 전환과 고위험 판단은 사람의 명시적 결정을 요구합니다. 라우팅 규칙과 Inception부터 Learn까지의 수명주기 정의는 [AI-DLC Workflow](docs/ai-dlc/workflow.md)와 [Unit 계약](docs/ai-dlc/unit.md)에 있습니다.
 
 한 Unit에서 발견한 용어·관례·지침·판단이 후속 Unit에도 필요하면 `Project Knowledge` candidate로 제안하고 사람의 Knowledge Decision 뒤 승격합니다. 이는 온톨로지나 정책 계층이 아니라 승인된 프로젝트 공통 지식이며, 새 Unit은 생성 시점 release digest와 자기 `work_scope`에 겹치는 활성 항목만 Context Receipt에 고정합니다. 기존 Unit은 자동으로 최신 지식을 읽지 않습니다.
 

@@ -129,7 +129,7 @@ def test_off_and_new_on_do_not_lose_the_unfinished_active_unit(tmp_path: Path) -
 
 
 def test_final_learned_transition_releases_the_core_binding(tmp_path: Path) -> None:
-    from isekai.session import update_checkpoint
+    from isekai.workflow.session import update_checkpoint
     from isekai.workflow import transition_unit
     from test_decision_lifecycle import (
         approve,
