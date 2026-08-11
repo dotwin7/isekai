@@ -70,17 +70,22 @@ def test_envelope_proposal_write_failure_restores_both_control_records(
     envelope_path = unit / "execution-envelope.json"
     ledger_path = unit / "execution-authorizations.json"
     before = (envelope_path.read_bytes(), ledger_path.read_bytes())
-    original_write = execution_module._write_json
+    original_write = execution_module._write_unit_json
     calls = 0
 
-    def fail_second_write(path: Path, value: object) -> None:
+    def fail_second_write(
+        root: Path,
+        relative: str,
+        value: object,
+        **kwargs: object,
+    ) -> None:
         nonlocal calls
         calls += 1
         if calls == 2:
             raise OSError("forced authorization ledger write failure")
-        original_write(path, value)
+        original_write(root, relative, value, **kwargs)
 
-    monkeypatch.setattr(execution_module, "_write_json", fail_second_write)
+    monkeypatch.setattr(execution_module, "_write_unit_json", fail_second_write)
 
     with pytest.raises(OSError, match="forced authorization ledger write failure"):
         propose_execution_envelope(
@@ -106,10 +111,19 @@ def test_envelope_archive_write_failure_restores_active_records(
     envelope_path = unit / "execution-envelope.json"
     ledger_path = unit / "execution-authorizations.json"
     before = (envelope_path.read_bytes(), ledger_path.read_bytes())
-    def fail_archive_write(path: Path, value: object) -> None:
+    def fail_archive_write(
+        root: Path,
+        relative: str,
+        value: object,
+        **kwargs: object,
+    ) -> None:
         raise OSError("forced authorization archive write failure")
 
-    monkeypatch.setattr(execution_history_module, "_write_json", fail_archive_write)
+    monkeypatch.setattr(
+        execution_history_module,
+        "_write_unit_json",
+        fail_archive_write,
+    )
 
     with pytest.raises(OSError, match="forced authorization archive write failure"):
         propose_execution_envelope(
@@ -124,6 +138,38 @@ def test_envelope_archive_write_failure_restores_active_records(
 
     assert (envelope_path.read_bytes(), ledger_path.read_bytes()) == before
     assert not list((unit / "execution-authorization-records").glob("*.json"))
+
+
+def test_authorization_postflight_handles_an_empty_persisted_grant_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    original_write = execution_module._write_unit_json
+
+    def discard_new_grant(
+        root: Path,
+        relative: str,
+        value: object,
+        **kwargs: object,
+    ) -> None:
+        if (
+            relative == "execution-authorizations.json"
+            and isinstance(value, dict)
+            and value.get("grants")
+        ):
+            value = {**value, "grants": []}
+        original_write(root, relative, value, **kwargs)
+
+    monkeypatch.setattr(execution_module, "_write_unit_json", discard_new_grant)
+
+    result = authorize_action(unit, action="read", target="src/main.py")
+
+    assert result == {
+        "allowed": False,
+        "reason": "Authorization receipt postflight failed",
+    }
 
 
 def test_envelope_accepts_an_adaptive_stage_plan_with_explicit_skip(
@@ -411,10 +457,15 @@ def test_construction_transition_restores_envelope_when_unit_write_fails(
     envelope_path = unit / "execution-envelope.json"
     before = (unit_path.read_bytes(), envelope_path.read_bytes())
 
-    def fail_unit_write(path: Path, value: object) -> None:
+    def fail_unit_write(
+        root: Path,
+        relative: str,
+        value: object,
+        **kwargs: object,
+    ) -> None:
         raise OSError("forced Unit lifecycle write failure")
 
-    monkeypatch.setattr(lifecycle_module, "_write_json", fail_unit_write)
+    monkeypatch.setattr(lifecycle_module, "_write_unit_json", fail_unit_write)
 
     with pytest.raises(OSError, match="forced Unit lifecycle write failure"):
         transition_unit(unit, "construction")

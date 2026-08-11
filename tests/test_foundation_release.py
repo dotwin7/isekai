@@ -76,6 +76,18 @@ def approve_and_evidence(foundation: Path) -> None:
     )
 
 
+def test_foundation_decision_rejects_an_unhashable_outcome(tmp_path: Path) -> None:
+    foundation = make_foundation(tmp_path)
+
+    with pytest.raises(FoundationError, match="outcome must be"):
+        record_foundation_decision(
+            foundation,
+            outcome=[],  # type: ignore[arg-type]
+            summary="reviewed",
+            decided_by="owner",
+        )
+
+
 def test_new_foundation_records_disclose_core_trust_boundaries(tmp_path: Path) -> None:
     foundation = make_foundation(tmp_path)
     decision = record_foundation_decision(
@@ -250,16 +262,19 @@ def test_foundation_mutations_fail_closed_while_the_release_lock_is_held(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from isekai.support.locking import file_lock as real_file_lock
+    from isekai.support.locking import rooted_file_lock as real_rooted_file_lock
 
     foundation = make_foundation(tmp_path)
-    lock = foundation / ".isekai-foundation.lock"
-    with real_file_lock(lock, subject="test Foundation holder"):
+    with real_rooted_file_lock(
+        foundation,
+        ".isekai-foundation.lock",
+        subject="test Foundation holder",
+    ):
         monkeypatch.setattr(
             foundation_module,
-            "file_lock",
-            lambda path, *, subject: real_file_lock(
-                path, subject=subject, timeout=0
+            "rooted_file_lock",
+            lambda root, relative, *, subject: real_rooted_file_lock(
+                root, relative, subject=subject, timeout=0
             ),
         )
         with pytest.raises(FoundationError, match="being modified"):
@@ -722,10 +737,15 @@ def test_replace_failure_rolls_back_all_original_bytes_and_modes(tmp_path: Path,
     original = foundation_module._replace_staged
     calls = 0
 
-    def replace_then_fail_once(temporary: Path, target: Path) -> None:
+    def replace_then_fail_once(
+        temporary: Path,
+        target: Path,
+        *,
+        root: Path,
+    ) -> None:
         nonlocal calls
         calls += 1
-        original(temporary, target)
+        original(temporary, target, root=root)
         if calls == 2:
             raise OSError("injected replace failure")
 

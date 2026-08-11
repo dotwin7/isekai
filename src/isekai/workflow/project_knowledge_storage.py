@@ -36,9 +36,11 @@ def managed_project_directory(
         current /= part
         try:
             metadata = current.lstat()
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             if not create:
-                raise IntegrityError(f"missing managed Project Knowledge path: {current}")
+                raise IntegrityError(
+                    f"missing managed Project Knowledge path: {current}"
+                ) from exc
             try:
                 current.mkdir()
                 metadata = current.lstat()

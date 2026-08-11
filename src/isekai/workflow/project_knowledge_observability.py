@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from isekai.support.errors import IntegrityError
+from isekai.support.files import UnsafeControlFile, inspect_tree_beneath
 from .project_knowledge_schema import CANDIDATE_REFERENCE, candidate_issues
 from .project_knowledge_storage import managed_project_directory, safe_project_json
 from isekai.catalog.ai_dlc.unit.common import _unit_json
@@ -137,11 +138,21 @@ def candidate_status_details(
     validate_sources: Callable[[Path, dict[str, Any]], None],
 ) -> list[dict[str, Any]]:
     candidates_path = project_root / knowledge_root / "candidates"
-    if not candidates_path.exists() and not candidates_path.is_symlink():
-        return []
-    managed_project_directory(
-        project_root, f"{knowledge_root}/candidates", create=False
-    )
+    try:
+        managed_project_directory(
+            project_root, f"{knowledge_root}/candidates", create=False
+        )
+    except IntegrityError as exc:
+        if isinstance(exc.__cause__, FileNotFoundError):
+            return []
+        raise
+    try:
+        candidate_files, _candidate_directories = inspect_tree_beneath(
+            candidates_path,
+            label="Project Knowledge candidates",
+        )
+    except UnsafeControlFile as exc:
+        raise IntegrityError(str(exc)) from exc
     promoted = _promotion_index(catalog)
     current = (
         catalog["releases"][-1]
@@ -150,10 +161,13 @@ def candidate_status_details(
     )
     current_digest = current.get("release_digest") if isinstance(current, dict) else None
     details: list[dict[str, Any]] = []
-    for path in sorted(candidates_path.iterdir()):
+    for relative_path in candidate_files:
+        if len(relative_path.parts) != 1:
+            continue
+        path = candidates_path / relative_path
         reference = f"{knowledge_root}/candidates/{path.name}"
         match = CANDIDATE_REFERENCE.fullmatch(reference)
-        if match is None or not path.is_file() or path.is_symlink():
+        if match is None:
             continue
         try:
             candidate = safe_project_json(

@@ -13,10 +13,11 @@ from .authorization import _authorization_ledger_digest
 from .checkpointing import authorization_progress_cursor
 from .common import (
     _restore_snapshots,
+    _unlink_unit_file,
     _unit_bytes,
     _unit_json,
     _unit_path_without_symlinks,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .decisions import (
@@ -148,11 +149,17 @@ def _amendment_ledger_issues(
                 field, ""
             ).strip():
                 issues.append(f"amendment {index} requires {field}")
-        if amendment.get("required_gate") not in _GATE_PRECEDENCE:
+        if not isinstance(amendment.get("required_gate"), str) or amendment.get(
+            "required_gate"
+        ) not in _GATE_PRECEDENCE:
             issues.append(f"amendment {index} has an invalid required_gate")
-        if amendment.get("from_status") not in LIFECYCLE_STATUSES:
+        if not isinstance(amendment.get("from_status"), str) or amendment.get(
+            "from_status"
+        ) not in LIFECYCLE_STATUSES:
             issues.append(f"amendment {index} has an invalid from_status")
-        if amendment.get("rework_status") not in LIFECYCLE_STATUSES:
+        if not isinstance(amendment.get("rework_status"), str) or amendment.get(
+            "rework_status"
+        ) not in LIFECYCLE_STATUSES:
             issues.append(f"amendment {index} has an invalid rework_status")
         if _parse_iso_timestamp(amendment.get("requested_at")) is None:
             issues.append(f"amendment {index} has an invalid requested_at")
@@ -160,7 +167,10 @@ def _amendment_ledger_issues(
         if not isinstance(affected, list) or not affected:
             issues.append(f"amendment {index} requires affected_artifacts")
             affected = []
-        elif any(item not in AMENDABLE_ARTIFACT_GATES for item in affected):
+        elif any(
+            not isinstance(item, str) or item not in AMENDABLE_ARTIFACT_GATES
+            for item in affected
+        ):
             issues.append(f"amendment {index} has an unsupported affected artifact")
         baseline = amendment.get("baseline_artifacts")
         baseline_references: list[str] = []
@@ -253,7 +263,10 @@ def amendment_status(
     )
     pending = _pending_amendments(ledger, current_decisions) if not issues else []
     return {
-        "active_unit": current_unit.get("status") not in TERMINAL_STATUSES,
+        "active_unit": (
+            not isinstance(current_unit.get("status"), str)
+            or current_unit.get("status") not in TERMINAL_STATUSES
+        ),
         "count": len(ledger.get("amendments", [])),
         "pending_count": len(pending),
         "pending": [
@@ -344,8 +357,17 @@ def record_unit_amendment(
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
     if not isinstance(request, str) or not request.strip():
         raise WorkflowError("amendment request must be a non-empty string")
+    if not isinstance(reason, str):
+        raise WorkflowError("amendment reason must be a string")
     if not isinstance(requested_by, str) or not requested_by.strip():
         raise WorkflowError("requested_by must be a non-empty string")
+    if not isinstance(affected_artifacts, list) or any(
+        not isinstance(relative, str) or not relative.strip()
+        for relative in affected_artifacts
+    ):
+        raise WorkflowError(
+            "affected_artifacts must be a list of non-empty strings"
+        )
     normalized_artifacts = list(dict.fromkeys(affected_artifacts))
     if not normalized_artifacts:
         raise WorkflowError("amendment requires at least one affected Unit artifact")
@@ -355,12 +377,13 @@ def record_unit_amendment(
 
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") in TERMINAL_STATUSES:
+        unit_status = unit.get("status")
+        if isinstance(unit_status, str) and unit_status in TERMINAL_STATUSES:
             raise LifecycleError(
                 f"a {unit.get('status')} Unit is closed and cannot be amended; "
                 "start a new Unit"
             )
-        if unit.get("status") not in LIFECYCLE_STATUSES:
+        if not isinstance(unit_status, str) or unit_status not in LIFECYCLE_STATUSES:
             raise LifecycleError("Unit has an invalid lifecycle status")
         decisions = _unit_json(unit_dir, "decisions.json")
         decision_issues = _decision_ledger_issues(
@@ -405,7 +428,7 @@ def record_unit_amendment(
         stamp = now.strftime("%Y%m%d%H%M%S%f")
         amendment_id = "AMD-" + stamp
         decision_id = "DEC-" + stamp
-        localized_reason = reason.strip() if isinstance(reason, str) else ""
+        localized_reason = reason.strip()
         if not localized_reason:
             localized_reason = (
                 "사용자가 활성 Unit의 변경을 요청했다."
@@ -573,11 +596,15 @@ def record_unit_amendment(
         if amendment_existed:
             snapshots.append((amendment_path, _unit_bytes(unit_dir, AMENDMENTS_FILE)))
         try:
-            _write_json(amendment_path, candidate_ledger)
-            _write_json(unit_dir / "decisions.json", candidate_decisions)
-            _write_json(unit_dir / "unit.json", candidate_unit)
-            _write_json(unit_dir / "checkpoint.json", candidate_checkpoint)
-            _write_json(unit_dir / "evidence/verification.json", candidate_evidence)
+            _write_unit_json(unit_dir, AMENDMENTS_FILE, candidate_ledger)
+            _write_unit_json(unit_dir, "decisions.json", candidate_decisions)
+            _write_unit_json(unit_dir, "unit.json", candidate_unit)
+            _write_unit_json(unit_dir, "checkpoint.json", candidate_checkpoint)
+            _write_unit_json(
+                unit_dir,
+                "evidence/verification.json",
+                candidate_evidence,
+            )
             persisted = _load_amendment_ledger(unit_dir, str(unit.get("id")))
             persisted_decisions = _unit_json(unit_dir, "decisions.json")
             postflight = _amendment_ledger_issues(
@@ -590,12 +617,15 @@ def record_unit_amendment(
                     "Unit amendment postflight failed: " + "; ".join(postflight)
                 )
         except Exception as exc:
-            _restore_snapshots(snapshots, "Unit amendment", exc)
+            _restore_snapshots(snapshots, "Unit amendment", exc, root=unit_dir)
             if not amendment_existed:
                 try:
-                    amendment_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                    _unlink_unit_file(unit_dir, AMENDMENTS_FILE, missing_ok=True)
+                except Exception as cleanup_exc:
+                    raise IntegrityError(
+                        "Unit amendment failed and its new ledger could not be removed: "
+                        f"{cleanup_exc}"
+                    ) from exc
             raise
     return {
         "path": str(unit_dir / AMENDMENTS_FILE),

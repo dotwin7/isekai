@@ -55,6 +55,12 @@ def _effective_and_not_expired(effective_from: Any, expires_at: Any, now: dateti
 def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None = None, *, now: datetime | None = None) -> bool:
     """Evaluate a closed Foundation condition against a supplied evidence subject."""
     _validate_condition(condition, "condition")
+    if subject is not None and not isinstance(subject, dict):
+        raise FoundationError("condition subject must be an object")
+    if now is not None and (
+        not isinstance(now, datetime) or now.tzinfo is None
+    ):
+        raise FoundationError("condition evaluation time must be timezone-aware")
     value = subject or {}
     current = now or datetime.now(timezone.utc)
     kind = condition["type"]
@@ -161,7 +167,12 @@ def evaluate_condition(condition: dict[str, Any], subject: dict[str, Any] | None
         if not all(value.get(key) == condition[key] for key in ("rule_ref", "reason", "owner", "scope", "compensating_controls")) or not _not_expired(value.get("expires_at"), current):
             return False
         review = value.get("review")
-        if not isinstance(review, dict) or review.get("id") != condition["review_ref"] or review.get("status") not in {"approved", "passed"}:
+        if (
+            not isinstance(review, dict)
+            or review.get("id") != condition["review_ref"]
+            or not isinstance(review.get("status"), str)
+            or review.get("status") not in {"approved", "passed"}
+        ):
             return False
         decisions = value.get("decisions")
         if not isinstance(decisions, list):
@@ -219,7 +230,7 @@ validate_rule_definition = _validate_rule_metadata
 
 def _evaluation_condition(foundation: FoundationRelease, asset: dict[str, Any]) -> dict[str, Any]:
     evaluator = asset["content"].get("evaluator")
-    if evaluator not in EVALUATOR_TYPES:
+    if not isinstance(evaluator, str) or evaluator not in EVALUATOR_TYPES:
         raise FoundationError(f"{asset['id']} has no supported evaluator")
     for reference in asset.get("extends", []):
         _ref_id = reference.get("id") if isinstance(reference, dict) else None

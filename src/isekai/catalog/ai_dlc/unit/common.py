@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import stat
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,9 +10,20 @@ from typing import Any
 
 from typing import Sequence
 
-from isekai.support.files import UnsafeControlFile, read_control_file
-from isekai.support.jsonio import write_bytes_atomic, write_json_atomic
-from isekai.support.locking import file_lock
+from isekai.support.files import (
+    UnsafeControlFile,
+    metadata_is_path_alias,
+    read_control_file,
+)
+from isekai.support.jsonio import (
+    UnsafeWritePath,
+    unlink_file_beneath,
+    write_bytes_atomic,
+    write_bytes_atomic_beneath,
+    write_json_atomic,
+    write_json_atomic_beneath,
+)
+from isekai.support.locking import rooted_file_lock
 from isekai.support.errors import IntegrityError
 from isekai.workflow.project import _context_receipt_id
 from isekai.catalog.ai_dlc.routing import ALLOWED_AGENT_LEVELS, WorkRoute
@@ -21,16 +33,59 @@ def _write_json(path: Path, value: Any) -> None:
     write_json_atomic(path, value)
 
 
+def _write_unit_json(
+    unit_dir: Path,
+    relative: str,
+    value: Any,
+    *,
+    create_parents: bool = False,
+    replace_existing: bool = True,
+) -> None:
+    try:
+        write_json_atomic_beneath(
+            unit_dir,
+            relative,
+            value,
+            create_parents=create_parents,
+            replace_existing=replace_existing,
+        )
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
+
+
+def _unlink_unit_file(
+    unit_dir: Path,
+    relative: str,
+    *,
+    missing_ok: bool = False,
+) -> None:
+    try:
+        unlink_file_beneath(unit_dir, relative, missing_ok=missing_ok)
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
+
+
 def _restore_snapshots(
     snapshots: Sequence[tuple[Path, bytes]],
     label: str,
     cause: Exception,
+    *,
+    root: Path | None = None,
 ) -> None:
     """Restore pre-mutation file contents; raise IntegrityError if any restore fails."""
     errors: list[str] = []
     for path, content in snapshots:
         try:
-            write_bytes_atomic(path, content)
+            if root is None:
+                write_bytes_atomic(path, content)
+            else:
+                try:
+                    relative = path.relative_to(root)
+                except ValueError as exc:
+                    raise IntegrityError(
+                        f"snapshot path escapes its Unit root: {path}"
+                    ) from exc
+                write_bytes_atomic_beneath(root, relative, content)
         except Exception as exc:  # pragma: no cover - secondary filesystem failure
             errors.append(f"{path}: {exc}")
     if errors:
@@ -56,6 +111,37 @@ PROTECTED_UNIT_ARTIFACT_PREFIXES = (
 )
 UNIT_LOCK_NAME = ".isekai-unit.lock"
 CANONICAL_UNIT_ID = re.compile(r"UNIT-\d{8}-[A-F0-9]{32}")
+UNIT_MANIFEST_REQUIRED_FIELDS = {
+    "id",
+    "catalog_entry",
+    "title",
+    "project_id",
+    "phase",
+    "status",
+    "owner",
+    "scope",
+    "work_scope",
+    "intent_source",
+    "document_language",
+    "goal",
+    "expected_outcome",
+    "constraints",
+    "acceptance_criteria",
+    "intake",
+    "foundation_version",
+    "foundation_digest",
+}
+_UNIT_INTAKE_REQUIRED_FIELDS = {
+    "change",
+    "risk",
+    "ambiguous",
+    "multi_party",
+    "remote",
+    "sensitive",
+    "classification",
+}
+_UNIT_INTAKE_SIGNALS = {"high_risk", "remote", "sensitive", "multi_party"}
+_SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 @contextmanager
@@ -67,7 +153,11 @@ def unit_lock(unit_dir: Path):
     and the loser's postflight cannot tell, because it only sees that its own
     record landed.
     """
-    with file_lock(unit_dir / UNIT_LOCK_NAME, subject=f"Unit {unit_dir.name}"):
+    with rooted_file_lock(
+        unit_dir,
+        UNIT_LOCK_NAME,
+        subject=f"Unit {unit_dir.name}",
+    ):
         yield
 
 
@@ -96,10 +186,26 @@ def _unit_path_without_symlinks(unit_dir: Path, relative: str) -> Path:
     if relative_path.is_absolute() or ".." in relative_path.parts:
         raise IntegrityError(f"Unit artifact path must stay inside the Unit: {relative}")
     candidate = unit_dir
-    for part in relative_path.parts:
+    for index, part in enumerate(relative_path.parts):
         candidate /= part
-        if candidate.is_symlink():
-            raise IntegrityError(f"Unit artifact path contains a symlink: {relative}")
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise IntegrityError(
+                f"cannot inspect Unit artifact path {relative}: {exc}"
+            ) from exc
+        if metadata_is_path_alias(metadata):
+            raise IntegrityError(
+                f"Unit artifact path contains a symlink or junction: {relative}"
+            )
+        if index < len(relative_path.parts) - 1 and not stat.S_ISDIR(
+            metadata.st_mode
+        ):
+            raise IntegrityError(
+                f"Unit artifact path contains a non-directory parent: {relative}"
+            )
     return candidate
 
 
@@ -163,12 +269,118 @@ def _is_canonical_unit_directory(directory: Path) -> bool:
 def _unit_maximum_agent_level(unit_dir: Path) -> str:
     receipt = _unit_json(unit_dir, "context-receipt.json")
     level = receipt.get("maximum_agent_level")
-    if level not in ALLOWED_AGENT_LEVELS:
+    if not isinstance(level, str) or level not in ALLOWED_AGENT_LEVELS:
         raise IntegrityError(
             "Context Receipt maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
         )
     return str(level)
+
+
+def _string_list_issues(value: Any, *, label: str) -> list[str]:
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        return [f"Unit {label} must be a list of non-empty strings"]
+    return []
+
+
+def _unit_manifest_issues(
+    unit: Any,
+    *,
+    unit_dir: Path | None = None,
+) -> list[str]:
+    if not isinstance(unit, dict):
+        return ["unit.json must be an object"]
+    issues: list[str] = []
+    missing = sorted(UNIT_MANIFEST_REQUIRED_FIELDS - unit.keys())
+    if missing:
+        issues.append("Unit manifest missing fields: " + ", ".join(missing))
+
+    unit_id = unit.get("id")
+    if not isinstance(unit_id, str) or CANONICAL_UNIT_ID.fullmatch(unit_id) is None:
+        issues.append("Unit id must use the canonical UNIT-YYYYMMDD-<UUID> format")
+    elif unit_dir is not None and unit_id.casefold() != unit_dir.name.casefold():
+        issues.append("Unit directory name does not match its canonical Unit id")
+
+    for field in (
+        "catalog_entry",
+        "title",
+        "project_id",
+        "phase",
+        "status",
+        "owner",
+        "scope",
+        "goal",
+        "foundation_version",
+    ):
+        if not isinstance(unit.get(field), str) or not unit.get(field, "").strip():
+            issues.append(f"Unit {field} must be a non-empty string")
+    if not isinstance(unit.get("expected_outcome"), str):
+        issues.append("Unit expected_outcome must be a string")
+    if not isinstance(unit.get("intent_source"), str) or unit.get(
+        "intent_source"
+    ) not in {"direct-request", "host-goal"}:
+        issues.append("Unit intent_source is invalid")
+    if not isinstance(unit.get("document_language"), str) or unit.get(
+        "document_language"
+    ) not in {"ko", "en"}:
+        issues.append("Unit document_language must be ko or en")
+    for field in ("work_scope", "constraints", "acceptance_criteria"):
+        issues.extend(_string_list_issues(unit.get(field), label=field))
+    foundation_digest = unit.get("foundation_digest")
+    if (
+        not isinstance(foundation_digest, str)
+        or _SHA256_DIGEST.fullmatch(foundation_digest) is None
+    ):
+        issues.append("Unit foundation_digest must be a SHA-256 digest")
+    if "updated_at" in unit and _parse_iso_timestamp(unit.get("updated_at")) is None:
+        issues.append("Unit updated_at must be an ISO-8601 timestamp")
+
+    intake = unit.get("intake")
+    if not isinstance(intake, dict):
+        issues.append("Unit intake must be an object")
+    else:
+        missing_intake = sorted(_UNIT_INTAKE_REQUIRED_FIELDS - intake.keys())
+        if missing_intake:
+            issues.append(
+                "Unit intake missing fields: " + ", ".join(missing_intake)
+            )
+        if not isinstance(intake.get("change"), str) or intake.get(
+            "change"
+        ) not in {"none", "local", "persistent"}:
+            issues.append("Unit intake change is invalid")
+        if not isinstance(intake.get("risk"), str) or intake.get("risk") not in {
+            "low",
+            "high",
+        }:
+            issues.append("Unit intake risk is invalid")
+        for field in ("ambiguous", "multi_party", "remote", "sensitive"):
+            if not isinstance(intake.get(field), bool):
+                issues.append(f"Unit intake {field} must be boolean")
+        classification = intake.get("classification")
+        if not isinstance(classification, dict):
+            issues.append("Unit intake classification must be an object")
+        else:
+            if not isinstance(
+                classification.get("change_source"), str
+            ) or classification.get("change_source") not in {
+                "declared",
+                "inferred",
+            }:
+                issues.append("Unit intake classification change_source is invalid")
+            inferred_signals = classification.get("inferred_signals")
+            if (
+                not isinstance(inferred_signals, list)
+                or any(
+                    not isinstance(signal, str)
+                    or signal not in _UNIT_INTAKE_SIGNALS
+                    for signal in inferred_signals
+                )
+                or len(set(inferred_signals)) != len(inferred_signals)
+            ):
+                issues.append("Unit intake classification inferred_signals is invalid")
+    return issues
 
 
 def _unit_preflight_issues(unit_dir: Path) -> list[str]:
@@ -186,6 +398,7 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         unit = _unit_json(unit_dir, "unit.json")
     except IntegrityError as exc:
         return [str(exc)]
+    issues.extend(_unit_manifest_issues(unit, unit_dir=unit_dir))
     catalog_entry = unit.get("catalog_entry")
     if not isinstance(catalog_entry, str) or not catalog_entry.strip():
         issues.append("Unit catalog_entry is missing")
@@ -227,7 +440,10 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
             re.match(r"^[A-Za-z]:", portable_source)
         )
         source_base = receipt.get("source_manifest_base")
-        if source_base not in {None, "unit", "absolute"}:
+        if source_base is not None and (
+            not isinstance(source_base, str)
+            or source_base not in {"unit", "absolute"}
+        ):
             issues.append("Context Receipt has an unsupported source_manifest_base")
         elif source_base == "unit" and source_is_absolute:
             issues.append(
@@ -238,7 +454,10 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
                 "Context Receipt absolute source_manifest must be absolute"
             )
     maximum_agent_level = receipt.get("maximum_agent_level")
-    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+    if (
+        not isinstance(maximum_agent_level, str)
+        or maximum_agent_level not in ALLOWED_AGENT_LEVELS
+    ):
         issues.append(
             "Context Receipt maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))

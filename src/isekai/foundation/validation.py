@@ -15,7 +15,7 @@ from .types import (
     FoundationRelease,
 )
 from ..support.files import UnsafeControlFile, read_control_file
-from ..support.jsonio import write_json_atomic
+from ..support.jsonio import UnsafeWritePath, write_json_atomic, write_json_atomic_beneath
 
 
 def _load_json(
@@ -52,19 +52,13 @@ def _write_json(
 ) -> None:
     if root is not None:
         try:
-            read_control_file(
-                path,
-                root=root,
-                label="Foundation control write target",
-            )
-        except FileNotFoundError:
-            # Opening a missing leaf still validates every existing parent on
-            # openat-capable platforms. The atomic writer may now create it.
-            pass
-        except (OSError, UnsafeControlFile) as exc:
+            relative = path.relative_to(root)
+            write_json_atomic_beneath(root, relative, value)
+        except (ValueError, UnsafeWritePath) as exc:
             raise FoundationError(
                 f"unsafe Foundation control write target {path}: {exc}"
             ) from exc
+        return
     write_json_atomic(path, value)
 
 
@@ -177,7 +171,11 @@ def _require_condition_strings(condition: dict[str, Any], fields: set[str], rule
 
 
 def _validate_condition(condition: Any, rule_id: str) -> None:
-    if not isinstance(condition, dict) or condition.get("type") not in CONDITION_TYPES:
+    if (
+        not isinstance(condition, dict)
+        or not isinstance(condition.get("type"), str)
+        or condition.get("type") not in CONDITION_TYPES
+    ):
         raise FoundationError(f"{rule_id} has an unsupported condition")
     condition_type = condition["type"]
     if condition_type == "extension-cannot-weaken-must":
@@ -290,7 +288,11 @@ def _validate_rules(asset: dict[str, Any]) -> None:
         if rule["id"] in seen:
             raise FoundationError(f"duplicate rule id: {rule['id']}")
         seen.add(rule["id"])
-        if rule.get("level") not in {"MUST", "SHOULD", "MAY"}:
+        if not isinstance(rule.get("level"), str) or rule.get("level") not in {
+            "MUST",
+            "SHOULD",
+            "MAY",
+        }:
             raise FoundationError(f"{rule['id']} has an invalid level")
         _validate_rule_metadata(rule, rule["id"])
         condition = rule.get("condition")
@@ -331,7 +333,9 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
     elif kind == "rule-set":
         _validate_rules(asset)
     elif kind == "policy":
-        if content.get("effect") not in {"allow", "deny"}:
+        if not isinstance(content.get("effect"), str) or content.get(
+            "effect"
+        ) not in {"allow", "deny"}:
             raise FoundationError(f"{asset['id']} has an invalid policy effect")
         if not isinstance(content.get("when"), dict):
             raise FoundationError(f"{asset['id']} requires a policy condition")
@@ -357,7 +361,9 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
                     raise FoundationError(
                         f"{asset['id']} entry {field} must be a non-empty string"
                     )
-            if entry.get("status") not in ALLOWED_STATUSES:
+            if not isinstance(entry.get("status"), str) or entry.get(
+                "status"
+            ) not in ALLOWED_STATUSES:
                 raise FoundationError(f"{asset['id']} entry has an invalid status")
             _validate_provenance_record(entry["provenance"], f"{asset['id']} entry provenance")
             effective_from = _parse_timestamp(entry["effective_from"], f"{asset['id']} entry effective_from")
@@ -386,7 +392,10 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
     elif kind == "evaluation":
         if content.get("visibility") != "evaluation-only":
             raise FoundationError(f"{asset['id']} must be evaluation-only")
-        if asset["id"] != "routing-evaluation" and content.get("evaluator") not in EVALUATOR_TYPES:
+        if asset["id"] != "routing-evaluation" and (
+            not isinstance(content.get("evaluator"), str)
+            or content.get("evaluator") not in EVALUATOR_TYPES
+        ):
             raise FoundationError(f"{asset['id']} requires a supported evaluator")
         cases = content.get("cases")
         if not isinstance(cases, list) or not cases:
@@ -395,20 +404,48 @@ def _validate_asset_specific(root: Path, asset: dict[str, Any]) -> None:
         for case in cases:
             if not isinstance(case, dict) or not isinstance(case.get("id"), str) or not isinstance(case.get("input"), dict) or "expected" not in case:
                 raise FoundationError(f"{asset['id']} has an invalid evaluation case")
-            if asset["id"] != "routing-evaluation" and case["expected"] not in {"pass", "fail"}:
+            if asset["id"] != "routing-evaluation" and (
+                not isinstance(case["expected"], str)
+                or case["expected"] not in {"pass", "fail"}
+            ):
                 raise FoundationError(f"{asset['id']} evaluation expected must be pass or fail")
             if case["id"] in ids:
                 raise FoundationError(f"{asset['id']} has duplicate evaluation case: {case['id']}")
             ids.add(case["id"])
     elif kind.endswith("-contract"):
         _require_fields(content, {"contract_version", "references", "rules"}, asset["id"])
-        if not isinstance(content["references"], list) or not isinstance(content["rules"], list) or not content["rules"]:
+        if (
+            not isinstance(content["references"], list)
+            or any(
+                not isinstance(reference, str) or not reference.strip()
+                for reference in content["references"]
+            )
+            or not isinstance(content["rules"], list)
+            or not content["rules"]
+        ):
             raise FoundationError(f"{asset['id']} requires references and rules")
         for rule in content["rules"]:
-            if not isinstance(rule, dict) or not isinstance(rule.get("id"), str) or rule.get("level") not in {"MUST", "SHOULD", "MAY"} or not isinstance(rule.get("condition"), dict):
+            if (
+                not isinstance(rule, dict)
+                or not isinstance(rule.get("id"), str)
+                or not isinstance(rule.get("level"), str)
+                or rule.get("level") not in {"MUST", "SHOULD", "MAY"}
+                or not isinstance(rule.get("condition"), dict)
+            ):
                 raise FoundationError(f"{asset['id']} contract rules require id, level, and condition")
             _validate_rule_metadata(rule, f"{asset['id']} rule {rule.get('id', '<unknown>')}")
             _validate_condition(rule["condition"], rule["id"])
+        if asset["id"] == "human-gate-contract":
+            gates = content.get("gates")
+            if not isinstance(gates, list) or not gates or any(
+                not isinstance(gate, dict)
+                or not isinstance(gate.get("id"), str)
+                or not gate["id"].strip()
+                for gate in gates
+            ):
+                raise FoundationError(
+                    "human-gate-contract requires gates with non-empty ids"
+                )
 
 
 def _validate_knowledge_promotion_contracts(
@@ -479,6 +516,10 @@ def _validate_cross_references(assets: dict[str, dict[str, Any]]) -> None:
         if not isinstance(content_refs, list):
             raise FoundationError(f"{asset['id']} content references must be a list")
         for reference in content_refs:
+            if not isinstance(reference, str) or not reference.strip():
+                raise FoundationError(
+                    f"{asset['id']} content references must contain asset ids"
+                )
             if reference not in assets:
                 raise FoundationError(f"{asset['id']} references unknown contract asset: {reference}")
         rules = asset.get("content", {}).get("rules", [])
@@ -496,7 +537,13 @@ def _validate_cross_references(assets: dict[str, dict[str, Any]]) -> None:
     if gate_matrix is None or human_gate is None:
         raise FoundationError("Foundation requires a versioned gate-matrix and human-gate-contract")
     matrix_ids = {gate["id"] for gate in gate_matrix["content"]["gates"]}
-    declared_gates = {gate.get("id") for gate in human_gate["content"].get("gates", []) if isinstance(gate, dict)}
+    human_gates = human_gate["content"].get("gates")
+    if not isinstance(human_gates, list) or any(
+        not isinstance(gate, dict) or not isinstance(gate.get("id"), str)
+        for gate in human_gates
+    ):
+        raise FoundationError("human-gate-contract has invalid gates")
+    declared_gates = {gate["id"] for gate in human_gates}
     if matrix_ids != declared_gates:
         raise FoundationError("human-gate-contract gates must match gate-matrix")
     _validate_knowledge_promotion_contracts(assets)
@@ -511,7 +558,9 @@ def _load_foundation_documents(
     _require_fields(manifest, {"id", "kind", "version", "status", "owner", "artifacts"}, "release")
     if manifest["kind"] != "foundation-release":
         raise FoundationError("release kind must be foundation-release")
-    if manifest["status"] not in ALLOWED_STATUSES:
+    if not isinstance(manifest["status"], str) or manifest[
+        "status"
+    ] not in ALLOWED_STATUSES:
         raise FoundationError("release has an invalid status")
     if not isinstance(manifest["id"], str) or not manifest["id"].strip():
         raise FoundationError("release id must be a non-empty string")
@@ -528,7 +577,9 @@ def _load_foundation_documents(
         asset_id = descriptor["id"]
         if not isinstance(asset_id, str) or not asset_id:
             raise FoundationError("artifact id must be a non-empty string")
-        if descriptor["kind"] not in ALLOWED_ASSET_KINDS:
+        if not isinstance(descriptor["kind"], str) or descriptor[
+            "kind"
+        ] not in ALLOWED_ASSET_KINDS:
             raise FoundationError(f"{asset_id} has an unknown asset kind: {descriptor['kind']}")
         if asset_id in assets:
             raise FoundationError(f"duplicate artifact id: {asset_id}")
@@ -552,7 +603,9 @@ def _load_foundation_documents(
         for key in ("id", "kind", "version"):
             if asset[key] != descriptor[key]:
                 raise FoundationError(f"{asset_id} descriptor mismatch: {key}")
-        if asset["status"] not in ALLOWED_STATUSES:
+        if not isinstance(asset["status"], str) or asset[
+            "status"
+        ] not in ALLOWED_STATUSES:
             raise FoundationError(f"{asset_id} has an invalid status")
         _validate_provenance(asset)
         _validate_asset_specific(foundation_root, asset)
@@ -571,4 +624,9 @@ def load_foundation(root: str | Path) -> FoundationRelease:
 
 def validate_context(context: dict[str, Any]) -> bool:
     required = {"project_id", "route", "rules", "profiles", "extensions"}
-    return isinstance(context, dict) and required <= context.keys() and context["route"] in {"query", "quick-change", "unit"}
+    return (
+        isinstance(context, dict)
+        and required <= context.keys()
+        and isinstance(context["route"], str)
+        and context["route"] in {"query", "quick-change", "unit"}
+    )

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import stat
 from pathlib import Path
 from typing import Any
 
+from ..support.files import metadata_is_path_alias
 from .release import (
     LOCK_NAME,
     LOCK_SCHEMA_VERSION,
@@ -106,7 +108,7 @@ def _install_lock_issues(lock: object) -> list[str]:
             source_digest=True,
         )
     )
-    catalog_lock = lock.get("entries")
+    catalog_lock = lock.get("catalog")
     if catalog_lock is not None:
         issues.extend(
             _component_lock_issues(
@@ -224,10 +226,22 @@ def _project_path_without_symlinks(
     project_root: Path, relative: Path, *, label: str
 ) -> Path:
     lexical = project_root
-    for part in relative.parts:
+    for index, part in enumerate(relative.parts):
         lexical = lexical / part
-        if lexical.is_symlink():
-            raise DistributionError(f"{label} contains a symlink: {relative}")
+        try:
+            metadata = lexical.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise DistributionError(f"cannot inspect {label}: {relative}: {exc}") from exc
+        if metadata_is_path_alias(metadata):
+            raise DistributionError(
+                f"{label} contains a symlink or junction: {relative}"
+            )
+        if index < len(relative.parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
+            raise DistributionError(
+                f"{label} contains a non-directory parent: {relative}"
+            )
     return lexical
 
 

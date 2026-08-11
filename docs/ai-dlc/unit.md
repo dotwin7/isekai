@@ -183,7 +183,7 @@ Evidence 기록 요청의 command 항목에는 `prove`가 반환한 `authorizati
 
 macOS Seatbelt는 PID namespace를 제공하지 않으므로 command가 의도적으로 새 session을 만들고 daemonize하면 즉시 process-group 정리를 벗어날 수 있다. 이 후손도 상속한 Seatbelt·hard resource policy를 유지하지만, 적대적 code의 완전한 process-lifetime 격리는 Linux Bubblewrap 또는 별도 VM/원격 sandbox를 요구한다.
 
-Sandbox 계약에는 알려진 예외와 한계가 있다. 테스트 실행에 interpreter 환경이 필요하므로 실행 파일이 원본 Project의 `.venv` 안에 있으면 그 runtime root는 read-only로 노출된다. 즉 "원본 Project read 차단"은 `.venv`를 제외한 소스 트리에 적용된다. macOS Seatbelt profile은 allow-default 위에 network·Mach·signal/process-info·file read/write를 선별 차단하는 구조라, 명시적으로 차단하지 않은 리소스 클래스(예: sysctl 조회)와 read root 밖 파일의 metadata 조회는 허용된다. Apple이 `sandbox-exec`를 deprecated 상태로 유지하는 점도 함께 고려해, 적대적 code의 검증은 Linux Bubblewrap 또는 별도 Linux VM에서 실행하는 동일한 Core `prove`를 권장한다. deny-default profile 전환은 로드맵 항목이다.
+Sandbox 계약에는 알려진 예외와 한계가 있다. 테스트 실행에 interpreter 환경이 필요하므로 실행 파일이 원본 Project의 `.venv` 안에 있으면 그 runtime root는 read-only로 노출된다. 즉 "원본 Project read 차단"은 `.venv`를 제외한 소스 트리에 적용된다. macOS Seatbelt profile은 deny-default이며 process 실행·자식 생성, 자기 process 정보, read-only sysctl, 최소 시스템 파일·Runtime·일회용 workspace의 내용 읽기와 일회용 workspace 쓰기만 명시적으로 허용한다. Metadata도 같은 읽기 루트, 그 루트까지의 literal 상위 경로와 실행 파일이 실제로 따라가는 symlink 항목으로 제한한다. CPython의 시간대 초기화에 필요한 `com.apple.system.notification_center` 조회 하나를 제외한 Mach service, 네트워크, 외부 process 접근과 그 밖의 리소스 클래스는 기본 거부된다. Apple이 `sandbox-exec`를 deprecated 상태로 유지하는 점도 함께 고려해, 적대적 code의 검증은 Linux Bubblewrap 또는 별도 Linux VM에서 실행하는 동일한 Core `prove`를 권장한다.
 
 ## Execution Envelope
 

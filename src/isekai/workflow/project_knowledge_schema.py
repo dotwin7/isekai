@@ -85,7 +85,9 @@ def entry_issues(entry: Any, *, released: bool) -> list[str]:
     entry_id = entry.get("id")
     if not isinstance(entry_id, str) or ENTRY_ID.fullmatch(entry_id) is None:
         issues.append("Project Knowledge entry id is invalid")
-    if entry.get("kind") not in PROJECT_KNOWLEDGE_KINDS:
+    if not isinstance(entry.get("kind"), str) or entry.get(
+        "kind"
+    ) not in PROJECT_KNOWLEDGE_KINDS:
         issues.append("Project Knowledge entry kind is invalid")
     for field in ("title", "statement", "owner"):
         if not isinstance(entry.get(field), str) or not entry.get(field, "").strip():
@@ -121,7 +123,9 @@ def entry_issues(entry: Any, *, released: bool) -> list[str]:
     if replaces == entry_id:
         issues.append("Project Knowledge entry cannot replace itself")
     if released:
-        if entry.get("status") not in {"approved", "deprecated"}:
+        if not isinstance(entry.get("status"), str) or entry.get(
+            "status"
+        ) not in {"approved", "deprecated"}:
             issues.append("released Project Knowledge entry has an invalid status")
         for field in ("source_unit_id", "candidate_id", "decision_id"):
             if not _non_empty_string(entry.get(field)):
@@ -597,7 +601,9 @@ def context_issues(context: Any, *, project_id: str) -> list[str]:
             issues.append("Project Knowledge context work_scope must be a list of strings")
         elif len(scopes) != len(set(scopes)):
             issues.append("Project Knowledge context work_scope must not contain duplicates")
-        if selection.get("mode") not in {
+        if not isinstance(selection.get("mode"), str) or selection.get(
+            "mode"
+        ) not in {
             "all-active",
             "literal-prefix-overlap-v1",
         }:

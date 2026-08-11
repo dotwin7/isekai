@@ -346,7 +346,7 @@ uv run python -m isekai distribution-check --root .
 uv run python scripts/live-smoke.py
 ```
 
-설치된 CLI 계약은 `--runtime claude --require-cli` 또는 `--runtime kiro --require-cli`로 검사합니다. 실제 모델 호스트 호출은 비용·인증이 필요하므로 명시적으로 선택합니다: `uv run python scripts/live-smoke.py --runtime codex --host codex`. 검증 범위와 최근 관찰 결과는 [Runtime live smoke](docs/live-smoke.md)에 기록합니다.
+설치된 CLI 계약은 `--runtime claude --require-cli` 또는 `--runtime kiro --require-cli`로 검사합니다. 실제 모델 호스트 호출은 비용·인증이 필요하므로 명시적으로 선택합니다: `uv run python scripts/live-smoke.py --runtime codex --host codex`. 설치·Skill 활성화·동일 세션 자동 intake·완성 Unit Golden Path를 세 Runtime 모두에서 실행하려면 `--runtime all --host all`을 사용합니다. 검증 범위와 최근 관찰 결과는 [Runtime live smoke](docs/live-smoke.md)에 기록합니다.
 
 배포 component가 변경되면 tag를 만들기 전에 manifest를 다시 생성하고 검증합니다.
 

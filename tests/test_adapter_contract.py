@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -165,6 +167,284 @@ def test_live_smoke_writes_digest_bound_surface_evidence(tmp_path: Path) -> None
     ]
 
 
+def test_live_smoke_automates_all_host_sessions_and_golden_path(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_host = """#!__PYTHON__
+import json
+import os
+import sys
+from pathlib import Path
+
+name = Path(sys.argv[0]).name
+args = sys.argv[1:]
+prompt = args[-1] if args else ""
+if "--version" in args:
+    versions = {
+        "codex": "codex-cli 0.147.0",
+        "claude": "claude 2.1.224",
+        "kiro-cli": "kiro-cli 2.16.2",
+    }
+    print(versions[name])
+    raise SystemExit(0)
+if "--help" in args:
+    capabilities = {
+        "codex": (
+            "SESSION_ID --ephemeral --ignore-user-config --json "
+            "--skip-git-repo-check"
+            if "resume" in args
+            else "--ephemeral --ignore-user-config --json --sandbox "
+            "--skip-git-repo-check"
+        ),
+        "claude": (
+            "--no-session-persistence --output-format --permission-mode --print "
+            "--resume --tools --verbose"
+        ),
+        "kiro-cli": (
+            "--agent --no-interactive --require-mcp-startup --resume --trust-tools"
+        ),
+    }
+    print(capabilities[name])
+    raise SystemExit(0)
+if name == "codex" and "resume" in args and "--sandbox" in args:
+    print("exec resume does not accept --sandbox", file=sys.stderr)
+    raise SystemExit(2)
+if ("resume" in args or "--resume" in args) and any(
+    token in prompt.lower() for token in ("isekai", "intake", "runtime_action")
+):
+    print("follow-up prompt leaked the expected orchestration", file=sys.stderr)
+    raise SystemExit(2)
+
+def write_kiro_trace(items):
+    target = os.environ.get("KIRO_ACP_RECORD_PATH")
+    if not target:
+        print("missing KIRO_ACP_RECORD_PATH", file=sys.stderr)
+        raise SystemExit(2)
+    Path(target).write_text(
+        "".join(json.dumps(item) + "\\n" for item in items),
+        encoding="utf-8",
+    )
+
+def kiro_items(action, result):
+    call_id = "call-" + action
+    return [
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {"update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "title": "isekai_core___runtime_action",
+                "status": "pending",
+                "rawInput": {"action": action, "payload": {}},
+            }},
+        },
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {"update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": "completed",
+                "rawOutput": {"action": action, "result": result},
+            }},
+        },
+    ]
+
+if name == "codex":
+    def item(command, action, result):
+        print(json.dumps({
+            "type": "item.completed",
+            "item": {
+                "type": "mcp_tool_call",
+                "name": "runtime_action",
+                "arguments": {"action": action, "payload": {}},
+                "result": json.dumps({"action": action, "result": result}),
+            },
+        }))
+
+    print(json.dumps({"type": "thread.started", "thread_id": "fake-thread"}))
+    if "resume" in args:
+        item(".isekai/bin/isekai runtime intake --project /tmp/project", "intake", {
+            "route": {"route": "query"}, "workflow": {"directive": "direct-response"}
+        })
+    elif "status, resume, and verify" in prompt:
+        item(".isekai/bin/isekai runtime status --project /tmp/golden", "status", {
+            "unit": {"status": "learned"}
+        })
+        item(".isekai/bin/isekai runtime resume --project /tmp/golden", "resume", {
+            "unit": {"status": "learned"}
+        })
+        item(".isekai/bin/isekai runtime verify --unit /tmp/unit", "verify", {
+            "valid": True
+        })
+    else:
+        print(json.dumps({
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "injected Skill activated"},
+        }))
+        item(".isekai/bin/isekai runtime handshake --runtime codex", "handshake", {
+            "compatible": True
+        })
+        item(".isekai/bin/isekai runtime on --project /tmp/project", "on", {
+            "adapter_mode": {"state": "on"}
+        })
+elif name == "claude":
+    print(json.dumps({"type": "system", "session_id": "fake-claude-session"}))
+    def claude_item(command, action, result):
+        print(json.dumps({
+                "type": "assistant",
+                "session_id": "fake-claude-session",
+                "message": {"content": [{
+                    "type": "tool_use",
+                    "name": "mcp__isekai_core__runtime_action",
+                    "input": {"action": action, "payload": {}}
+            }]},
+        }))
+        print(json.dumps({
+            "type": "user",
+            "session_id": "fake-claude-session",
+            "message": {"content": [{
+                "type": "tool_result",
+                "content": json.dumps({"action": action, "result": result}),
+            }]},
+        }))
+    if "--resume" in args:
+        claude_item(".isekai/bin/isekai runtime intake --project /tmp/project", "intake", {
+            "route": {"route": "query"}, "workflow": {"directive": "direct-response"}
+        })
+    elif "status, resume, and verify" in prompt:
+        claude_item(".isekai/bin/isekai runtime status --project /tmp/golden", "status", {
+            "unit": {"status": "learned"}
+        })
+        claude_item(".isekai/bin/isekai runtime resume --project /tmp/golden", "resume", {
+            "unit": {"status": "learned"}
+        })
+        claude_item(".isekai/bin/isekai runtime verify --unit /tmp/unit", "verify", {
+            "valid": True
+        })
+    else:
+        claude_item(".isekai/bin/isekai runtime handshake --runtime claude", "handshake", {
+            "compatible": True
+        })
+        claude_item(".isekai/bin/isekai runtime on --project /tmp/project", "on", {
+            "adapter_mode": {"state": "on"}
+        })
+else:
+    if "--resume" in args:
+        write_kiro_trace(kiro_items("intake", {
+            "route": {"route": "query"},
+            "workflow": {"directive": "direct-response"},
+        }))
+    elif "status, resume, and verify" in prompt:
+        write_kiro_trace([
+            *kiro_items("status", {"unit": {"status": "learned"}}),
+            *kiro_items("resume", {"unit": {"status": "learned"}}),
+            *kiro_items("verify", {"valid": True}),
+        ])
+    else:
+        write_kiro_trace([
+            *kiro_items("handshake", {"compatible": True}),
+            *kiro_items("on", {"adapter_mode": {"state": "on"}}),
+        ])
+    print("ordinary model response without embedded tool evidence")
+""".replace("__PYTHON__", sys.executable)
+    for executable in ("codex", "claude", "kiro-cli"):
+        path = fake_bin / executable
+        path.write_text(fake_host, encoding="utf-8")
+        path.chmod(0o755)
+    environment = dict(os.environ)
+    environment["PATH"] = str(fake_bin) + os.pathsep + environment.get("PATH", "")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/live-smoke.py"),
+            "--runtime",
+            "all",
+            "--host",
+            "all",
+            "--timeout",
+            "30",
+        ],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["passed"] is True
+    assert result["live_hosts_requested"] == ["codex", "claude", "kiro"]
+    assert set(result["live_hosts"]) == {"codex", "claude", "kiro"}
+    assert all(
+        "same-session automatic intake" in host["checks"]
+        and "Golden Unit status/resume/verify valid" in host["checks"]
+        for host in result["live_hosts"].values()
+    )
+    assert {
+        runtime: {
+            stage: evidence["format"]
+            for stage, evidence in host["execution_evidence"].items()
+        }
+        for runtime, host in result["live_hosts"].items()
+    } == {
+        "codex": {
+            "activation": "codex-jsonl",
+            "followup": "codex-jsonl",
+            "golden": "codex-jsonl",
+        },
+        "claude": {
+            "activation": "claude-stream-json",
+            "followup": "claude-stream-json",
+            "golden": "claude-stream-json",
+        },
+        "kiro": {
+            "activation": "kiro-acp-jsonl",
+            "followup": "kiro-acp-jsonl",
+            "golden": "kiro-acp-jsonl",
+        },
+    }
+    assert result["golden_setup"]["doctor"]["ready"] is True
+    assert result["golden_setup"]["verify"]["result"]["valid"] is True
+
+
+def test_kiro_live_evidence_rejects_model_text_without_an_acp_tool_call() -> None:
+    namespace = runpy.run_path(str(ROOT / "scripts/live-smoke.py"))
+    parse = namespace["_kiro_acp_runtime_evidence"]
+    fabricated = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "name": "isekai_core___runtime_action",
+                                "action": "verify",
+                                "result": {"valid": True},
+                            }
+                        ),
+                    },
+                }
+            },
+        }
+    )
+
+    evidence = parse(fabricated)
+
+    assert evidence["mcp_actions"] == []
+    assert evidence["action_results"] == {}
+    assert evidence["completed_calls"] == 0
+
+
 def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
     manifest = read_json(ROOT / "runtime/manifest.json")
 
@@ -316,6 +596,7 @@ def test_runtime_skills_share_conversation_mode_contract() -> None:
         "Use `on` after a new session",
         "The Project has only one Core-bound active Unit for persistent work.",
         "Never use its Envelope to read, edit, or test a sibling Unit.",
+        "invoke lifecycle actions through the connected `isekai-core` MCP `runtime_action` tool",
     ]
     for path in skill_paths:
         content = path.read_text(encoding="utf-8")

@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from isekai.support.files import UnsafeControlFile, inspect_tree_beneath
+
 from .authorization import _authorization_ledger_issues
 from .artifacts import (
     approved_artifact_snapshot_issues,
@@ -23,7 +25,7 @@ from .common import (
     _unit_path_without_symlinks,
     _unit_preflight_issues,
     _unit_text,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .decisions import (
@@ -80,6 +82,14 @@ _HUMAN_DOCUMENT_HEADINGS = {
         "operations.md": "# Operations",
     },
 }
+
+
+def _tree_inventory(unit_dir: Path) -> tuple[list[Path], list[str]]:
+    try:
+        files, _directories = inspect_tree_beneath(unit_dir, label="Unit tree")
+        return files, []
+    except UnsafeControlFile as exc:
+        return [], [str(exc)]
 
 
 def _decision_language_issues(
@@ -156,16 +166,15 @@ def _acceptance_criteria_issues(unit_dir: Path) -> list[str]:
 def _transition_completion_issues(unit_dir: Path, target_status: str) -> list[str]:
     if target_status not in {"releasing", "learned"}:
         return []
+    tree_files, tree_issues = _tree_inventory(unit_dir)
     present = {
-        str(file.relative_to(unit_dir))
-        for file in unit_dir.rglob("*")
-        if file.is_file()
-        and not file.is_symlink()
-        and "__pycache__" not in file.parts
+        file.as_posix()
+        for file in tree_files
+        if "__pycache__" not in file.parts
         and not file.name.startswith(UNIT_LOCK_NAME)
     }
     missing = sorted(UNIT_REQUIRED_FILES - present)
-    issues = (
+    issues = tree_issues + (
         ["required Unit artifacts are missing: " + ", ".join(missing)]
         if missing
         else []
@@ -267,6 +276,10 @@ def transition_unit(path: str | Path, target_status: str) -> dict[str, Any]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise LifecycleError(f"Unit directory does not exist: {unit_dir}")
+    if not isinstance(target_status, str):
+        raise LifecycleError(
+            f"target_status must be one of: {', '.join(LIFECYCLE_STATUSES)}"
+        )
     with unit_lock(unit_dir):
         return _transition_unit_locked(unit_dir, target_status)
 
@@ -393,7 +406,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
         unit["phase"] = STATUS_PHASE[target_status]
         unit["updated_at"] = datetime.now(timezone.utc).isoformat()
         mutation_started = True
-        _write_json(unit_path, unit)
+        _write_unit_json(unit_dir, "unit.json", unit)
         persisted = _unit_json(unit_dir, "unit.json")
         if persisted.get("status") != target_status:
             raise IntegrityError("Unit postflight blocked: lifecycle status was not persisted")
@@ -403,7 +416,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
         snapshots = [(unit_path, unit_before)]
         if envelope_before is not None:
             snapshots.append((envelope_path, envelope_before))
-        _restore_snapshots(snapshots, "Unit transition", exc)
+        _restore_snapshots(snapshots, "Unit transition", exc, root=unit_dir)
         raise
     return {
         "unit_id": unit.get("id"),
@@ -423,16 +436,16 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
 
 
 def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
+    tree_files, tree_issues = _tree_inventory(unit_dir)
+    tree_safe = not tree_issues
     present = {
-        str(file.relative_to(unit_dir))
-        for file in unit_dir.rglob("*")
-        if file.is_file()
-        and not file.is_symlink()
-        and "__pycache__" not in file.parts
+        file.as_posix()
+        for file in tree_files
+        if "__pycache__" not in file.parts
         and not file.name.startswith(UNIT_LOCK_NAME)
     }
     missing = sorted(UNIT_REQUIRED_FILES - present)
-    issues: list[str] = []
+    issues: list[str] = list(tree_issues)
 
     def read_artifact(relative: str) -> dict[str, Any] | None:
         try:
@@ -501,7 +514,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         issues.append("Execution authorization records path contains a symlink")
     elif authorization_records.exists() and not authorization_records.is_dir():
         issues.append("Execution authorization records path must be a directory")
-    elif authorization_records.is_dir():
+    elif tree_safe and authorization_records.is_dir():
         try:
             record_paths = sorted(authorization_records.iterdir())
         except OSError as exc:
@@ -562,13 +575,19 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         issues.append("at least one recorded decision is required")
     elif isinstance(decision_entries, list):
         if decisions is not None:
-            if unit.get("status") in {"awaiting-release-decision", "releasing"}:
+            if isinstance(unit.get("status"), str) and unit.get("status") in {
+                "awaiting-release-decision",
+                "releasing",
+            }:
                 issues.extend(
                     _release_decision_evidence_issues(
                         unit_dir, decisions, unit, require_current=True
                     )
                 )
-            elif unit.get("status") in {"operating", "learned"}:
+            elif isinstance(unit.get("status"), str) and unit.get("status") in {
+                "operating",
+                "learned",
+            }:
                 issues.extend(
                     _release_decision_evidence_issues(
                         unit_dir, decisions, unit, require_current=False
@@ -576,7 +595,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
                 )
 
     status = unit.get("status")
-    if status not in LIFECYCLE_STATUSES:
+    if not isinstance(status, str) or status not in LIFECYCLE_STATUSES:
         issues.append(f"invalid lifecycle status: {status}")
     elif isinstance(status, str):
         issues.extend(status_artifact_readiness_issues(unit_dir, status))
@@ -586,7 +605,11 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
             issues.append(
                 f"status {status} requires an approved {required_gate} Decision"
             )
-    if status in STATUS_PHASE and unit.get("phase") != STATUS_PHASE[status]:
+    if (
+        isinstance(status, str)
+        and status in STATUS_PHASE
+        and unit.get("phase") != STATUS_PHASE[status]
+    ):
         issues.append("Unit phase does not match lifecycle status")
     if checkpoint is not None:
         if checkpoint.get("unit_id") != unit.get("id"):
@@ -625,7 +648,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
         issues.append("verification Evidence records path contains a symlink")
     elif evidence_records.exists() and not evidence_records.is_dir():
         issues.append("verification Evidence records path must be a directory")
-    elif evidence_records.is_dir():
+    elif tree_safe and evidence_records.is_dir():
         try:
             evidence_record_paths = sorted(evidence_records.iterdir())
         except OSError as exc:

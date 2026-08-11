@@ -141,18 +141,23 @@ def test_managed_edit_write_failure_restores_earlier_batch_files(
     first.write_text("FIRST = 'old'\n", encoding="utf-8")
     second.write_text("SECOND = 'old'\n", encoding="utf-8")
     ledger_before = (unit / "execution-authorizations.json").read_bytes()
-    real_write = managed_execution_module.write_bytes_atomic
+    real_write = managed_execution_module._write_managed_bytes
     failed = False
 
-    def fail_second_once(path: Path, content: bytes, **kwargs: object) -> None:
+    def fail_second_once(
+        root: Path,
+        relative: str,
+        content: bytes,
+        **kwargs: object,
+    ) -> None:
         nonlocal failed
-        if path == second and not failed:
+        if root / relative == second and not failed:
             failed = True
             raise OSError("simulated second write failure")
-        real_write(path, content, **kwargs)
+        real_write(root, relative, content, **kwargs)
 
     monkeypatch.setattr(
-        managed_execution_module, "write_bytes_atomic", fail_second_once
+        managed_execution_module, "_write_managed_bytes", fail_second_once
     )
 
     with pytest.raises(OSError, match="simulated second write failure"):
@@ -252,6 +257,9 @@ def test_proof_executes_and_binds_result_to_grant(tmp_path: Path) -> None:
     assert result["execution"]["type"] == "core-proof"
     assert result["execution"]["workspace"] == "disposable-copy"
     assert result["execution"]["sandbox_provider"] == "test-double"
+    assert result["execution"]["sandbox_policy"] == (
+        "provider-deny-default-explicit-allowlist"
+    )
     assert result["execution"]["filesystem_isolation"] == (
         "source-and-user-data-read-denied-write-confined"
     )

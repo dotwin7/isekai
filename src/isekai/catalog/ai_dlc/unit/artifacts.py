@@ -326,7 +326,10 @@ def artifact_snapshot_issues(
     if snapshot.get("type") != "unit-artifact-snapshot":
         issues.append(f"{gate} Decision artifact_snapshot has an invalid type")
     version = snapshot.get("version")
-    if version not in SUPPORTED_ARTIFACT_SNAPSHOT_VERSIONS:
+    if (
+        not isinstance(version, str)
+        or version not in SUPPORTED_ARTIFACT_SNAPSHOT_VERSIONS
+    ):
         issues.append(f"{gate} Decision artifact_snapshot has an unsupported version")
     if snapshot.get("gate") != gate:
         issues.append(f"{gate} Decision artifact_snapshot gate does not match")

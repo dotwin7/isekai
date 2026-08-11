@@ -14,13 +14,14 @@ from ..support.files import (
     metadata_is_path_alias,
     read_control_file,
 )
-from ..support.jsonio import write_json_atomic
-from ..support.locking import file_lock
+from ..support.jsonio import UnsafeWritePath, write_json_atomic_beneath
+from ..support.locking import LockUnavailable, rooted_file_lock
 from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
 from .project import _receipt_source_manifest_path
 from isekai.catalog.ai_dlc.unit.checkpointing import checkpoint_progress_issues
 from isekai.catalog.ai_dlc.unit.common import _unit_json
 from isekai.catalog.ai_dlc.unit.decisions import (
+    LIFECYCLE_STATUSES as _LIFECYCLE_STATUSES,
     TERMINAL_STATUSES as _TERMINAL_STATUSES,
 )
 
@@ -31,6 +32,11 @@ ACTIVE_BINDING_FILE = "active-unit.json"
 ACTIVE_BINDING_LOCK = ".active-unit.lock"
 _EVENT_ACTIONS = {"bind", "detach", "learned", "abandoned"}
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _is_terminal_unit(unit: dict[str, Any]) -> bool:
+    status = unit.get("status")
+    return isinstance(status, str) and status in _TERMINAL_STATUSES
 
 
 def _canonical_digest(value: dict[str, Any]) -> str:
@@ -60,20 +66,13 @@ def _project_value(project_manifest: Path) -> dict[str, Any]:
     return payload
 
 
-def _runtime_directory(project_manifest: Path, *, create: bool) -> Path:
+def _runtime_directory(project_manifest: Path) -> Path:
     root = project_manifest.parent.resolve()
     directory = root / ACTIVE_BINDING_DIRECTORY
     try:
         metadata = directory.lstat()
     except FileNotFoundError:
-        if not create:
-            return directory
-        try:
-            directory.mkdir(mode=0o700)
-        except FileExistsError:
-            metadata = directory.lstat()
-        else:
-            metadata = directory.lstat()
+        return directory
     if metadata_is_path_alias(metadata) or not stat.S_ISDIR(metadata.st_mode):
         raise IntegrityError(
             f"{ACTIVE_BINDING_DIRECTORY} must be a real directory below the Project"
@@ -93,14 +92,29 @@ def _empty_binding(project_id: str) -> dict[str, Any]:
     }
 
 
-def _binding_path(project_manifest: Path, *, create: bool) -> Path:
-    return _runtime_directory(project_manifest, create=create) / ACTIVE_BINDING_FILE
+def _binding_path(project_manifest: Path) -> Path:
+    return _runtime_directory(project_manifest) / ACTIVE_BINDING_FILE
+
+
+@contextmanager
+def _binding_lock(project_manifest: Path) -> Iterator[None]:
+    _runtime_directory(project_manifest)
+    try:
+        with rooted_file_lock(
+            project_manifest.parent,
+            Path(ACTIVE_BINDING_DIRECTORY) / ACTIVE_BINDING_LOCK,
+            subject="Project active Unit binding",
+            parent_mode=0o700,
+        ):
+            yield
+    except LockUnavailable as exc:
+        if "unsafe lock path" in str(exc):
+            raise IntegrityError(str(exc)) from exc
+        raise
 
 
 def _load_binding(project_manifest: Path, project_id: str) -> dict[str, Any]:
-    path = _binding_path(project_manifest, create=False)
-    if not path.exists():
-        return _empty_binding(project_id)
+    path = _binding_path(project_manifest)
     try:
         value = json.loads(
             read_control_file(
@@ -109,6 +123,8 @@ def _load_binding(project_manifest: Path, project_id: str) -> dict[str, Any]:
                 label="active Unit binding",
             ).decode("utf-8")
         )
+    except FileNotFoundError:
+        return _empty_binding(project_id)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, UnsafeControlFile) as exc:
         raise IntegrityError(f"cannot read active Unit binding: {exc}") from exc
     if not isinstance(value, dict):
@@ -123,6 +139,18 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
     if not isinstance(value, dict):
         return ["binding must be an object"]
     issues: list[str] = []
+    required_fields = {
+        "type",
+        "schema_version",
+        "project_id",
+        "active_unit",
+        "generation",
+        "events",
+        "updated_at",
+    }
+    missing_fields = sorted(required_fields - value.keys())
+    if missing_fields:
+        issues.append("binding missing fields: " + ", ".join(missing_fields))
     if value.get("type") != "project-active-unit-binding":
         issues.append("binding has an invalid type")
     if value.get("schema_version") != ACTIVE_BINDING_SCHEMA_VERSION:
@@ -141,7 +169,10 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
                 issues.append("active_unit requires unit_id")
             path = active_unit.get("path")
             path_base = active_unit.get("path_base")
-            if path_base not in {"project", "absolute"}:
+            if not isinstance(path_base, str) or path_base not in {
+                "project",
+                "absolute",
+            }:
                 issues.append("active_unit requires a supported path_base")
             elif not isinstance(path, str) or not path.strip():
                 issues.append("active_unit requires path")
@@ -155,6 +186,7 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
     if not isinstance(events, list):
         return issues + ["binding events must be a list"]
     previous_digest: str | None = None
+    expected_active_unit: dict[str, str] | None = None
     for index, event in enumerate(events):
         if not isinstance(event, dict):
             issues.append(f"binding event {index} must be an object")
@@ -171,7 +203,9 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
         ):
             if not isinstance(event.get(field), str) or not event.get(field, "").strip():
                 issues.append(f"binding event {index} requires {field}")
-        if event.get("action") not in _EVENT_ACTIONS:
+        if not isinstance(event.get("action"), str) or event.get(
+            "action"
+        ) not in _EVENT_ACTIONS:
             issues.append(f"binding event {index} has an invalid action")
         if event.get("action") == "detach":
             attestation = event.get("attestation")
@@ -186,7 +220,10 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
                 issues.append(f"binding event {index} has an invalid attestation")
         event_path = event.get("path")
         event_base = event.get("path_base")
-        if event_base not in {"project", "absolute"}:
+        if not isinstance(event_base, str) or event_base not in {
+            "project",
+            "absolute",
+        }:
             issues.append(f"binding event {index} has an invalid path_base")
         elif isinstance(event_path, str):
             if event_base == "project" and (
@@ -204,8 +241,38 @@ def _binding_issues(value: Any, *, project_id: str) -> list[str]:
             issues.append(f"binding event {index} digest does not match")
         else:
             previous_digest = digest
+        action = event.get("action")
+        locator = {
+            "unit_id": event.get("unit_id"),
+            "path": event.get("path"),
+            "path_base": event.get("path_base"),
+        }
+        if action == "bind":
+            if expected_active_unit is not None:
+                issues.append(
+                    f"binding event {index} binds while another Unit is active"
+                )
+            if all(isinstance(item, str) for item in locator.values()):
+                expected_active_unit = {
+                    key: str(item) for key, item in locator.items()
+                }
+        elif action in {"detach", "learned", "abandoned"}:
+            if expected_active_unit is None:
+                issues.append(
+                    f"binding event {index} closes without an active Unit"
+                )
+            elif locator != expected_active_unit:
+                issues.append(
+                    f"binding event {index} does not match the active Unit"
+                )
+            expected_active_unit = None
     if isinstance(generation, int) and generation != len(events):
         issues.append("binding generation does not match event count")
+    if active_unit != expected_active_unit:
+        issues.append("binding active_unit does not match event history")
+    expected_updated_at = events[-1].get("recorded_at") if events else None
+    if value.get("updated_at") != expected_updated_at:
+        issues.append("binding updated_at does not match event history")
     return issues
 
 
@@ -222,6 +289,9 @@ def _unit_locator(
         path = str(unit)
         path_base = "absolute"
     value = _unit_json(unit, "unit.json")
+    status = value.get("status")
+    if not isinstance(status, str) or status not in _LIFECYCLE_STATUSES:
+        raise WorkflowError("active Unit has an invalid lifecycle status")
     project = _project_value(project_manifest)
     if value.get("project_id") != project.get("id"):
         raise WorkflowError("active Unit project_id does not match selected Project")
@@ -269,9 +339,16 @@ def _active_unit_value(
     )
     if not candidate.is_dir():
         raise IntegrityError(f"bound active Unit does not exist: {candidate}")
-    unit = _unit_json(candidate, "unit.json")
+    try:
+        locator, path_base, unit = _unit_locator(project_manifest, candidate)
+    except WorkflowError as exc:
+        raise IntegrityError(
+            f"bound active Unit has an invalid Project binding: {exc}"
+        ) from exc
     if unit.get("id") != active.get("unit_id"):
         raise IntegrityError("bound active Unit id does not match its Unit artifact")
+    if locator != active.get("path") or path_base != active.get("path_base"):
+        raise IntegrityError("bound active Unit locator is not canonical")
     return candidate, unit
 
 
@@ -290,7 +367,7 @@ def _binding_status(
 ) -> dict[str, Any]:
     active = (
         current is not None
-        and current[1].get("status") not in _TERMINAL_STATUSES
+        and not _is_terminal_unit(current[1])
     )
     return {
         "active": active,
@@ -366,7 +443,16 @@ def _write_event(
     issues = _binding_issues(candidate, project_id=str(binding.get("project_id")))
     if issues:
         raise IntegrityError("active Unit binding update is invalid: " + "; ".join(issues))
-    write_json_atomic(_binding_path(project_manifest, create=True), candidate)
+    try:
+        write_json_atomic_beneath(
+            project_manifest.parent,
+            Path(ACTIVE_BINDING_DIRECTORY) / ACTIVE_BINDING_FILE,
+            candidate,
+            create_parents=True,
+            parent_mode=0o700,
+        )
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
     return candidate
 
 
@@ -375,8 +461,8 @@ def _complete_terminal_binding(
     binding: dict[str, Any],
     current: tuple[Path, dict[str, Any]],
 ) -> dict[str, Any]:
-    status = str(current[1].get("status"))
-    if status not in _TERMINAL_STATUSES:
+    status = current[1].get("status")
+    if not isinstance(status, str) or status not in _TERMINAL_STATUSES:
         raise LifecycleError(
             "active Unit binding can complete only at learned or abandoned"
         )
@@ -402,7 +488,7 @@ def _reconcile_terminal_binding(
     binding: dict[str, Any],
     current: tuple[Path, dict[str, Any]] | None,
 ) -> tuple[dict[str, Any], tuple[Path, dict[str, Any]] | None]:
-    if current is None or current[1].get("status") not in _TERMINAL_STATUSES:
+    if current is None or not _is_terminal_unit(current[1]):
         return binding, current
     return _complete_terminal_binding(project_manifest, binding, current), None
 
@@ -414,20 +500,20 @@ def bind_active_unit(
     actor: str = "runtime-core",
     reason: str = "Continue persistent work in this Unit.",
 ) -> dict[str, Any]:
+    if not isinstance(actor, str) or not actor.strip():
+        raise WorkflowError("active Unit binding actor must be a non-empty string")
+    if not isinstance(reason, str) or not reason.strip():
+        raise WorkflowError("active Unit binding reason must be a non-empty string")
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     locator, path_base, unit_value = _unit_locator(manifest, Path(unit))
-    if unit_value.get("status") in _TERMINAL_STATUSES:
+    if _is_terminal_unit(unit_value):
         return active_unit_binding(manifest)
-    runtime_dir = _runtime_directory(manifest, create=True)
-    with file_lock(
-        runtime_dir / ACTIVE_BINDING_LOCK,
-        subject="Project active Unit binding",
-    ):
+    with _binding_lock(manifest):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
         binding, current = _reconcile_terminal_binding(manifest, binding, current)
-        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
+        if current is not None and not _is_terminal_unit(current[1]):
             if current[0] == Path(unit).expanduser().resolve():
                 return active_unit_binding(manifest)
             raise LifecycleError(
@@ -440,8 +526,8 @@ def bind_active_unit(
             unit_id=str(unit_value.get("id")),
             path=locator,
             path_base=path_base,
-            actor=actor,
-            reason=reason,
+            actor=actor.strip(),
+            reason=reason.strip(),
         )
         _write_event(
             manifest,
@@ -463,15 +549,11 @@ def active_unit_creation_guard(
     """Serialize new Unit creation with the Project's active work boundary."""
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
-    runtime_dir = _runtime_directory(manifest, create=True)
-    with file_lock(
-        runtime_dir / ACTIVE_BINDING_LOCK,
-        subject="Project active Unit binding",
-    ):
+    with _binding_lock(manifest):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
         binding, current = _reconcile_terminal_binding(manifest, binding, current)
-        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
+        if current is not None and not _is_terminal_unit(current[1]):
             raise LifecycleError(
                 f"unit-init blocked by unfinished active Unit {current[1].get('id')}; "
                 "amend it or record active-unit-detach first"
@@ -552,15 +634,11 @@ def active_unit_action_guard(
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     requested = Path(unit).expanduser().resolve()
-    runtime_dir = _runtime_directory(manifest, create=True)
-    with file_lock(
-        runtime_dir / ACTIVE_BINDING_LOCK,
-        subject="Project active Unit binding",
-    ):
+    with _binding_lock(manifest):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
         binding, current = _reconcile_terminal_binding(manifest, binding, current)
-        if current is not None and current[1].get("status") not in _TERMINAL_STATUSES:
+        if current is not None and not _is_terminal_unit(current[1]):
             if current[0] != requested:
                 raise LifecycleError(
                     f"{action} is outside the unfinished active Unit "
@@ -569,7 +647,7 @@ def active_unit_action_guard(
                 )
         else:
             locator, path_base, unit_value = _unit_locator(manifest, requested)
-            if unit_value.get("status") not in _TERMINAL_STATUSES:
+            if not _is_terminal_unit(unit_value):
                 event = _event(
                     binding,
                     action="bind",
@@ -616,19 +694,20 @@ def detach_active_unit(
     requested_by: str,
     reason: str,
 ) -> dict[str, Any]:
-    if not requested_by.strip() or not reason.strip():
+    if (
+        not isinstance(requested_by, str)
+        or not requested_by.strip()
+        or not isinstance(reason, str)
+        or not reason.strip()
+    ):
         raise WorkflowError("active-unit-detach requires requested_by and reason")
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     requested = Path(unit).expanduser().resolve()
-    runtime_dir = _runtime_directory(manifest, create=True)
-    with file_lock(
-        runtime_dir / ACTIVE_BINDING_LOCK,
-        subject="Project active Unit binding",
-    ):
+    with _binding_lock(manifest):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
-        if current is None or current[1].get("status") in _TERMINAL_STATUSES:
+        if current is None or _is_terminal_unit(current[1]):
             raise LifecycleError("Project has no unfinished active Unit to detach")
         if current[0] != requested:
             raise LifecycleError("active-unit-detach unit does not match the active Unit")
@@ -656,11 +735,7 @@ def complete_active_unit(project: str | Path, unit: str | Path) -> dict[str, Any
     manifest = Path(project).expanduser().resolve()
     project_value = _project_value(manifest)
     requested = Path(unit).expanduser().resolve()
-    runtime_dir = _runtime_directory(manifest, create=True)
-    with file_lock(
-        runtime_dir / ACTIVE_BINDING_LOCK,
-        subject="Project active Unit binding",
-    ):
+    with _binding_lock(manifest):
         binding = _load_binding(manifest, str(project_value["id"]))
         current = _active_unit_value(manifest, binding)
         if current is None or current[0] != requested:

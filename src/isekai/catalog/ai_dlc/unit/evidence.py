@@ -8,11 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from isekai.support.errors import (
-    AuthorizationError,
-    EvidenceError,
-    IntegrityError,
-    LifecycleError,
-    PreflightError,
+    AuthorizationError, EvidenceError, IntegrityError, LifecycleError, PreflightError,
 )
 from .common import (
     _parse_iso_timestamp,
@@ -20,7 +16,7 @@ from .common import (
     _unit_maximum_agent_level,
     _unit_path_without_symlinks,
     _unit_preflight_issues,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .proof_receipt import proof_receipt_issues
@@ -57,6 +53,8 @@ EVIDENCE_ALLOWED_STATUSES = {
     "operating",
 }
 EVIDENCE_ID_PATTERN = re.compile(r"EVD-[0-9]{20}")
+
+
 def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
     """Validate optional trust metadata while accepting pre-attestation records."""
     attestation = evidence.get("attestation")
@@ -84,7 +82,8 @@ def _evidence_attestation_issues(evidence: dict[str, Any]) -> list[str]:
         issues.append(
             "verification evidence attestation must disclose the Core identity boundary"
         )
-    if attestation.get("output_digest_verification") not in {
+    output_verification = attestation.get("output_digest_verification")
+    if not isinstance(output_verification, str) or output_verification not in {
         "caller-supplied",
         "core-derived",
         "mixed",
@@ -117,7 +116,7 @@ def _evidence_issues(
     if evidence.get("type") != "verification-evidence":
         issues.append("verification evidence has an invalid type")
     schema_version = evidence.get("schema_version")
-    if schema_version not in {"1.0.0", "1.1.0"}:
+    if not isinstance(schema_version, str) or schema_version not in ("1.0.0", "1.1.0"):
         issues.append("verification evidence has an unsupported schema_version")
     if schema_version == "1.1.0":
         record_digest = evidence.get("record_digest")
@@ -552,7 +551,16 @@ def _persist_evidence_record(
                 "verification Evidence record conflicts with an existing Evidence ID"
             )
         return relative
-    _write_json(target, evidence)
+    try:
+        _write_unit_json(unit_dir, relative, evidence, create_parents=True,
+                         replace_existing=False)
+    except FileExistsError:
+        existing = _unit_json(unit_dir, relative)
+        if _verification_evidence_digest(existing) != expected_digest:
+            raise EvidenceError(
+                "verification Evidence record conflicts with an existing Evidence ID"
+            ) from None
+        return relative
     persisted = _unit_json(unit_dir, relative)
     if _verification_evidence_digest(persisted) != expected_digest:
         raise EvidenceError("verification Evidence record postflight failed")
@@ -590,6 +598,8 @@ def record_evidence(
         raise EvidenceError("scope must be a non-empty string")
     if not isinstance(recorded_by, str) or not recorded_by.strip():
         raise EvidenceError("recorded_by must be a non-empty string")
+    if not isinstance(notes, str):
+        raise EvidenceError("notes must be a string")
 
     with unit_lock(unit_dir):
         return _record_evidence_locked(
@@ -615,7 +625,8 @@ def _record_evidence_locked(
     preflight_issues = _unit_preflight_issues(unit_dir)
     if preflight_issues:
         raise PreflightError("Evidence preflight blocked: " + "; ".join(preflight_issues))
-    if unit.get("status") not in EVIDENCE_ALLOWED_STATUSES:
+    status = unit.get("status")
+    if not isinstance(status, str) or status not in EVIDENCE_ALLOWED_STATUSES:
         raise LifecycleError(
             "Evidence can only be recorded after Construction begins; current status: "
             + str(unit.get("status"))
@@ -726,7 +737,7 @@ def _record_evidence_locked(
         raise EvidenceError("; ".join(issues))
     _archive_current_evidence(unit_dir)
     record_relative = _persist_evidence_record(unit_dir, evidence)
-    _write_json(unit_dir / "evidence/verification.json", evidence)
+    _write_unit_json(unit_dir, "evidence/verification.json", evidence)
     persisted_evidence = _unit_json(unit_dir, "evidence/verification.json")
     if persisted_evidence.get("id") != evidence["id"]:
         raise EvidenceError("Evidence postflight blocked: record was not persisted")

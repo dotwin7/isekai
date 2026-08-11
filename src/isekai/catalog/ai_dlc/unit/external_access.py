@@ -114,7 +114,9 @@ def external_access_policy_issues(value: Any) -> list[str]:
             )
         elif ".." in credential_ref.split("/"):
             issues.append(f"{label} credential_ref cannot contain traversal segments")
-        if entry.get("environment") not in EXTERNAL_ACCESS_ENVIRONMENTS:
+        if not isinstance(entry.get("environment"), str) or entry.get(
+            "environment"
+        ) not in EXTERNAL_ACCESS_ENVIRONMENTS:
             issues.append(f"{label} environment must be development or test")
         if entry.get("scheme") != "https":
             issues.append(f"{label} scheme must be https")

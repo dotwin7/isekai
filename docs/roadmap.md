@@ -79,11 +79,10 @@ L2 이상 실행 권한, 고객 데이터, 장시간 세션이나 중앙 승인�
 
 기준 제품 Unit은 위 항목의 최소 버전이 동작한 뒤 시작한다.
 
-## 알려진 개선 백로그
+## 완료된 개선
 
-리뷰에서 확인된 다음 항목은 각각 별도 Unit으로 진행한다.
-
-1. **macOS Seatbelt deny-default profile 전환.** 현재 allow-default 위 선별 차단 구조를 deny-default 위 선별 허용으로 바꿔 명시하지 않은 리소스 클래스를 기본 차단한다. Runtime별 필요 허용 목록의 회귀 검증이 선행되어야 한다.
+1. **macOS Seatbelt deny-default profile 전환.** 파일 내용은 최소 시스템 파일·Runtime·일회용 workspace 허용 목록으로 제한하고, metadata는 같은 루트의 symlink 해석 범위와 단일 notification service 예외만 명시한다. 그 밖의 리소스 클래스를 기본 차단하고 정책 생성 회귀 테스트, 홈 Project metadata 차단과 실제 macOS 격리 E2E를 검증한다.
+2. **Runtime live-smoke 자동화.** Codex·Claude·Kiro의 opt-in 실제 세션에서 Skill 활성화, 힌트 없는 동일 세션의 자동 intake, 완성 Reference Unit의 status·resume·verify를 연속 검증한다. Codex JSONL, Claude stream JSON과 Kiro ACP JSONL의 실제 MCP event를 Evidence에 결박하며 인증되지 않은 surface 검사는 live baseline으로 승격하지 않는다.
 
 ## MVP 성공 기준
 

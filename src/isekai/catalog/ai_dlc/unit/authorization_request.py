@@ -15,6 +15,21 @@ from .external_access import (
 from isekai.support.scope import scope_pattern_matches
 
 
+def authorization_request_type_issue(
+    target: object,
+    method: object,
+    credential_ref: object,
+) -> str | None:
+    for field, value in (
+        ("target", target),
+        ("method", method),
+        ("credential_ref", credential_ref),
+    ):
+        if value is not None and not isinstance(value, str):
+            return f"{field} must be a string"
+    return None
+
+
 def resolve_authorization_request(
     unit_dir: Path,
     *,
@@ -24,6 +39,9 @@ def resolve_authorization_request(
     credential_ref: str | None,
     envelope: dict[str, Any],
 ) -> tuple[str | None, dict[str, Any] | None, dict[str, str] | None, str | None]:
+    type_issue = authorization_request_type_issue(target, method, credential_ref)
+    if type_issue is not None:
+        return None, None, None, type_issue
     if action == EXTERNAL_API_ACTION:
         request, issue = normalize_external_api_request(
             str(target) if target is not None else "", method, credential_ref

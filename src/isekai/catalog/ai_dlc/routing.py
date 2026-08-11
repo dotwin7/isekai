@@ -53,10 +53,19 @@ class RouteDecision:
 
 
 def classify_work(request: RouteRequest) -> RouteDecision:
-    if request.change not in {"none", "local", "persistent"}:
+    if not isinstance(request, RouteRequest):
+        raise WorkflowError("request must be a RouteRequest")
+    if not isinstance(request.change, str) or request.change not in {
+        "none",
+        "local",
+        "persistent",
+    }:
         raise WorkflowError("change must be one of: none, local, persistent")
-    if request.risk not in {"low", "high"}:
+    if not isinstance(request.risk, str) or request.risk not in {"low", "high"}:
         raise WorkflowError("risk must be one of: low, high")
+    for field in ("ambiguous", "multi_party", "remote", "sensitive"):
+        if not isinstance(getattr(request, field), bool):
+            raise WorkflowError(f"{field} must be boolean")
     reasons: list[str] = []
     if request.change == "persistent":
         reasons.append("persistent change")

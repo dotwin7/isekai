@@ -151,7 +151,9 @@ def _text(value: Any, field: str, *, required: bool = False) -> str:
         if required:
             raise WorkflowError(f"intake field must be non-empty: {field}")
         return ""
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
+        raise WorkflowError(f"intake field must be text: {field}")
+    if not value.strip():
         if required:
             raise WorkflowError(f"intake field must be non-empty: {field}")
         return ""
@@ -361,9 +363,11 @@ def _infer_change(text: str, source: str) -> str:
 
 
 def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise WorkflowError("intake payload must be an object")
     values = dict(payload)
-    source = str(values.get("source", "direct-request"))
-    if source not in INTAKE_SOURCES:
+    source = values.get("source", "direct-request")
+    if not isinstance(source, str) or source not in INTAKE_SOURCES:
         raise WorkflowError(f"intake source must be one of: {', '.join(sorted(INTAKE_SOURCES))}")
     goal = _text(
         values.get("goal", values.get("text", values.get("request"))),
@@ -377,8 +381,9 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
         values.get("acceptance_criteria"), "acceptance_criteria"
     )
     inferred_change = _infer_change(goal, source)
-    change = str(values.get("change") or inferred_change)
-    if change not in CHANGE_VALUES:
+    raw_change = values.get("change")
+    change = inferred_change if raw_change is None else raw_change
+    if not isinstance(change, str) or change not in CHANGE_VALUES:
         raise WorkflowError(f"intake change must be one of: {', '.join(sorted(CHANGE_VALUES))}")
     # Structured callers often keep the short action in ``goal`` and place the
     # consequential system or data in the remaining intent fields.  Scan the
@@ -394,8 +399,8 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
         )
     )
     signals = _infer_context_signals(signal_context)
-    risk = str(values.get("risk", "low"))
-    if risk not in RISK_VALUES:
+    risk = values.get("risk", "low")
+    if not isinstance(risk, str) or risk not in RISK_VALUES:
         raise WorkflowError(f"intake risk must be one of: {', '.join(sorted(RISK_VALUES))}")
     if signals["high_risk"]:
         risk = "high"
@@ -417,8 +422,9 @@ def normalize_intent(payload: Mapping[str, Any]) -> dict[str, Any]:
     )
     change_source = (
         prior_change_source
-        if prior_change_source in {"declared", "inferred"}
-        else ("declared" if values.get("change") else "inferred")
+        if isinstance(prior_change_source, str)
+        and prior_change_source in {"declared", "inferred"}
+        else ("declared" if raw_change is not None else "inferred")
     )
     return {
         "source": source,

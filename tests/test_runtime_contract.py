@@ -134,6 +134,66 @@ def test_runtime_route_rejects_non_boolean_flags(
         )
 
 
+@pytest.mark.parametrize("action", ["evidence", "foundation-evidence"])
+@pytest.mark.parametrize("invalid_value", ["true", 1, []])
+def test_runtime_evidence_rejects_non_boolean_passed(
+    action: str,
+    invalid_value: object,
+) -> None:
+    payload: dict[str, object] = {
+        "passed": invalid_value,
+        "scope": "boolean contract",
+        "recorded_by": "validator",
+    }
+    if action == "evidence":
+        payload.update({"unit": "unused", "commands": []})
+    else:
+        payload["checks"] = []
+
+    with pytest.raises(RuntimeContractError, match="field passed must be boolean"):
+        dispatch(action, payload)
+
+
+@pytest.mark.parametrize("action", ["evidence", "foundation-evidence"])
+def test_runtime_evidence_requires_an_explicit_passed_boolean(action: str) -> None:
+    payload: dict[str, object] = {
+        "scope": "boolean contract",
+        "recorded_by": "validator",
+    }
+    if action == "evidence":
+        payload.update({"unit": "unused", "commands": []})
+    else:
+        payload["checks"] = []
+
+    with pytest.raises(RuntimeContractError, match="missing runtime request field: passed"):
+        dispatch(action, payload)
+
+
+@pytest.mark.parametrize(
+    ("action", "payload", "field"),
+    [
+        ("handshake", {"runtime": {}, "adapter_version": "1", "protocol_version": "1"}, "runtime"),
+        ("route", {"change": ["persistent"]}, "change"),
+        (
+            "foundation-decision",
+            {"outcome": ["approved"], "summary": "ok", "decided_by": "reviewer"},
+            "outcome",
+        ),
+        ("transition", {"unit": 1, "to": "construction"}, "unit"),
+    ],
+)
+def test_runtime_rejects_non_string_string_fields(
+    action: str,
+    payload: dict[str, object],
+    field: str,
+) -> None:
+    with pytest.raises(
+        RuntimeContractError,
+        match=rf"runtime request field {field} must be a string",
+    ):
+        dispatch(action, payload)
+
+
 def test_runtime_unit_migrate_is_idempotent_for_portable_receipt(
     tmp_path: Path,
 ) -> None:

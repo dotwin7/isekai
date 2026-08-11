@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import platform
 import socket
 import subprocess
 import sys
@@ -64,14 +66,26 @@ def test_macos_provider_allows_only_declared_reads_and_temp_writes(
 
     profile = invocation.argv[2]
     assert invocation.provider == "macos-seatbelt"
-    assert "(allow default)" in profile
-    assert "(deny network*)" in profile
-    assert "(deny mach-lookup)" in profile
-    assert "(deny mach-register)" in profile
-    assert "(deny signal (require-not (target self)))" in profile
-    assert "(deny process-info* (require-not (target self)))" in profile
-    assert "(deny file-read-data (require-not" in profile
-    assert "(deny file-write* (require-not" in profile
+    assert invocation.sandbox_policy == "seatbelt-deny-default-explicit-allowlist"
+    assert "(deny default)" in profile
+    assert "(allow default)" not in profile
+    assert "(allow network" not in profile
+    assert profile.count("(allow mach-lookup") == 1
+    assert "com.apple.system.notification_center" in profile
+    assert "(allow mach-register" not in profile
+    assert "(allow signal (target self))" in profile
+    assert "(allow process-info* (target self))" in profile
+    assert "(allow file-read-metadata (require-any" in profile
+    assert "(allow file-read-metadata)" not in profile
+    assert "(allow file-read-data (require-any" in profile
+    assert "(allow file-map-executable (require-any" in profile
+    assert "(allow file-write* (require-any" in profile
+    assert '(subpath "/dev")' not in profile
+    assert '(literal "/dev/null")' in profile
+    assert '(subpath "/Library")' not in profile
+    assert '(subpath "/private/etc")' not in profile
+    assert '(subpath "/private/var/db")' not in profile
+    assert '(subpath "/private/var/db/timezone")' in profile
     assert json.dumps(str(tmp_path)) in profile
     assert json.dumps(str(tmp_path.parent / "source-project")) not in profile
     assert str(tmp_path.parent / "outside") not in profile
@@ -85,6 +99,80 @@ def test_macos_provider_allows_only_declared_reads_and_temp_writes(
         "processes": PROOF_PROCESSES,
         "core_dump_bytes": 0,
     }
+
+
+@pytest.mark.skipif(
+    platform.system() != "Darwin" or not sandbox_available(),
+    reason="requires the macOS Seatbelt provider",
+)
+def test_real_macos_sandbox_hides_home_project_metadata(tmp_path: Path) -> None:
+    source_project = Path(__file__).resolve().parents[1]
+    source_file = source_project / "README.md"
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    program = (
+        "from pathlib import Path; import sys; "
+        "\ntry:\n Path(sys.argv[1]).stat(); blocked=False"
+        "\nexcept OSError:\n blocked=True"
+        "\nprint('blocked' if blocked else 'visible')"
+        "\nraise SystemExit(0 if blocked else 3)"
+    )
+    invocation = _macos_invocation(
+        [sys.executable, "-c", program, str(source_file)],
+        temp_root=tmp_path,
+        workspace=workspace,
+        source_project=source_project,
+        environment=os.environ,
+    )
+
+    completed = subprocess.run(
+        invocation.argv,
+        cwd=workspace,
+        env=invocation.environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "blocked"
+
+
+def test_macos_provider_preflight_uses_the_deny_default_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[str] = []
+    monkeypatch.setattr(
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.platform.system",
+        lambda: "Darwin",
+    )
+    monkeypatch.setattr(
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
+        lambda name, **_kwargs: (
+            "/usr/bin/sandbox-exec" if name == "sandbox-exec" else None
+        ),
+    )
+
+    def probe(command: list[str]) -> tuple[bool, str | None]:
+        observed.extend(command)
+        return True, None
+
+    monkeypatch.setattr(
+        "isekai.catalog.ai_dlc.unit.proof_sandbox._probe",
+        probe,
+    )
+
+    status = sandbox_status()
+
+    assert status == {
+        "ready": True,
+        "provider": "macos-seatbelt",
+        "issue": None,
+    }
+    profile = observed[observed.index("-p") + 1]
+    assert "(deny default)" in profile
+    assert "(allow default)" not in profile
 
 
 def test_linux_provider_unshares_network_and_binds_only_declared_roots(
@@ -249,6 +337,16 @@ try:
 except OSError:
     external_read_blocked = True
 try:
+    source_file.stat()
+    source_metadata_blocked = False
+except OSError:
+    source_metadata_blocked = True
+try:
+    external_file.stat()
+    external_metadata_blocked = False
+except OSError:
+    external_metadata_blocked = True
+try:
     outside.write_text('escaped')
     write_blocked = False
 except OSError:
@@ -288,6 +386,8 @@ resource_limits_enforced = all((
 print(json.dumps({
     'read_blocked': read_blocked,
     'external_read_blocked': external_read_blocked,
+    'source_metadata_blocked': source_metadata_blocked,
+    'external_metadata_blocked': external_metadata_blocked,
     'write_blocked': write_blocked,
     'symlink_blocked': symlink_blocked,
     'hardlink_blocked': hardlink_blocked,
@@ -298,6 +398,8 @@ print(json.dumps({
 raise SystemExit(0 if all((
     read_blocked,
     external_read_blocked,
+    source_metadata_blocked,
+    external_metadata_blocked,
     write_blocked,
     symlink_blocked,
     hardlink_blocked,
@@ -335,6 +437,8 @@ raise SystemExit(0 if all((
     assert json.loads(result["stdout"]) == {
         "read_blocked": True,
         "external_read_blocked": True,
+        "source_metadata_blocked": True,
+        "external_metadata_blocked": True,
         "write_blocked": True,
         "symlink_blocked": True,
         "hardlink_blocked": True,

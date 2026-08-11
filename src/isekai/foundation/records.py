@@ -87,7 +87,9 @@ def _foundation_decision_issues(
         and re.fullmatch(r"sha256:[0-9a-f]{64}", approval_digest)
     ):
         issues.append("Foundation Decision approval_digest must be a SHA-256 digest")
-    if decision.get("outcome") not in {"approved", "rejected"}:
+    if not isinstance(decision.get("outcome"), str) or decision.get(
+        "outcome"
+    ) not in {"approved", "rejected"}:
         issues.append("Foundation Decision has an invalid outcome")
     if decision.get("type") != "foundation-release-decision":
         issues.append("Foundation Decision has an invalid type")

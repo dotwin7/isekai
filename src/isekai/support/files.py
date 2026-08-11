@@ -151,3 +151,154 @@ def read_control_file(
     """Read a stable, single-link regular file below a trusted root."""
     content, _ = read_control_file_snapshot(path, root=root, label=label)
     return content
+
+
+def inspect_tree_beneath(
+    root: str | Path,
+    *,
+    label: str = "managed tree",
+    strict: bool = True,
+) -> tuple[list[Path], list[Path]]:
+    """List regular files and directories without traversing path aliases.
+
+    Returned paths are relative to ``root``. In strict mode files must be
+    single-link regular files and aliases/special files fail closed. Non-strict
+    mode safely omits those entries without traversing them.
+    """
+
+    trusted_root = _absolute(Path(root).expanduser())
+    try:
+        root_metadata = trusted_root.lstat()
+    except OSError as exc:
+        raise UnsafeControlFile(f"cannot inspect {label} root: {trusted_root}") from exc
+    if metadata_is_path_alias(root_metadata) or not stat.S_ISDIR(root_metadata.st_mode):
+        raise UnsafeControlFile(f"{label} root must be a real directory: {trusted_root}")
+
+    files: list[Path] = []
+    directories: list[Path] = []
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    descriptor_walk = (
+        bool(nofollow)
+        and os.open in getattr(os, "supports_dir_fd", set())
+        and os.stat in getattr(os, "supports_dir_fd", set())
+        and os.listdir in getattr(os, "supports_fd", set())
+    )
+
+    if descriptor_walk:
+        try:
+            root_descriptor = os.open(
+                trusted_root,
+                os.O_RDONLY | directory_flag | nofollow | cloexec,
+            )
+        except OSError as exc:
+            raise UnsafeControlFile(f"cannot safely open {label} root") from exc
+
+        def visit(descriptor: int, relative: Path) -> None:
+            try:
+                names = sorted(os.listdir(descriptor))
+            except OSError as exc:
+                raise UnsafeControlFile(f"cannot list {label}: {relative}") from exc
+            for name in names:
+                child_relative = relative / name
+                try:
+                    metadata = os.stat(
+                        name,
+                        dir_fd=descriptor,
+                        follow_symlinks=False,
+                    )
+                except OSError as exc:
+                    raise UnsafeControlFile(
+                        f"{label} changed while it was inspected: {child_relative}"
+                    ) from exc
+                if metadata_is_path_alias(metadata):
+                    if not strict:
+                        continue
+                    raise UnsafeControlFile(
+                        f"{label} contains a symlink or junction: {child_relative}"
+                    )
+                if stat.S_ISREG(metadata.st_mode):
+                    if metadata.st_nlink != 1:
+                        if not strict:
+                            continue
+                        raise UnsafeControlFile(
+                            f"{label} contains a hard-linked file; files must be single-link: {child_relative}"
+                        )
+                    files.append(child_relative)
+                    continue
+                if not stat.S_ISDIR(metadata.st_mode):
+                    if not strict:
+                        continue
+                    raise UnsafeControlFile(
+                        f"{label} contains a special file: {child_relative}"
+                    )
+                try:
+                    child_descriptor = os.open(
+                        name,
+                        os.O_RDONLY | directory_flag | nofollow | cloexec,
+                        dir_fd=descriptor,
+                    )
+                except OSError as exc:
+                    raise UnsafeControlFile(
+                        f"{label} directory changed while it was opened: {child_relative}"
+                    ) from exc
+                try:
+                    opened = os.fstat(child_descriptor)
+                    if (opened.st_dev, opened.st_ino) != (
+                        metadata.st_dev,
+                        metadata.st_ino,
+                    ):
+                        raise UnsafeControlFile(
+                            f"{label} directory changed while it was opened: {child_relative}"
+                        )
+                    directories.append(child_relative)
+                    visit(child_descriptor, child_relative)
+                finally:
+                    os.close(child_descriptor)
+
+        try:
+            visit(root_descriptor, Path())
+        finally:
+            os.close(root_descriptor)
+        return files, directories
+
+    def visit_fallback(directory: Path, relative: Path) -> None:
+        try:
+            children = sorted(directory.iterdir(), key=lambda child: child.name)
+        except OSError as exc:
+            raise UnsafeControlFile(f"cannot list {label}: {relative}") from exc
+        for child in children:
+            child_relative = relative / child.name
+            try:
+                metadata = child.lstat()
+            except OSError as exc:
+                raise UnsafeControlFile(
+                    f"{label} changed while it was inspected: {child_relative}"
+                ) from exc
+            if metadata_is_path_alias(metadata):
+                if not strict:
+                    continue
+                raise UnsafeControlFile(
+                    f"{label} contains a symlink or junction: {child_relative}"
+                )
+            if stat.S_ISREG(metadata.st_mode):
+                if metadata.st_nlink != 1:
+                    if not strict:
+                        continue
+                    raise UnsafeControlFile(
+                        f"{label} contains a hard-linked file; files must be single-link: {child_relative}"
+                    )
+                files.append(child_relative)
+            elif stat.S_ISDIR(metadata.st_mode):
+                directories.append(child_relative)
+                visit_fallback(child, child_relative)
+            else:
+                if not strict:
+                    continue
+                raise UnsafeControlFile(
+                    f"{label} contains a special file: {child_relative}"
+                )
+
+    visit_fallback(trusted_root, Path())
+    return files, directories

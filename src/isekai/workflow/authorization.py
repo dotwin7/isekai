@@ -16,6 +16,8 @@ def authorize_action(
     credential_ref: str | None = None,
 ) -> dict[str, Any]:
     """Authorize only actions that can safely remain separate from execution."""
+    if not isinstance(action, str):
+        return {"allowed": False, "reason": "Action must be a string"}
     if action in {"edit", "test"}:
         return {
             "allowed": False,

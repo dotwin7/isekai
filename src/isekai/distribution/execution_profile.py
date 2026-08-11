@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from ..support.files import UnsafeControlFile, read_control_file
-from ..support.jsonio import write_bytes_atomic, write_json_atomic
+from ..support.jsonio import (
+    UnsafeWritePath,
+    unlink_file_beneath,
+    write_bytes_atomic_beneath,
+    write_json_atomic_beneath,
+)
 from .release import DistributionError, MANAGED_ROOT, RUNTIMES
 
 
@@ -29,6 +34,21 @@ CORE_MCP_TOOLS = [
     "prove",
 ]
 _CLAUDE_DENY = ("Edit", "Write", "NotebookEdit", "Bash")
+
+
+def _kiro_agent_contract() -> dict[str, Any]:
+    return {
+        "name": "isekai-core",
+        "description": "ISEKAI Core-exclusive execution profile",
+        "tools": ["read", "@mcp"],
+        "allowedTools": ["read"],
+        "resources": ["skill://.kiro/skills/isekai/SKILL.md"],
+        "includeMcpJson": True,
+        "prompt": (
+            "Use ISEKAI Core MCP for every Unit document write, Project edit, "
+            "and test. Direct write and shell tools are intentionally unavailable."
+        ),
+    }
 
 
 def _project_file(project_root: Path, relative: Path) -> Path:
@@ -128,9 +148,41 @@ def _state(project_root: Path) -> dict[str, Any]:
 
 
 def _write_json(project_root: Path, relative: Path, value: dict[str, Any]) -> None:
-    target = _project_file(project_root, relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(target, value)
+    try:
+        write_json_atomic_beneath(
+            project_root,
+            relative,
+            value,
+            create_parents=True,
+        )
+    except UnsafeWritePath as exc:
+        raise DistributionError(str(exc)) from exc
+
+
+def _write_bytes(
+    project_root: Path,
+    relative: Path,
+    content: bytes,
+    *,
+    mode: int | None = None,
+) -> None:
+    try:
+        write_bytes_atomic_beneath(
+            project_root,
+            relative,
+            content,
+            mode=mode,
+            create_parents=True,
+        )
+    except UnsafeWritePath as exc:
+        raise DistributionError(str(exc)) from exc
+
+
+def _unlink_file(project_root: Path, relative: Path) -> None:
+    try:
+        unlink_file_beneath(project_root, relative, missing_ok=True)
+    except UnsafeWritePath as exc:
+        raise DistributionError(str(exc)) from exc
 
 
 def _merge_mcp_json(
@@ -281,18 +333,7 @@ def _kiro_documents(
     managed: bool = False,
 ) -> dict[Path, bytes]:
     mcp = _merge_mcp_json(project_root, KIRO_MCP, "kiro")
-    expected_agent = {
-        "name": "isekai-core",
-        "description": "ISEKAI Core-exclusive execution profile",
-        "tools": ["read", "@mcp"],
-        "allowedTools": ["read"],
-        "resources": ["skill://.kiro/skills/isekai/SKILL.md"],
-        "includeMcpJson": True,
-        "prompt": (
-            "Use ISEKAI Core MCP for every Unit document write, Project edit, "
-            "and test. Direct write and shell tools are intentionally unavailable."
-        ),
-    }
+    expected_agent = _kiro_agent_contract()
     existing = _read_json(project_root, KIRO_AGENT)
     if existing and existing != expected_agent and not managed:
         raise DistributionError(
@@ -325,7 +366,7 @@ def apply_execution_profile(
 ) -> dict[str, Any]:
     requested = Path(project).expanduser().resolve()
     project_root = requested.parent if requested.is_file() else requested
-    if runtime not in RUNTIMES:
+    if not isinstance(runtime, str) or runtime not in RUNTIMES:
         raise DistributionError(f"unsupported runtime: {runtime}")
     documents = _profile_documents(project_root, runtime)
     attempt_snapshots = [
@@ -343,9 +384,7 @@ def apply_execution_profile(
     written: list[str] = []
     try:
         for relative, content in documents.items():
-            target = _project_file(project_root, relative)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            write_bytes_atomic(target, content)
+            _write_bytes(project_root, relative, content)
             written.append(relative.as_posix())
         _write_json(project_root, PROFILE_STATE, state)
         status = execution_profile_status(project_root, runtime)
@@ -356,11 +395,10 @@ def apply_execution_profile(
             )
     except Exception as exc:
         _restore_profile_snapshots(project_root, attempt_snapshots, exc)
-        state_path = _project_file(project_root, PROFILE_STATE)
         if state_before is None:
-            state_path.unlink(missing_ok=True)
+            _unlink_file(project_root, PROFILE_STATE)
         else:
-            write_bytes_atomic(state_path, state_before)
+            _write_bytes(project_root, PROFILE_STATE, state_before)
         raise
     return {"applied": True, "runtime": runtime, "files": written, **status}
 
@@ -380,19 +418,19 @@ def _restore_profile_snapshots(
             ):
                 raise ValueError("invalid snapshot")
             relative = Path(snapshot["path"])
-            target = _project_file(project_root, relative)
             if snapshot.get("existed") is True:
                 encoded = snapshot.get("content_base64")
                 if not isinstance(encoded, str):
                     raise ValueError("snapshot content is missing")
                 mode = snapshot.get("mode")
-                write_bytes_atomic(
-                    target,
+                _write_bytes(
+                    project_root,
+                    relative,
                     base64.b64decode(encoded, validate=True),
                     mode=mode if isinstance(mode, int) else None,
                 )
             else:
-                target.unlink(missing_ok=True)
+                _unlink_file(project_root, relative)
         except Exception as exc:  # pragma: no cover - secondary failure
             errors.append(str(exc))
     if errors:
@@ -459,8 +497,8 @@ def execution_profile_status(
             ):
                 issues.append("Kiro is not connected to the Project Core gateway")
             agent = _read_json(project_root, KIRO_AGENT)
-            if agent.get("tools") != ["read", "@mcp"]:
-                issues.append("Kiro isekai-core profile exposes direct write tools")
+            if agent != _kiro_agent_contract():
+                issues.append("Kiro isekai-core agent contract is not enforced")
         else:
             issues.append(f"unsupported runtime: {runtime}")
     except (DistributionError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:

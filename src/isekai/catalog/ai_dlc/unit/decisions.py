@@ -21,7 +21,7 @@ from .common import (
     _unit_json,
     _unit_maximum_agent_level,
     _unit_preflight_issues,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .artifacts import (
@@ -227,9 +227,13 @@ def _decision_record_issues(
         issues.append("Decision has an unsupported schema_version")
     if unit_id is not None and decision.get("unit_id") != unit_id:
         issues.append("Decision unit_id does not match Unit")
-    if decision.get("gate") not in DECISION_GATES:
+    if not isinstance(decision.get("gate"), str) or decision.get(
+        "gate"
+    ) not in DECISION_GATES:
         issues.append("Decision has an invalid gate")
-    if decision.get("outcome") not in DECISION_OUTCOMES:
+    if not isinstance(decision.get("outcome"), str) or decision.get(
+        "outcome"
+    ) not in DECISION_OUTCOMES:
         issues.append("Decision has an invalid outcome")
     for field in ("id", "summary", "scope", "decided_by"):
         if not isinstance(decision.get(field), str) or not decision.get(field, "").strip():
@@ -515,11 +519,11 @@ def record_decision(
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
-    if gate not in DECISION_GATES:
+    if not isinstance(gate, str) or gate not in DECISION_GATES:
         raise WorkflowError(f"gate must be one of: {', '.join(DECISION_GATES)}")
     if gate == "amendment":
         raise WorkflowError("use the amend action to record an Amendment Decision")
-    if outcome not in DECISION_OUTCOMES:
+    if not isinstance(outcome, str) or outcome not in DECISION_OUTCOMES:
         raise WorkflowError(f"outcome must be one of: {', '.join(DECISION_OUTCOMES)}")
     if not isinstance(summary, str) or not summary.strip():
         raise WorkflowError("summary must be a non-empty string")
@@ -720,7 +724,7 @@ def record_decision(
         decision["decision_digest"] = _decision_record_digest(decision)
         entries.append(decision)
         decisions["unit_id"] = unit.get("id")
-        _write_json(unit_dir / "decisions.json", decisions)
+        _write_unit_json(unit_dir, "decisions.json", decisions)
         persisted_entries = _unit_json(unit_dir, "decisions.json").get("decisions", [])
         persisted_ids = [entry.get("id") for entry in persisted_entries]
         if persisted_ids != [*preceding_ids, decision["id"]]:

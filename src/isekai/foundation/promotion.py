@@ -34,9 +34,13 @@ from .validation import (
     _write_json,
     load_foundation,
 )
-from ..support.files import UnsafeControlFile, read_control_file
-from ..support.jsonio import write_bytes_atomic
-from ..support.locking import LockUnavailable, file_lock
+from ..support.files import (
+    UnsafeControlFile,
+    read_control_file,
+    read_control_file_snapshot,
+)
+from ..support.jsonio import UnsafeWritePath, write_bytes_atomic_beneath
+from ..support.locking import LockUnavailable, rooted_file_lock
 
 
 def _latest_foundation_decision(
@@ -217,8 +221,9 @@ def record_foundation_decision(
 ) -> dict[str, Any]:
     foundation_root = Path(root).resolve()
     try:
-        with file_lock(
-            foundation_root / FOUNDATION_LOCK_NAME,
+        with rooted_file_lock(
+            foundation_root,
+            FOUNDATION_LOCK_NAME,
             subject="Foundation release",
         ):
             return _record_foundation_decision_locked(
@@ -241,7 +246,7 @@ def _record_foundation_decision_locked(
     foundation = load_foundation(root)
     if foundation.manifest["status"] != "draft":
         raise FoundationError("Foundation Decision can only be recorded for a draft release")
-    if outcome not in {"approved", "rejected"}:
+    if not isinstance(outcome, str) or outcome not in {"approved", "rejected"}:
         raise FoundationError("Foundation Decision outcome must be approved or rejected")
     if not isinstance(summary, str) or not summary.strip():
         raise FoundationError("Foundation Decision summary must be non-empty")
@@ -324,8 +329,9 @@ def record_foundation_evidence(
 ) -> dict[str, Any]:
     foundation_root = Path(root).resolve()
     try:
-        with file_lock(
-            foundation_root / FOUNDATION_LOCK_NAME,
+        with rooted_file_lock(
+            foundation_root,
+            FOUNDATION_LOCK_NAME,
             subject="Foundation release",
         ):
             return _record_foundation_evidence_locked(
@@ -473,9 +479,9 @@ def _json_bytes(value: dict[str, Any]) -> bytes:
 
 
 def _write_staged_json(path: Path, content: bytes, mode: int) -> Path:
-    """Write and fsync a same-directory temporary file without touching its target."""
+    """Write and fsync a private temporary file without touching its target tree."""
     descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".promotion-tmp", dir=path.parent
+        prefix=".isekai-", suffix=".promotion-tmp"
     )
     temporary = Path(temporary_name)
     try:
@@ -490,8 +496,18 @@ def _write_staged_json(path: Path, content: bytes, mode: int) -> Path:
     return temporary
 
 
-def _replace_staged(temporary: Path, target: Path) -> None:
-    os.replace(temporary, target)
+def _replace_staged(temporary: Path, target: Path, *, root: Path) -> None:
+    try:
+        relative = target.relative_to(root)
+        write_bytes_atomic_beneath(
+            root,
+            relative,
+            temporary.read_bytes(),
+            mode=stat.S_IMODE(temporary.stat().st_mode),
+        )
+    except (ValueError, UnsafeWritePath) as exc:
+        raise FoundationError(f"unsafe Foundation promotion target {target}: {exc}") from exc
+    temporary.unlink()
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -502,12 +518,19 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def _restore_original(file: _PromotionFile) -> None:
-    write_bytes_atomic(
-        file.path,
-        file.original_bytes,
-        mode=file.original_mode,
-    )
+def _restore_original(file: _PromotionFile, *, root: Path) -> None:
+    try:
+        relative = file.path.relative_to(root)
+        write_bytes_atomic_beneath(
+            root,
+            relative,
+            file.original_bytes,
+            mode=file.original_mode,
+        )
+    except (ValueError, UnsafeWritePath) as exc:
+        raise FoundationError(
+            f"unsafe Foundation promotion rollback target {file.path}: {exc}"
+        ) from exc
 
 
 def _postflight_promotion(root: Path, expected_count: int) -> dict[str, Any]:
@@ -537,7 +560,7 @@ def _preflight_promotion(
     for target in plan["targets"]:
         path = foundation.root / target["path"]
         try:
-            original_bytes = read_control_file(
+            original_bytes, original_metadata = read_control_file_snapshot(
                 path,
                 root=foundation.root,
                 label="Foundation promotion target",
@@ -564,7 +587,7 @@ def _preflight_promotion(
         files[path] = _PromotionFile(
             path=path,
             original_bytes=original_bytes,
-            original_mode=stat.S_IMODE(path.lstat().st_mode),
+            original_mode=stat.S_IMODE(original_metadata.st_mode),
             new_bytes=b"",
         )
         if target["id"] == manifest["id"]:
@@ -608,12 +631,15 @@ def _preflight_promotion(
 
 
 def promote_foundation(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]:
+    if not isinstance(dry_run, bool):
+        raise FoundationError("dry_run must be boolean")
     foundation_root = Path(root).resolve()
     if dry_run:
         return _promote_foundation_locked(foundation_root, dry_run=True)
     try:
-        with file_lock(
-            foundation_root / FOUNDATION_LOCK_NAME,
+        with rooted_file_lock(
+            foundation_root,
+            FOUNDATION_LOCK_NAME,
             subject="Foundation release",
         ):
             return _promote_foundation_locked(foundation_root, dry_run=False)
@@ -684,7 +710,7 @@ def _promote_foundation_locked(
             )
         commit_started = True
         for temporary, file in staged:
-            _replace_staged(temporary, file.path)
+            _replace_staged(temporary, file.path, root=foundation_root)
         _fsync_directory(foundation_root)
         postflight = _postflight_promotion(foundation_root, plan["target_count"])
         return {
@@ -699,7 +725,7 @@ def _promote_foundation_locked(
         if commit_started:
             for file in ordered_files:
                 try:
-                    _restore_original(file)
+                    _restore_original(file, root=foundation_root)
                 except Exception as rollback_exc:  # pragma: no cover - filesystem failure path
                     rollback_errors.append(str(rollback_exc))
             try:

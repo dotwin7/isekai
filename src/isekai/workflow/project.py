@@ -17,6 +17,13 @@ from ..foundation import (
     validate_rule_definition,
 )
 from ..support.files import UnsafeControlFile, read_control_file
+from ..support.jsonio import (
+    UnsafeWritePath,
+    ensure_directory_beneath,
+    remove_empty_directory_beneath,
+    unlink_file_beneath,
+    write_json_atomic_beneath,
+)
 from isekai.support.errors import WorkflowError
 from isekai.catalog.ai_dlc.routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
@@ -236,7 +243,11 @@ def _load_project_extension(
         raise FoundationError(f"project extension descriptor mismatch: {asset_id}")
     if asset["kind"] != "extension":
         raise FoundationError(f"project asset {asset_id} kind must be extension")
-    if asset["status"] not in {"draft", "approved", "deprecated"}:
+    if not isinstance(asset["status"], str) or asset["status"] not in {
+        "draft",
+        "approved",
+        "deprecated",
+    }:
         raise FoundationError(f"project extension {asset_id} has an invalid status")
     content = asset["content"]
     if not isinstance(content, dict) or not isinstance(content.get("namespace"), str) or not content["namespace"].strip():
@@ -247,7 +258,12 @@ def _load_project_extension(
         raise FoundationError(f"project extension {asset_id} rules must be a list")
     level_strength = {"MAY": 0, "SHOULD": 1, "MUST": 2}
     for rule in extension_rules:
-        if not isinstance(rule, dict) or not isinstance(rule.get("id"), str) or rule.get("level") not in level_strength:
+        if (
+            not isinstance(rule, dict)
+            or not isinstance(rule.get("id"), str)
+            or not isinstance(rule.get("level"), str)
+            or rule.get("level") not in level_strength
+        ):
             raise FoundationError(f"project extension {asset_id} has an invalid rule")
         validate_rule_definition(rule, f"{asset_id} rule {rule.get('id', '<unknown>')}")
         condition = rule.get("condition")
@@ -319,8 +335,8 @@ def load_project(
             )
     if project["kind"] != "project":
         raise FoundationError("project manifest kind must be project")
-    schema_version = str(project.get("schema_version", "1.0.0"))
-    if schema_version != "1.0.0":
+    schema_version = project.get("schema_version", "1.0.0")
+    if not isinstance(schema_version, str) or schema_version != "1.0.0":
         raise FoundationError("project manifest has an unsupported schema_version")
     foundation = load_foundation(manifest_path.parent / str(project["foundation_path"]))
 
@@ -347,11 +363,14 @@ def load_project(
         raise FoundationError("project profiles must be a list of non-empty strings")
     if len(set(profiles)) != len(profiles):
         raise FoundationError("project profiles must not contain duplicates")
-    document_language = str(project.get("document_language", "ko"))
-    if document_language not in {"ko", "en"}:
+    document_language = project.get("document_language", "ko")
+    if not isinstance(document_language, str) or document_language not in {"ko", "en"}:
         raise FoundationError("project document_language must be ko or en")
-    maximum_agent_level = str(project.get("maximum_agent_level", "L0"))
-    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+    maximum_agent_level = project.get("maximum_agent_level", "L0")
+    if (
+        not isinstance(maximum_agent_level, str)
+        or maximum_agent_level not in ALLOWED_AGENT_LEVELS
+    ):
         raise FoundationError(
             "project maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
@@ -461,10 +480,22 @@ def initialize_project(
         raise WorkflowError(f"project root does not exist or is not a directory: {project_root}")
 
     manifest_path = project_root / "project.json"
-    if manifest_path.exists():
+    try:
+        read_control_file(
+            manifest_path,
+            root=project_root,
+            label="Project manifest creation target",
+        )
+    except FileNotFoundError:
+        pass
+    except (OSError, UnsafeControlFile) as exc:
+        raise WorkflowError(f"unsafe Project manifest creation target: {exc}") from exc
+    else:
         raise FileExistsError(f"project manifest already exists: {manifest_path}")
 
-    resolved_id = str(project_id or project_root.name).strip()
+    if project_id is not None and not isinstance(project_id, str):
+        raise WorkflowError("project id must be a non-empty string")
+    resolved_id = (project_id if project_id is not None else project_root.name).strip()
     if not resolved_id:
         raise WorkflowError("project id must be a non-empty string")
     if foundation_path is None:
@@ -475,14 +506,19 @@ def initialize_project(
         foundation_path = str(pinned_path or "foundation")
     if not isinstance(foundation_path, str) or not foundation_path.strip():
         raise WorkflowError("foundation_path must be a non-empty string")
-    if document_language not in {"ko", "en"}:
+    if not isinstance(document_language, str) or document_language not in {"ko", "en"}:
         raise WorkflowError("document_language must be ko or en")
-    if maximum_agent_level not in ALLOWED_AGENT_LEVELS:
+    if (
+        not isinstance(maximum_agent_level, str)
+        or maximum_agent_level not in ALLOWED_AGENT_LEVELS
+    ):
         raise WorkflowError(
             "maximum_agent_level must be one of: "
             + ", ".join(sorted(ALLOWED_AGENT_LEVELS))
         )
 
+    if profiles is not None and not isinstance(profiles, list):
+        raise WorkflowError("profiles must be a list of non-empty strings")
     selected_profiles = list(profiles or [])
     if any(not isinstance(item, str) or not item.strip() for item in selected_profiles):
         raise WorkflowError("profiles must contain non-empty strings")
@@ -504,18 +540,44 @@ def initialize_project(
         "maximum_agent_level": maximum_agent_level,
     }
     units_root = project_root / "units"
-    created_units_root = not units_root.exists()
-    units_root.mkdir(parents=False, exist_ok=True)
     try:
-        with manifest_path.open("x", encoding="utf-8") as stream:
-            stream.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+        units_root.lstat()
+    except FileNotFoundError:
+        created_units_root = True
+    else:
+        created_units_root = False
+    manifest_created = False
+    try:
+        ensure_directory_beneath(project_root, "units")
+        write_json_atomic_beneath(
+            project_root,
+            "project.json",
+            manifest,
+            mode=0o644,
+            replace_existing=False,
+        )
+        manifest_created = True
         _postflight(manifest_path)
-    except Exception:
-        manifest_path.unlink(missing_ok=True)
+    except Exception as exc:
+        if manifest_created:
+            try:
+                unlink_file_beneath(project_root, "project.json", missing_ok=True)
+            except Exception as rollback_exc:
+                raise WorkflowError(
+                    f"Project initialization failed and manifest rollback failed: {rollback_exc}"
+                ) from exc
         if created_units_root:
             try:
-                units_root.rmdir()
-            except OSError:
-                pass
+                remove_empty_directory_beneath(
+                    project_root,
+                    "units",
+                    missing_ok=True,
+                )
+            except Exception as rollback_exc:
+                raise WorkflowError(
+                    f"Project initialization failed and units rollback failed: {rollback_exc}"
+                ) from exc
+        if isinstance(exc, UnsafeWritePath):
+            raise WorkflowError(str(exc)) from exc
         raise
     return manifest_path

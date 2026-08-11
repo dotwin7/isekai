@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
-import stat
 import tomllib
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..support.files import (
     UnsafeControlFile,
+    inspect_tree_beneath,
+    metadata_is_path_alias,
     read_control_file,
     read_control_file_snapshot,
 )
-from ..support.jsonio import write_json_atomic
+from ..support.jsonio import (
+    UnsafeWritePath,
+    write_json_atomic,
+    write_json_atomic_beneath,
+)
 
 
 DISTRIBUTION_SCHEMA_VERSION = "1.0.0"
@@ -89,9 +95,15 @@ def _component_root(root: Path, value: object, *, label: str) -> Path:
     lexical_candidate = release_root
     for part in relative.parts:
         lexical_candidate /= part
-        if lexical_candidate.is_symlink():
+        try:
+            metadata = lexical_candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise DistributionError(f"cannot inspect {label}: {lexical_candidate}") from exc
+        if metadata_is_path_alias(metadata):
             raise DistributionError(
-                f"{label} contains a symlink: {lexical_candidate}"
+                f"{label} contains a symlink or junction: {lexical_candidate}"
             )
     candidate = lexical_candidate.resolve()
     try:
@@ -125,39 +137,33 @@ def tree_digest(
     that the project launcher can execute.
     """
     requested_root = Path(path).expanduser()
-    if requested_root.is_symlink():
+    root = Path(os.path.abspath(requested_root))
+    try:
+        root_metadata = root.lstat()
+    except OSError as exc:
+        raise DistributionError(f"digest target is not a directory: {root}") from exc
+    if metadata_is_path_alias(root_metadata):
         raise DistributionError(
-            f"release component root cannot be a symlink: {requested_root}"
+            f"release component root cannot be a symlink or junction: {root}"
         )
-    root = requested_root.resolve()
-    if not root.is_dir():
-        raise DistributionError(f"digest target is not a directory: {root}")
     digest = hashlib.sha256()
-    files: list[Path] = []
-    directories: list[Path] = []
-    for candidate in root.rglob("*"):
-        try:
-            metadata = candidate.lstat()
-        except OSError as exc:
-            raise DistributionError(
-                f"release component changed during digest: {candidate}: {exc}"
-            ) from exc
-        if stat.S_ISLNK(metadata.st_mode):
-            raise DistributionError(f"release components cannot contain symlinks: {candidate}")
-        if not include_transients and _is_transient(candidate):
-            continue
-        if stat.S_ISREG(metadata.st_mode):
-            if metadata.st_nlink != 1:
-                raise DistributionError(
-                    f"release components cannot contain hard-linked files: {candidate}"
-                )
-            files.append(candidate)
-        elif stat.S_ISDIR(metadata.st_mode):
-            directories.append(candidate)
-        else:
-            raise DistributionError(
-                f"release components cannot contain special files: {candidate}"
-            )
+    try:
+        relative_files, relative_directories = inspect_tree_beneath(
+            root,
+            label="release component",
+        )
+    except UnsafeControlFile as exc:
+        raise DistributionError(str(exc)) from exc
+    files = [
+        root / relative
+        for relative in relative_files
+        if include_transients or not _is_transient(relative)
+    ]
+    directories = [
+        root / relative
+        for relative in relative_directories
+        if include_transients or not _is_transient(relative)
+    ]
     for candidate in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
         relative = candidate.relative_to(root).as_posix().encode("utf-8")
         try:
@@ -409,9 +415,24 @@ def write_distribution_manifest(
 ) -> Path:
     release_root = Path(root).resolve()
     destination = Path(output)
-    if not destination.is_absolute():
-        destination = release_root / destination
-    _write_json_atomic(destination, build_distribution_manifest(release_root))
+    if destination.is_absolute():
+        output_root = destination.parent
+        relative = Path(destination.name)
+    else:
+        output_root = release_root
+        relative = _safe_relative_path(str(output), label="distribution output")
+        destination = release_root / relative
+    if not output_root.is_dir():
+        raise DistributionError(f"distribution output parent does not exist: {output_root}")
+    try:
+        write_json_atomic_beneath(
+            output_root,
+            relative,
+            build_distribution_manifest(release_root),
+            create_parents=True,
+        )
+    except UnsafeWritePath as exc:
+        raise DistributionError(str(exc)) from exc
     return destination
 
 
@@ -613,7 +634,16 @@ def _verify_or_raise(root: Path) -> dict[str, Any]:
 
 
 def _normalize_runtimes(runtimes: Iterable[str]) -> list[str]:
-    values = list(runtimes)
+    if isinstance(runtimes, (str, bytes)):
+        raise DistributionError("runtimes must be an iterable of runtime names")
+    try:
+        values = list(runtimes)
+    except TypeError as exc:
+        raise DistributionError(
+            "runtimes must be an iterable of runtime names"
+        ) from exc
+    if any(not isinstance(value, str) for value in values):
+        raise DistributionError("runtimes must contain only runtime names")
     if not values or "all" in values:
         return sorted(RUNTIMES)
     unknown = sorted(set(values) - RUNTIMES)

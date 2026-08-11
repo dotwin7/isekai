@@ -29,6 +29,7 @@ def _progress_entries(
         {"envelope_id": envelope_id, "grant": grant}
         for grant in grants
         if isinstance(grant, dict)
+        and isinstance(grant.get("action"), str)
         and grant.get("action") in PROGRESS_ACTIONS
         and (stages is None or grant.get("stage") in stages)
     ]

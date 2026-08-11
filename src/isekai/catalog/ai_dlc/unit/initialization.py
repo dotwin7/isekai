@@ -26,10 +26,19 @@ from .execution import (
 
 
 def _validated_title(value: str) -> str:
+    if not isinstance(value, str):
+        raise WorkflowError("title must contain at least one letter or number")
     title = value.strip()
     if not title or not re.search(r"\w", title, flags=re.UNICODE):
         raise WorkflowError("title must contain at least one letter or number")
     return title
+
+
+def _validated_owner(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WorkflowError("owner must be a non-empty string")
+    return value.strip()
+
 
 def initialize_unit(
     project_path: str | Path,
@@ -41,8 +50,11 @@ def initialize_unit(
     _postflight: Callable[[Path], None] | None = None,
 ) -> Path:
     title = _validated_title(title)
+    owner = _validated_owner(owner)
     if not isinstance(catalog_entry, str) or not catalog_entry.strip():
         raise WorkflowError("catalog_entry must be a non-empty string")
+    if intent is not None and not isinstance(intent, dict):
+        raise WorkflowError("intent must be an object")
     receipt = resolve_context(project_path, WorkRoute.UNIT)
     catalog = receipt.get("catalog", {})
     catalog_entries = catalog.get("entries", [])

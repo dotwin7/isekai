@@ -99,9 +99,61 @@ def _kiro_cli_issues(executable: str, version: str | None) -> list[str]:
             issues.append("Kiro CLI 2.1.0+ is required for Skill slash commands")
     help_result = _run((executable, "chat", "--help"))
     help_text = help_result.stdout + help_result.stderr
-    for token in ("--no-interactive", "--trust-tools"):
+    for token in (
+        "--agent",
+        "--no-interactive",
+        "--require-mcp-startup",
+        "--resume",
+        "--trust-tools",
+    ):
         if help_result.returncode != 0 or token not in help_text:
             issues.append(f"Kiro CLI is missing required capability: {token}")
+    return issues
+
+
+def _codex_cli_issues(executable: str) -> list[str]:
+    issues = []
+    exec_help = _run((executable, "exec", "--help"))
+    exec_text = exec_help.stdout + exec_help.stderr
+    for token in (
+        "--ephemeral",
+        "--ignore-user-config",
+        "--json",
+        "--sandbox",
+        "--skip-git-repo-check",
+    ):
+        if exec_help.returncode != 0 or token not in exec_text:
+            issues.append(f"Codex CLI is missing required capability: {token}")
+    resume_help = _run((executable, "exec", "resume", "--help"))
+    resume_text = resume_help.stdout + resume_help.stderr
+    for token in (
+        "SESSION_ID",
+        "--ignore-user-config",
+        "--json",
+        "--skip-git-repo-check",
+    ):
+        if resume_help.returncode != 0 or token not in resume_text:
+            issues.append(
+                "Codex CLI is missing required resume capability: " + token
+            )
+    return issues
+
+
+def _claude_cli_issues(executable: str) -> list[str]:
+    issues = []
+    help_result = _run((executable, "--help"))
+    help_text = help_result.stdout + help_result.stderr
+    for token in (
+        "--no-session-persistence",
+        "--output-format",
+        "--permission-mode",
+        "--print",
+        "--resume",
+        "--tools",
+        "--verbose",
+    ):
+        if help_result.returncode != 0 or token not in help_text:
+            issues.append(f"Claude CLI is missing required capability: {token}")
     return issues
 
 
@@ -122,7 +174,11 @@ def _runtime_result(
         version, version_output = _version(executable)
         if version is None:
             issues.append(f"cannot identify {runtime} host version")
-        if runtime == "kiro":
+        if runtime == "codex":
+            issues.extend(_codex_cli_issues(executable))
+        elif runtime == "claude":
+            issues.extend(_claude_cli_issues(executable))
+        elif runtime == "kiro":
             issues.extend(_kiro_cli_issues(executable, version))
     return {
         "runtime": runtime,

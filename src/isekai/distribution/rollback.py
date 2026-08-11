@@ -7,8 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ..support.jsonio import write_bytes_atomic
-from ..support.locking import LockUnavailable, file_lock
+from ..support.locking import LockUnavailable, rooted_file_lock
 from . import install as install_module
 from .marketplace import (
     CLAUDE_PROJECT_SETTINGS,
@@ -81,8 +80,9 @@ def rollback_install(project: str | Path) -> dict[str, Any]:
     if not project_root.is_dir():
         raise DistributionError(f"project root does not exist: {project_root}")
     try:
-        with file_lock(
-            project_root / install_module.INSTALL_LOCK_NAME,
+        with rooted_file_lock(
+            project_root,
+            install_module.INSTALL_LOCK_NAME,
             subject=f"ISEKAI installation for {project_root}",
         ):
             return _rollback_install_locked(project_root)
@@ -255,7 +255,7 @@ def _restore_verified_snapshot(
                 previous_snapshots[runtime],
                 previous_adapter_copies / runtime,
             )
-        shutil.copytree(previous_install, staged)
+        shutil.copytree(previous_install, staged, symlinks=True)
         redo = staged / "rollback"
         install_module._copy_managed_root(managed, redo / "install")
         install_module._write_json_atomic(redo / LOCK_NAME, current)
@@ -298,8 +298,12 @@ def _restore_verified_snapshot(
             )
             host_restored = True
         if rebound_project is not None:
-            install_module._write_json_atomic(project_manifest, rebound_project)
-        install_module._write_json_atomic(lock_path, previous_lock)
+            install_module._write_project_json(
+                project_root,
+                "project.json",
+                rebound_project,
+            )
+        install_module._write_project_json(project_root, LOCK_NAME, previous_lock)
         postflight = install_module.doctor_install(project_root)
         if not postflight["ready"]:
             raise DistributionError(
@@ -325,10 +329,22 @@ def _restore_verified_snapshot(
             ):
                 install_module._remove_path(target)
         if current_project_bytes is None:
-            project_manifest.unlink(missing_ok=True)
+            install_module._restore_project_file(
+                project_root,
+                "project.json",
+                None,
+            )
         else:
-            write_bytes_atomic(project_manifest, current_project_bytes)
-        write_bytes_atomic(lock_path, current_lock_bytes)
+            install_module._restore_project_file(
+                project_root,
+                "project.json",
+                current_project_bytes,
+            )
+        install_module._restore_project_file(
+            project_root,
+            LOCK_NAME,
+            current_lock_bytes,
+        )
         raise
     finally:
         if backup.exists():

@@ -95,6 +95,22 @@ def test_kiro_profile_exposes_read_and_core_tools_only(tmp_path: Path) -> None:
     assert "hooks" not in agent
 
 
+def test_kiro_profile_status_fails_closed_when_mcp_inclusion_is_disabled(
+    tmp_path: Path,
+) -> None:
+    project = project_with_launcher(tmp_path)
+    apply_execution_profile(project, "kiro")
+    agent_path = project / ".kiro/agents/isekai-core.json"
+    agent = json.loads(agent_path.read_text(encoding="utf-8"))
+    agent["includeMcpJson"] = False
+    agent_path.write_text(json.dumps(agent, indent=2) + "\n", encoding="utf-8")
+
+    status = execution_profile_status(project, "kiro")
+
+    assert status["ready"] is False
+    assert "agent contract is not enforced" in "; ".join(status["issues"])
+
+
 def test_profile_status_fails_closed_after_permission_tampering(
     tmp_path: Path,
 ) -> None:

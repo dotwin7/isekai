@@ -18,7 +18,11 @@ def _legacy_proof_receipt_issues(
 ) -> list[str]:
     issues: list[str] = []
     status = execution.get("status")
-    if status not in {"completed", "timed-out", "output-limit-exceeded"}:
+    if not isinstance(status, str) or status not in {
+        "completed",
+        "timed-out",
+        "output-limit-exceeded",
+    }:
         issues.append("has an invalid legacy Core proof execution status")
     if passed and status != "completed":
         issues.append("cannot pass with an incomplete legacy Core proof execution")
@@ -53,7 +57,11 @@ def proof_receipt_issues(
 
     issues: list[str] = []
     status = execution.get("status")
-    if status not in {"completed", "timed-out", "output-limit-exceeded"}:
+    if not isinstance(status, str) or status not in {
+        "completed",
+        "timed-out",
+        "output-limit-exceeded",
+    }:
         issues.append("has an invalid Core proof execution status")
     timed_out = execution.get("timed_out")
     output_limit_exceeded = execution.get("output_limit_exceeded")
@@ -79,7 +87,9 @@ def proof_receipt_issues(
         issues.append("has an invalid Core proof filesystem boundary")
     if execution.get("network_isolation") != "denied":
         issues.append("has an invalid Core proof network boundary")
-    if execution.get("process_isolation") not in {
+    if not isinstance(execution.get("process_isolation"), str) or execution.get(
+        "process_isolation"
+    ) not in {
         "process-group-cleanup",
         "seatbelt-process-access-denied-and-process-group-cleanup",
         "pid-namespace-and-process-group-cleanup",
@@ -89,6 +99,12 @@ def proof_receipt_issues(
         "sandbox_provider"
     ].strip():
         issues.append("has no Core proof sandbox provider")
+    sandbox_policy = execution.get("sandbox_policy")
+    if sandbox_policy is not None and sandbox_policy not in {
+        "provider-deny-default-explicit-allowlist",
+        "seatbelt-deny-default-explicit-allowlist",
+    }:
+        issues.append("has an invalid Core proof sandbox policy")
     if execution.get("environment") != "core-allowlisted":
         issues.append("has an invalid Core proof environment boundary")
     limits = execution.get("resource_limits")

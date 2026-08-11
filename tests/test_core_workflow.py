@@ -51,6 +51,25 @@ def make_project(tmp_path: Path) -> Path:
     return project_root / "project.json"
 
 
+@pytest.mark.parametrize(
+    ("route_request", "message"),
+    [
+        (RouteRequest(change=[], risk="low"), "change must be"),  # type: ignore[arg-type]
+        (RouteRequest(change="none", risk=[]), "risk must be"),  # type: ignore[arg-type]
+        (
+            RouteRequest(change="none", risk="low", ambiguous=1),  # type: ignore[arg-type]
+            "ambiguous must be boolean",
+        ),
+    ],
+)
+def test_route_request_rejects_invalid_public_types(
+    route_request: RouteRequest,
+    message: str,
+) -> None:
+    with pytest.raises(WorkflowError, match=message):
+        classify_work(route_request)
+
+
 def materialize_unit_artifacts(unit: Path) -> None:
     artifacts = {
         "intent.md": """# 테스트 Unit
@@ -302,6 +321,42 @@ def test_unit_init_scaffolds_every_verifier_artifact_but_remains_pending(
     assert result["valid"] is False
     assert "at least one recorded decision is required" in result["issues"]
     assert "verification evidence is not passing" in result["issues"]
+
+
+def test_verify_rejects_missing_structured_unit_intent_metadata(
+    tmp_path: Path,
+) -> None:
+    completed = tmp_path / "completed"
+    shutil.copytree(ROOT / "examples/reference-product/completed", completed)
+    unit = next((completed / "units").iterdir())
+    assert verify_unit(unit)["valid"] is True
+    unit_path = unit / "unit.json"
+    value = json.loads(unit_path.read_text(encoding="utf-8"))
+    removed = {
+        "title",
+        "owner",
+        "work_scope",
+        "intent_source",
+        "goal",
+        "expected_outcome",
+        "constraints",
+        "acceptance_criteria",
+        "intake",
+    }
+    for field in removed:
+        value.pop(field)
+    unit_path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    manifest_issue = next(
+        issue for issue in result["issues"] if issue.startswith("Unit manifest missing fields:")
+    )
+    assert all(field in manifest_issue for field in removed)
 
 
 def test_checkpoint_and_resume_restore_authoritative_next_action(tmp_path: Path) -> None:

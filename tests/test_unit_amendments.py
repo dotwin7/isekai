@@ -12,7 +12,7 @@ from isekai.workflow import (
     transition_unit,
     verify_unit,
 )
-from isekai.workflow.errors import IntegrityError, LifecycleError
+from isekai.workflow.errors import IntegrityError, LifecycleError, WorkflowError
 
 from test_decision_lifecycle import (
     approve,
@@ -40,6 +40,32 @@ def approve_architecture_amendment(unit: Path, amendment_id: str) -> None:
         ],
         decided_by="human-reviewer",
     )
+
+
+@pytest.mark.parametrize(
+    ("reason", "artifacts", "message"),
+    [
+        ([], ["requirements.md"], "reason must be a string"),
+        ("reason", "requirements.md", "affected_artifacts must be a list"),
+        ("reason", [1], "affected_artifacts must be a list"),
+    ],
+)
+def test_amendment_rejects_invalid_public_types(
+    tmp_path: Path,
+    reason: object,
+    artifacts: object,
+    message: str,
+) -> None:
+    unit = make_unit(tmp_path)
+
+    with pytest.raises(WorkflowError, match=message):
+        record_unit_amendment(
+            unit,
+            request="change",
+            reason=reason,  # type: ignore[arg-type]
+            affected_artifacts=artifacts,  # type: ignore[arg-type]
+            requested_by="reviewer",
+        )
 
 
 def test_active_unit_amendment_rewinds_and_requires_changed_docs_and_decision(

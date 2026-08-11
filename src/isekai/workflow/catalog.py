@@ -113,7 +113,7 @@ def _load_catalog_entry(
         raise FoundationError(
             f"ISEKAI catalog entry {entry_id} version does not match source catalog"
         )
-    if value["status"] not in _STATUSES:
+    if not isinstance(value["status"], str) or value["status"] not in _STATUSES:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has an invalid status")
     for field in ("title", "description"):
         if not isinstance(value.get(field), str) or not value[field].strip():
@@ -122,9 +122,13 @@ def _load_catalog_entry(
         raise FoundationError(
             f"ISEKAI catalog entry {entry_id} requires an incompatible control protocol"
         )
-    if value["delivery"] not in _DELIVERY_MODES:
+    if not isinstance(value["delivery"], str) or value[
+        "delivery"
+    ] not in _DELIVERY_MODES:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid delivery")
-    if value.get("binding_mode") not in _BINDING_MODES:
+    if not isinstance(value.get("binding_mode"), str) or value.get(
+        "binding_mode"
+    ) not in _BINDING_MODES:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid binding_mode")
     if value["authority"] != _AUTHORITY:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid authority")

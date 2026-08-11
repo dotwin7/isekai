@@ -10,19 +10,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from isekai.support.jsonio import write_bytes_atomic
+from isekai.support.files import UnsafeControlFile, read_control_file_snapshot
+from isekai.support.jsonio import (
+    UnsafeWritePath,
+    unlink_file_beneath,
+    write_bytes_atomic_beneath,
+)
 from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
 from isekai.workflow.project import _receipt_source_manifest_path
 from .amendments import AMENDABLE_ARTIFACT_GATES, amendment_status
 from .artifacts import ACCEPTANCE_CHECKBOX
 from .decisions import TERMINAL_STATUSES
-from .authorization import _authorization_ledger_issues
+from .authorization import _authorization_ledger_issues, _last_authorization_id
 from .authorization_request import resolve_authorization_request
 from .common import (
     _unit_bytes,
     _unit_json,
     _unit_path_without_symlinks,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .execution import _authorize_action_locked
@@ -49,18 +54,42 @@ def _content_digest(content: bytes) -> str:
     return "sha256:" + hashlib.sha256(content).hexdigest()
 
 
-def _current_file_digest(path: Path) -> str:
+def _current_file_snapshot(
+    root: Path,
+    relative: str,
+) -> tuple[str, bytes | None, int | None]:
+    path = root / relative
     try:
-        metadata = path.lstat()
+        content, metadata = read_control_file_snapshot(
+            path,
+            root=root,
+            label=f"managed write target {relative}",
+        )
     except FileNotFoundError:
-        return ABSENT_DIGEST
-    if stat.S_ISLNK(metadata.st_mode):
-        raise IntegrityError(f"managed write target cannot be a symlink: {path}")
-    if not stat.S_ISREG(metadata.st_mode):
-        raise IntegrityError(f"managed write target must be a regular file: {path}")
-    if metadata.st_nlink > 1:
-        raise IntegrityError(f"managed write target cannot be hard-linked: {path}")
-    return _content_digest(path.read_bytes())
+        return ABSENT_DIGEST, None, None
+    except (OSError, UnsafeControlFile) as exc:
+        raise IntegrityError(str(exc)) from exc
+    return _content_digest(content), content, stat.S_IMODE(metadata.st_mode)
+
+
+def _write_managed_bytes(
+    root: Path,
+    relative: str,
+    content: bytes,
+    *,
+    mode: int | None = None,
+    create_parents: bool = False,
+) -> None:
+    try:
+        write_bytes_atomic_beneath(
+            root,
+            relative,
+            content,
+            mode=mode,
+            create_parents=create_parents,
+        )
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
 
 
 def _validate_expected_digest(value: object, *, target: str) -> str:
@@ -82,22 +111,6 @@ def _validate_content(value: object, *, target: str) -> bytes:
             f"managed write content exceeds {MAX_MANAGED_FILE_BYTES} bytes: {target}"
         )
     return content
-
-
-def _lexical_target(root: Path, relative: str) -> Path:
-    target = root
-    parts = Path(relative).parts
-    for index, part in enumerate(parts):
-        target /= part
-        if index < len(parts) - 1 and target.is_symlink():
-            raise IntegrityError(
-                f"managed write target contains a symlink: {relative}"
-            )
-    try:
-        target.resolve(strict=False).relative_to(root.resolve())
-    except ValueError as exc:
-        raise IntegrityError(f"managed write target escapes Project: {relative}") from exc
-    return target
 
 
 def _normalize_change_records(changes: object) -> list[dict[str, Any]]:
@@ -128,19 +141,20 @@ def _normalize_change_records(changes: object) -> list[dict[str, Any]]:
 
 
 def _restore_file_snapshots(
-    snapshots: Iterable[tuple[Path, bytes | None, int | None]],
+    root: Path,
+    snapshots: Iterable[tuple[str, bytes | None, int | None]],
     *,
     cause: Exception,
 ) -> None:
     errors: list[str] = []
-    for path, content, mode in reversed(list(snapshots)):
+    for relative, content, mode in reversed(list(snapshots)):
         try:
             if content is None:
-                path.unlink(missing_ok=True)
+                unlink_file_beneath(root, relative, missing_ok=True)
             else:
-                write_bytes_atomic(path, content, mode=mode)
+                _write_managed_bytes(root, relative, content, mode=mode)
         except Exception as exc:  # pragma: no cover - secondary filesystem failure
-            errors.append(f"{path}: {exc}")
+            errors.append(f"{root / relative}: {exc}")
     if errors:
         raise IntegrityError(
             "managed edit failed and could not restore Project files: "
@@ -168,7 +182,9 @@ def execute_managed_edit(
     records = _normalize_change_records(changes)
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") in TERMINAL_STATUSES:
+        if isinstance(unit.get("status"), str) and unit.get(
+            "status"
+        ) in TERMINAL_STATUSES:
             raise LifecycleError(
                 f"a {unit.get('status')} Unit cannot execute managed edits"
             )
@@ -208,27 +224,31 @@ def execute_managed_edit(
         if authorization.get("allowed") is not True:
             raise LifecycleError(str(authorization.get("reason", "managed edit blocked")))
 
-        snapshots: list[tuple[Path, bytes | None, int | None]] = []
+        snapshots: list[tuple[str, bytes | None, int | None]] = []
         execution_records: list[dict[str, str]] = []
         try:
             for requested, normalized in zip(records, normalized_targets, strict=True):
-                target = _lexical_target(project_root, normalized)
-                current_digest = _current_file_digest(target)
+                current_digest, before_content, before_mode = _current_file_snapshot(
+                    project_root,
+                    normalized,
+                )
                 if current_digest != requested["expected_digest"]:
                     raise IntegrityError(
                         f"managed edit precondition changed for {normalized}: "
                         f"expected {requested['expected_digest']}, found {current_digest}"
                     )
-                if current_digest == ABSENT_DIGEST:
-                    snapshots.append((target, None, None))
-                else:
-                    metadata = target.lstat()
-                    snapshots.append(
-                        (target, target.read_bytes(), stat.S_IMODE(metadata.st_mode))
-                    )
-                target.parent.mkdir(parents=True, exist_ok=True)
-                write_bytes_atomic(target, requested["content"])
-                after_digest = _current_file_digest(target)
+                snapshots.append((normalized, before_content, before_mode))
+                _write_managed_bytes(
+                    project_root,
+                    normalized,
+                    requested["content"],
+                    mode=before_mode,
+                    create_parents=True,
+                )
+                after_digest, _after_content, _after_mode = _current_file_snapshot(
+                    project_root,
+                    normalized,
+                )
                 execution_records.append(
                     {
                         "target": normalized,
@@ -261,22 +281,25 @@ def execute_managed_edit(
                 raise IntegrityError(
                     "managed edit receipt rejected: " + "; ".join(issues)
                 )
-            _write_json(
-                unit_dir / "execution-authorizations.json", candidate_ledger
+            _write_unit_json(
+                unit_dir,
+                "execution-authorizations.json",
+                candidate_ledger,
             )
             persisted = _unit_json(unit_dir, "execution-authorizations.json")
             persisted_issues = _authorization_ledger_issues(
                 persisted, unit, envelope, unit_dir=unit_dir
             )
-            if persisted_issues or persisted.get("grants", [])[-1].get(
-                "id"
+            if persisted_issues or _last_authorization_id(
+                persisted
             ) != authorization.get("authorization_id"):
                 raise IntegrityError("managed edit receipt postflight failed")
         except Exception as exc:
-            _restore_file_snapshots(snapshots, cause=exc)
+            _restore_file_snapshots(project_root, snapshots, cause=exc)
             try:
-                write_bytes_atomic(
-                    unit_dir / "execution-authorizations.json",
+                _write_managed_bytes(
+                    unit_dir,
+                    "execution-authorizations.json",
                     previous_ledger_bytes,
                 )
             except Exception as restore_exc:  # pragma: no cover - secondary failure
@@ -332,7 +355,9 @@ def execute_proof(
         )
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") in TERMINAL_STATUSES:
+        if isinstance(unit.get("status"), str) and unit.get(
+            "status"
+        ) in TERMINAL_STATUSES:
             raise LifecycleError(
                 f"a {unit.get('status')} Unit cannot execute proofs"
             )
@@ -423,6 +448,7 @@ def execute_proof(
                 ),
                 "workspace": "disposable-copy",
                 "sandbox_provider": sandbox.provider,
+                "sandbox_policy": sandbox.sandbox_policy,
                 "filesystem_isolation": sandbox.filesystem_isolation,
                 "network_isolation": sandbox.network_isolation,
                 "process_isolation": sandbox.process_isolation,
@@ -451,13 +477,16 @@ def execute_proof(
                 raise IntegrityError(
                     "proof receipt rejected: " + "; ".join(issues)
                 )
-            _write_json(
-                unit_dir / "execution-authorizations.json", candidate_ledger
+            _write_unit_json(
+                unit_dir,
+                "execution-authorizations.json",
+                candidate_ledger,
             )
         except Exception as exc:
             try:
-                write_bytes_atomic(
-                    unit_dir / "execution-authorizations.json",
+                _write_managed_bytes(
+                    unit_dir,
+                    "execution-authorizations.json",
                     previous_ledger_bytes,
                 )
             except Exception as restore_exc:  # pragma: no cover - secondary failure
@@ -527,7 +556,9 @@ def write_unit_artifacts(
     records = _normalize_change_records(artifacts)
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if unit.get("status") in TERMINAL_STATUSES:
+        if isinstance(unit.get("status"), str) and unit.get(
+            "status"
+        ) in TERMINAL_STATUSES:
             raise LifecycleError(
                 f"a {unit.get('status')} Unit cannot change Unit artifacts"
             )
@@ -542,7 +573,7 @@ def write_unit_artifacts(
             for item in amendment["pending"]
             for artifact in item.get("affected_artifacts", [])
         }
-        snapshots: list[tuple[Path, bytes | None, int | None]] = []
+        snapshots: list[tuple[str, bytes | None, int | None]] = []
         written: list[dict[str, str]] = []
         try:
             for record in records:
@@ -552,14 +583,18 @@ def write_unit_artifacts(
                         f"Core artifact-write does not manage: {relative}"
                     )
                 gate = AMENDABLE_ARTIFACT_GATES[relative]
-                target = _unit_path_without_symlinks(unit_dir, relative)
-                current_digest = _current_file_digest(target)
+                _unit_path_without_symlinks(unit_dir, relative)
+                current_digest, before_content, before_mode = _current_file_snapshot(
+                    unit_dir,
+                    relative,
+                )
                 if current_digest != record["expected_digest"]:
                     raise IntegrityError(
                         f"Unit artifact precondition changed for {relative}: "
                         f"expected {record['expected_digest']}, found {current_digest}"
                     )
-                before_content = target.read_bytes()
+                if before_content is None:
+                    raise IntegrityError(f"missing Unit artifact: {relative}")
                 progress_only = relative == "acceptance.md" and _acceptance_progress_only(
                     before_content, record["content"]
                 )
@@ -571,20 +606,26 @@ def write_unit_artifacts(
                     raise LifecycleError(
                         f"{relative} is already approved; record an amendment before changing it"
                     )
-                metadata = target.lstat()
-                snapshots.append(
-                    (target, before_content, stat.S_IMODE(metadata.st_mode))
+                snapshots.append((relative, before_content, before_mode))
+                _write_managed_bytes(
+                    unit_dir,
+                    relative,
+                    record["content"],
+                    mode=before_mode,
                 )
-                write_bytes_atomic(target, record["content"])
+                after_digest, _after_content, _after_mode = _current_file_snapshot(
+                    unit_dir,
+                    relative,
+                )
                 written.append(
                     {
                         "artifact": relative,
                         "before_digest": current_digest,
-                        "after_digest": _current_file_digest(target),
+                        "after_digest": after_digest,
                     }
                 )
         except Exception as exc:
-            _restore_file_snapshots(snapshots, cause=exc)
+            _restore_file_snapshots(unit_dir, snapshots, cause=exc)
             raise
         return {
             "written": True,

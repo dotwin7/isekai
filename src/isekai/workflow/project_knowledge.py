@@ -8,8 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from ..support.files import UnsafeControlFile, read_control_file
-from ..support.jsonio import write_bytes_atomic, write_json_atomic
-from ..support.locking import file_lock
+from ..support.jsonio import (
+    UnsafeWritePath,
+    unlink_file_beneath,
+    write_bytes_atomic_beneath,
+    write_json_atomic_beneath,
+)
+from ..support.locking import rooted_file_lock
 from isekai.support.errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
 from .project_knowledge_observability import (
     CANDIDATE_STATUSES,
@@ -29,10 +34,7 @@ from .project_knowledge_schema import (
     select_release_context,
     summarize_release,
 )
-from .project_knowledge_storage import (
-    managed_project_directory as _managed_directory,
-    safe_project_json as _safe_json,
-)
+from .project_knowledge_storage import safe_project_json as _safe_json
 
 
 PROJECT_KNOWLEDGE_ROOT = "project-knowledge"
@@ -40,11 +42,55 @@ PROJECT_KNOWLEDGE_CATALOG = f"{PROJECT_KNOWLEDGE_ROOT}/catalog.json"
 PROJECT_KNOWLEDGE_LOCK = ".isekai-project-knowledge.lock"
 
 
+def _write_project_json(
+    project_root: Path,
+    relative: str,
+    value: dict[str, Any],
+    *,
+    create_parents: bool = False,
+    replace_existing: bool = True,
+) -> None:
+    try:
+        write_json_atomic_beneath(
+            project_root,
+            relative,
+            value,
+            create_parents=create_parents,
+            replace_existing=replace_existing,
+        )
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
+
+
+def _restore_project_file(
+    project_root: Path,
+    relative: str,
+    content: bytes | None,
+) -> None:
+    try:
+        if content is None:
+            unlink_file_beneath(project_root, relative, missing_ok=True)
+        else:
+            write_bytes_atomic_beneath(project_root, relative, content)
+    except UnsafeWritePath as exc:
+        raise IntegrityError(str(exc)) from exc
+
+
 def _load_catalog(project_root: Path, project_id: str) -> dict[str, Any] | None:
     path = project_root / PROJECT_KNOWLEDGE_CATALOG
-    if not path.exists() and not path.is_symlink():
-        return None
-    catalog = _safe_json(path, root=project_root, label="Project Knowledge catalog")
+    try:
+        catalog = _safe_json(
+            path,
+            root=project_root,
+            label="Project Knowledge catalog",
+        )
+    except IntegrityError as exc:
+        # Test absence through the same descriptor-bound read used for content.
+        # A lexical exists() check can incorrectly hide a missing leaf below a
+        # symlinked parent as if no managed catalog existed.
+        if isinstance(exc.__cause__, FileNotFoundError):
+            return None
+        raise
     issues = _catalog_issues(catalog, project_id=project_id)
     if issues:
         raise IntegrityError("invalid Project Knowledge catalog: " + "; ".join(issues))
@@ -288,7 +334,10 @@ def propose_project_knowledge(
 
     with unit_lock(unit_dir):
         unit, project_root, project_id = _unit_project(unit_dir)
-        if unit.get("status") not in {"operating", "learned"}:
+        if not isinstance(unit.get("status"), str) or unit.get("status") not in {
+            "operating",
+            "learned",
+        }:
             raise LifecycleError(
                 "Project Knowledge can only be proposed from an operating or learned Unit"
             )
@@ -317,8 +366,9 @@ def propose_project_knowledge(
             }
             for reference in references
         ]
-        with file_lock(
-            project_root / PROJECT_KNOWLEDGE_LOCK,
+        with rooted_file_lock(
+            project_root,
+            PROJECT_KNOWLEDGE_LOCK,
             subject=f"Project Knowledge {project_id}",
         ):
             current = current_project_knowledge(project_root, project_id)
@@ -341,14 +391,20 @@ def propose_project_knowledge(
                 "source_artifacts": source_artifacts,
             }
             candidate["candidate_digest"] = _candidate_digest(candidate)
-            candidates = _managed_directory(
-                project_root, f"{PROJECT_KNOWLEDGE_ROOT}/candidates", create=True
+            candidate_relative = (
+                f"{PROJECT_KNOWLEDGE_ROOT}/candidates/{candidate_id}.json"
             )
-            candidate_path = candidates / f"{candidate_id}.json"
-            if candidate_path.exists():  # pragma: no cover - UUID collision
-                raise IntegrityError("Project Knowledge candidate id collision")
+            candidate_path = project_root / candidate_relative
+            candidate_created = False
             try:
-                write_json_atomic(candidate_path, candidate)
+                _write_project_json(
+                    project_root,
+                    candidate_relative,
+                    candidate,
+                    create_parents=True,
+                    replace_existing=False,
+                )
+                candidate_created = True
                 persisted = _safe_json(
                     candidate_path,
                     root=project_root,
@@ -356,14 +412,30 @@ def propose_project_knowledge(
                 )
                 if persisted.get("candidate_digest") != candidate["candidate_digest"]:
                     raise IntegrityError("Project Knowledge candidate postflight failed")
+            except FileExistsError as exc:
+                raise IntegrityError("Project Knowledge candidate id collision") from exc
             except Exception as exc:
-                try:
-                    candidate_path.unlink(missing_ok=True)
-                except OSError as rollback_exc:  # pragma: no cover - secondary I/O failure
-                    raise IntegrityError(
-                        "Project Knowledge proposal failed and candidate rollback failed: "
-                        + str(rollback_exc)
-                    ) from exc
+                if not candidate_created:
+                    try:
+                        partial = _safe_json(
+                            candidate_path,
+                            root=project_root,
+                            label="Project Knowledge candidate rollback probe",
+                        )
+                        candidate_created = (
+                            partial.get("candidate_digest")
+                            == candidate["candidate_digest"]
+                        )
+                    except IntegrityError:
+                        pass
+                if candidate_created:
+                    try:
+                        _restore_project_file(project_root, candidate_relative, None)
+                    except Exception as rollback_exc:  # pragma: no cover - secondary I/O failure
+                        raise IntegrityError(
+                            "Project Knowledge proposal failed and candidate rollback failed: "
+                            + str(rollback_exc)
+                        ) from exc
                 raise
     return {
         "candidate": candidate,
@@ -385,15 +457,18 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
+    if not isinstance(candidate, str) or not candidate.strip():
+        raise WorkflowError("candidate must be a non-empty string")
     from isekai.catalog.ai_dlc.unit.common import _unit_json, unit_lock
     from isekai.catalog.ai_dlc.unit.decisions import _decision_ledger_issues, _latest_decision
 
-    candidate = candidate.replace("\\", "/")
+    candidate = candidate.strip().replace("\\", "/")
 
     with unit_lock(unit_dir):
         unit, project_root, project_id = _unit_project(unit_dir)
-        with file_lock(
-            project_root / PROJECT_KNOWLEDGE_LOCK,
+        with rooted_file_lock(
+            project_root,
+            PROJECT_KNOWLEDGE_LOCK,
             subject=f"Project Knowledge {project_id}",
         ):
             proposed = load_project_knowledge_candidate(
@@ -475,7 +550,6 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
                 "releases": releases,
             }
             updated["catalog_digest"] = _catalog_digest(updated)
-            _managed_directory(project_root, PROJECT_KNOWLEDGE_ROOT, create=True)
             catalog_path = project_root / PROJECT_KNOWLEDGE_CATALOG
             catalog_before = (
                 read_control_file(
@@ -487,7 +561,12 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
                 else None
             )
             try:
-                write_json_atomic(catalog_path, updated)
+                _write_project_json(
+                    project_root,
+                    PROJECT_KNOWLEDGE_CATALOG,
+                    updated,
+                    create_parents=True,
+                )
                 persisted = _load_catalog(project_root, project_id)
                 if (
                     persisted is None
@@ -496,10 +575,11 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
                     raise IntegrityError("Project Knowledge promotion postflight failed")
             except Exception as exc:
                 try:
-                    if catalog_before is None:
-                        catalog_path.unlink(missing_ok=True)
-                    else:
-                        write_bytes_atomic(catalog_path, catalog_before)
+                    _restore_project_file(
+                        project_root,
+                        PROJECT_KNOWLEDGE_CATALOG,
+                        catalog_before,
+                    )
                 except Exception as restore_exc:  # pragma: no cover - secondary I/O failure
                     raise IntegrityError(
                         "Project Knowledge promotion failed and catalog rollback failed: "

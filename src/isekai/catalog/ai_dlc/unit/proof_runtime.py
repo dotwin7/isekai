@@ -13,6 +13,7 @@ from typing import Any
 from typing import Mapping
 
 from isekai.support.errors import WorkflowError
+from isekai.support.files import metadata_is_path_alias
 
 
 MAX_PROOF_OUTPUT_BYTES = 256 * 1024
@@ -175,9 +176,9 @@ def _copy_source_directory(
             raise WorkflowError(
                 f"proof source Project entry changed while copying: {relative}"
             ) from exc
-        if stat.S_ISLNK(metadata.st_mode):
+        if metadata_is_path_alias(metadata):
             raise WorkflowError(
-                "proof source Project cannot contain symlinks: "
+                "proof source Project cannot contain symlinks or junctions: "
                 f"{relative}"
             )
         destination_entry = destination / entry.name

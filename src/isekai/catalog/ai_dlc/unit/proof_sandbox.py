@@ -18,6 +18,7 @@ class SandboxInvocation:
     argv: list[str]
     provider: str
     environment: dict[str, str]
+    sandbox_policy: str = "provider-deny-default-explicit-allowlist"
     filesystem_isolation: str = "source-and-user-data-read-denied-write-confined"
     network_isolation: str = "denied"
     process_isolation: str = "process-group-cleanup"
@@ -83,16 +84,26 @@ _TRUSTED_EXECUTABLE_ROOTS = (
 )
 _MACOS_SYSTEM_READ_ROOTS = (
     "/bin",
-    "/dev",
-    "/etc",
-    "/Library",
-    "/opt/homebrew",
-    "/private/etc",
-    "/private/var/db",
+    "/Library/Apple/System/Library",
+    "/private/etc/group",
+    "/private/etc/hosts",
+    "/private/etc/passwd",
+    "/private/etc/protocols",
+    "/private/etc/services",
+    "/private/etc/ssl",
+    "/private/var/db/timezone",
     "/sbin",
     "/System",
     "/usr",
-    "/usr/local",
+)
+_MACOS_READABLE_DEVICES = (
+    "/dev/null",
+    "/dev/random",
+    "/dev/urandom",
+    "/dev/zero",
+)
+_MACOS_WRITABLE_DEVICES = (
+    "/dev/null",
 )
 
 
@@ -128,7 +139,13 @@ def sandbox_status() -> dict[str, object]:
             [
                 executable,
                 "-p",
-                "(version 1) (allow default)",
+                _macos_profile(
+                    read_roots=[
+                        *(Path(value) for value in _MACOS_SYSTEM_READ_ROOTS),
+                        Path(executable).parent,
+                    ],
+                    write_root=None,
+                ),
                 "/usr/bin/true",
             ]
         )
@@ -378,6 +395,131 @@ def _seatbelt_string(value: Path) -> str:
     return json.dumps(str(value), ensure_ascii=True)
 
 
+def _symlink_resolution_paths(path: Path) -> list[Path]:
+    """Return each symlink encountered while resolving an executable path."""
+    pending = [path.absolute()]
+    visited: set[Path] = set()
+    links: set[Path] = set()
+    while pending:
+        candidate = pending.pop()
+        if candidate in visited:
+            continue
+        visited.add(candidate)
+        current = Path(candidate.anchor)
+        parts = candidate.parts[1:] if candidate.anchor else candidate.parts
+        for index, part in enumerate(parts):
+            current /= part
+            try:
+                is_link = current.is_symlink()
+            except OSError:
+                break
+            if not is_link:
+                continue
+            links.add(current)
+            try:
+                target = Path(os.readlink(current))
+            except OSError:
+                break
+            expanded = target if target.is_absolute() else current.parent / target
+            remaining = parts[index + 1 :]
+            pending.append(expanded.joinpath(*remaining).absolute())
+            break
+    return sorted(links, key=lambda item: (len(item.parts), str(item)))
+
+
+def _macos_metadata_filter(
+    read_roots: list[Path],
+    readable_devices: list[Path],
+    metadata_paths: list[Path],
+) -> str:
+    roots = _minimal_roots(read_roots)
+    ancestors: set[Path] = {Path("/")}
+    for path in [*roots, *readable_devices, *metadata_paths]:
+        absolute = path.absolute()
+        ancestors.add(absolute)
+        ancestors.update(absolute.parents)
+    return " ".join(
+        [
+            *(f"(subpath {_seatbelt_string(item)})" for item in roots),
+            *(
+                f"(literal {_seatbelt_string(item)})"
+                for item in sorted(
+                    ancestors,
+                    key=lambda value: (len(value.parts), str(value)),
+                )
+            ),
+        ]
+    )
+
+
+def _macos_profile(
+    *,
+    read_roots: list[Path],
+    write_root: Path | None,
+    metadata_paths: list[Path] | None = None,
+) -> str:
+    readable_devices = [
+        Path(value) for value in _MACOS_READABLE_DEVICES if Path(value).exists()
+    ]
+    minimal_read_roots = _minimal_roots(read_roots)
+    read_filter = " ".join(
+        [
+            '(literal "/")',
+            *(
+                f"(subpath {_seatbelt_string(item)})"
+                for item in minimal_read_roots
+            ),
+            *(
+                f"(literal {_seatbelt_string(item)})"
+                for item in readable_devices
+            ),
+        ]
+    )
+    write_filters = [
+        *(
+            f"(literal {_seatbelt_string(Path(value))})"
+            for value in _MACOS_WRITABLE_DEVICES
+            if Path(value).exists()
+        ),
+    ]
+    if write_root is not None:
+        write_filters.insert(0, f"(subpath {_seatbelt_string(write_root)})")
+    profile = [
+        "(version 1)",
+        "(deny default)",
+        # Proof commands may spawn child processes, but Seatbelt still denies
+        # inspecting or signalling processes outside the sandboxed process.
+        "(allow process-exec)",
+        "(allow process-fork)",
+        "(allow signal (target self))",
+        "(allow process-info* (target self))",
+        # Language runtimes query kernel limits and platform information during
+        # startup.  The class is explicit and read-only; writes remain denied.
+        "(allow sysctl-read)",
+        # Seatbelt path resolution and language-runtime startup require metadata
+        # access to allowlisted roots and their literal ancestors. Sibling paths
+        # remain undiscoverable and file contents use the narrower data filter.
+        "(allow file-read-metadata (require-any "
+        + _macos_metadata_filter(
+            minimal_read_roots,
+            readable_devices,
+            metadata_paths or [],
+        )
+        + "))",
+        # CPython registers for timezone updates during initialization on macOS.
+        # This is the only bootstrap service lookup permitted by the profile.
+        '(allow mach-lookup '
+        '(global-name "com.apple.system.notification_center"))',
+        f"(allow file-read-data (require-any {read_filter}))",
+        f"(allow file-map-executable (require-any {read_filter}))",
+    ]
+    if write_filters:
+        profile.append(
+            "(allow file-write* (require-any " + " ".join(write_filters) + "))"
+        )
+    return " ".join(profile)
+
+
 def _macos_invocation(
     argv: list[str],
     *,
@@ -415,35 +557,25 @@ def _macos_invocation(
             temp_root,
         ]
     )
-    read_filter = " ".join(
-        [
-            '(literal "/")',
-            *(f"(subpath {_seatbelt_string(item)})" for item in read_roots),
-        ]
+    supervisor = Path(sys.executable).absolute()
+    profile = _macos_profile(
+        read_roots=read_roots,
+        write_root=temp_root,
+        metadata_paths=[
+            *_symlink_resolution_paths(lexical),
+            *_symlink_resolution_paths(supervisor),
+        ],
     )
-
-    profile = [
-        "(version 1)",
-        "(allow default)",
-        "(deny network*)",
-        "(deny mach-lookup)",
-        "(deny mach-register)",
-        "(deny signal (require-not (target self)))",
-        "(deny process-info* (require-not (target self)))",
-        "(deny file-read-data (require-not (require-any " + read_filter + ")))",
-        "(deny file-write* (require-not (subpath "
-        + _seatbelt_string(temp_root)
-        + ")))",
-    ]
     limited_command, limits = _resource_limited_command(
         command,
         timeout_seconds=timeout_seconds,
         address_space_supported=False,
     )
     return SandboxInvocation(
-        argv=[executable, "-p", " ".join(profile), *limited_command],
+        argv=[executable, "-p", profile, *limited_command],
         provider="macos-seatbelt",
         environment=sandbox_environment,
+        sandbox_policy="seatbelt-deny-default-explicit-allowlist",
         process_isolation="seatbelt-process-access-denied-and-process-group-cleanup",
         resource_limits=limits,
     )

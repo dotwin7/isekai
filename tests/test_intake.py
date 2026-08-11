@@ -315,6 +315,23 @@ def test_intake_rejects_missing_goal_and_unknown_source() -> None:
         normalize_intent({"source": "unknown", "goal": "build"})
 
 
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({"goal": "Inspect", "expected_outcome": 1}, "expected_outcome"),
+        ({"goal": "Inspect", "source": ["direct-request"]}, "source"),
+        ({"goal": "Inspect", "change": ["none"]}, "change"),
+        ({"goal": "Inspect", "risk": ["low"]}, "risk"),
+    ],
+)
+def test_intake_rejects_non_string_classification_fields(
+    payload: dict[str, object],
+    field: str,
+) -> None:
+    with pytest.raises(WorkflowError, match=field):
+        normalize_intent(payload)
+
+
 def test_unit_init_persists_normalized_intent_metadata(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     normalized = normalize_intent(

@@ -13,6 +13,8 @@ ISEKAI active-Unit work uses an exclusive Core execution boundary, not lifecycle
 
 Adapter `0.3.0`, protocol `1.2.0`. Use the Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` (POSIX) or `.isekai/bin/isekai.cmd` (Windows). Never fall back to an `isekai` command from `PATH`. If the launcher or lock is absent, stop and ask the user to install. Before every runtime action except `handshake` itself, run `runtime handshake --runtime codex --adapter-version 0.3.0 --protocol-version 1.2.0 --project PROJECT_ROOT` and stop on incompatibility.
 
+Inside an Agent session, invoke lifecycle actions through the connected `isekai-core` MCP `runtime_action` tool; its `action` and `payload` map to the canonical CLI forms below. Use the dedicated `managed_edit`, `artifact_write`, and `prove` MCP tools for those actions. Do not use a host shell to bypass the Project execution guard. The launcher command forms remain the portable contract for direct operator use and for understanding MCP payload fields.
+
 ## Activation gate
 
 The adapter may be discoverable by Codex, but discovery is not activation. ISEKAI workflow mode is off by default in every new conversation.

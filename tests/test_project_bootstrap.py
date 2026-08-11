@@ -15,7 +15,12 @@ from isekai.workflow.session import (
     discover_project,
     inception_session,
 )
-from isekai.workflow import initialize_project, initialize_unit, resolve_context
+from isekai.workflow import (
+    initialize_project,
+    initialize_unit,
+    resolve_context,
+    verify_unit,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +114,19 @@ def test_initialize_unit_allows_repeated_titles_on_the_same_day(
     assert json.loads((first / "unit.json").read_text(encoding="utf-8"))["id"] != json.loads(
         (second / "unit.json").read_text(encoding="utf-8")
     )["id"]
+
+
+def test_initialize_unit_rejects_an_empty_owner_before_writing(
+    tmp_path: Path,
+) -> None:
+    project_root = project_root_with_foundation(tmp_path)
+    project = initialize_project(project_root, project_id="owner-validation")
+    units_before = list((project_root / "units").iterdir())
+
+    with pytest.raises(WorkflowError, match="owner must be a non-empty string"):
+        initialize_unit(project, "Owner validation", owner="")
+
+    assert list((project_root / "units").iterdir()) == units_before
 
 
 def test_inception_does_not_select_from_existing_units(tmp_path: Path) -> None:
@@ -322,3 +340,10 @@ def test_session_rejects_a_renamed_unit_directory(tmp_path: Path) -> None:
 
     with pytest.raises(SessionError, match="canonical Unit id"):
         build_session(manifest, renamed)
+
+    verification = verify_unit(renamed)
+    assert verification["valid"] is False
+    assert any(
+        "directory name does not match" in issue
+        for issue in verification["issues"]
+    )

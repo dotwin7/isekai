@@ -12,18 +12,9 @@ from isekai.catalog.ai_dlc.routing import (
     AGENT_LEVEL_ALLOWED_ACTIONS,
     AGENT_PROHIBITED_ACTIONS,
 )
-from .authorization import (
-    _authorization_ledger_issues,
-)
-from .authorization_request import (
-    external_grant_metadata,
-    external_request_count,
-    resolve_authorization_request,
-)
-from .execution_history import (
-    _execution_authorization_record_relative,
-    _persist_execution_authorization_record,
-)
+from .authorization import _authorization_ledger_issues, _last_authorization_id
+from .authorization_request import authorization_request_type_issue, external_grant_metadata, external_request_count, resolve_authorization_request
+from .execution_history import _execution_authorization_record_relative, _persist_execution_authorization_record
 from .execution_schema import (
     _execution_envelope_approval_digest,
     _scope_pattern_issue,
@@ -31,12 +22,13 @@ from .execution_schema import (
 )
 from .common import (
     _restore_snapshots,
+    _unlink_unit_file,
     _unit_bytes,
     _unit_json,
     _unit_maximum_agent_level,
     _unit_path_without_symlinks,
     _unit_preflight_issues,
-    _write_json,
+    _write_unit_json,
     unit_lock,
 )
 from .checkpointing import progress_authorization_block, progress_authorization_obligation
@@ -46,10 +38,7 @@ from .decisions import (
     _decision_record_issues,
     _latest_decision,
 )
-from .external_access import (
-    EXTERNAL_API_ACTION,
-    external_access_policy_issues,
-)
+from .external_access import EXTERNAL_API_ACTION, external_access_policy_issues
 
 
 EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
@@ -113,7 +102,8 @@ def _execution_envelope_issues(
         issues.append("Execution Envelope has an unsupported schema_version")
     if unit_id is not None and envelope.get("unit_id") != unit_id:
         issues.append("Execution Envelope unit_id does not match Unit")
-    if envelope.get("status") not in EXECUTION_ENVELOPE_STATUSES:
+    status = envelope.get("status")
+    if not isinstance(status, str) or status not in EXECUTION_ENVELOPE_STATUSES:
         issues.append("Execution Envelope has an invalid status")
     approval_digest = envelope.get("approval_digest")
     if not isinstance(approval_digest, str) or not re.fullmatch(
@@ -226,14 +216,16 @@ def _execution_envelope_issues(
             else:
                 seen_stage_names.add(stage["name"])
             depth = stage.get("depth")
-            if depth not in EXECUTION_STAGE_DEPTHS:
+            if not isinstance(depth, str) or depth not in EXECUTION_STAGE_DEPTHS:
                 issues.append(
                     f"Execution Envelope stage {index} depth must be one of: "
                     + ", ".join(sorted(EXECUTION_STAGE_DEPTHS))
                 )
             disposition = stage.get("disposition")
             if disposition is not None:
-                if disposition not in EXECUTION_STAGE_DISPOSITIONS:
+                if not isinstance(disposition, str) or disposition not in (
+                    EXECUTION_STAGE_DISPOSITIONS
+                ):
                     issues.append(
                         f"Execution Envelope stage {index} disposition must be one of: "
                         + ", ".join(sorted(EXECUTION_STAGE_DISPOSITIONS))
@@ -301,6 +293,7 @@ def propose_execution_envelope(
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise AuthorizationError(f"Unit directory does not exist: {unit_dir}")
+    normalized_external_access = [] if external_access is None else external_access
     with unit_lock(unit_dir):
         return _propose_execution_envelope_locked(
             unit_dir,
@@ -310,7 +303,7 @@ def propose_execution_envelope(
             forbidden_actions=forbidden_actions,
             max_iterations=max_iterations,
             proposed_by=proposed_by,
-            external_access=external_access or [],
+            external_access=normalized_external_access,
             expires_in_hours=expires_in_hours,
         )
 
@@ -389,6 +382,7 @@ def _propose_execution_envelope_locked(
     previous_envelope_record = _unit_json(unit_dir, "execution-envelope.json")
     previous_ledger_record = _unit_json(unit_dir, "execution-authorizations.json")
     previous_grants = previous_ledger_record.get("grants")
+    archive_relative: str | None = None
     archive_target: Path | None = None
     archive_preexisting = False
     if isinstance(previous_grants, list) and previous_grants:
@@ -398,8 +392,8 @@ def _propose_execution_envelope_locked(
         archive_target = _unit_path_without_symlinks(unit_dir, archive_relative)
         archive_preexisting = archive_target.exists() or archive_target.is_symlink()
     try:
-        _write_json(envelope_path, envelope)
-        _write_json(ledger_path, ledger)
+        _write_unit_json(unit_dir, "execution-envelope.json", envelope)
+        _write_unit_json(unit_dir, "execution-authorizations.json", ledger)
         persisted = _unit_json(unit_dir, "execution-envelope.json")
         persisted_ledger = _unit_json(unit_dir, "execution-authorizations.json")
         if (
@@ -418,18 +412,18 @@ def _propose_execution_envelope_locked(
                 previous_ledger_record,
             )
     except Exception as exc:
-        archive_cleanup_error: OSError | None = None
+        archive_cleanup_error: Exception | None = None
         if archive_target is not None and not archive_preexisting:
             try:
-                archive_target.unlink(missing_ok=True)
-                archive_target.parent.rmdir()
-            except OSError as cleanup_exc:
-                if archive_target.exists() or archive_target.is_symlink():
-                    archive_cleanup_error = cleanup_exc
+                assert archive_relative is not None
+                _unlink_unit_file(unit_dir, archive_relative, missing_ok=True)
+            except Exception as cleanup_exc:
+                archive_cleanup_error = cleanup_exc
         _restore_snapshots(
             [(envelope_path, previous_envelope), (ledger_path, previous_ledger)],
             "Execution Envelope transaction",
             exc,
+            root=unit_dir,
         )
         if archive_cleanup_error is not None:
             raise IntegrityError(
@@ -484,7 +478,7 @@ def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> Non
     envelope["approval_decision_id"] = decision["id"]
     envelope["approval_decision_digest"] = decision["decision_digest"]
     envelope["approved_at"] = datetime.now(timezone.utc).isoformat()
-    _write_json(unit_dir / "execution-envelope.json", envelope)
+    _write_unit_json(unit_dir, "execution-envelope.json", envelope)
     persisted = _unit_json(unit_dir, "execution-envelope.json")
     if persisted.get("status") != "approved":
         raise IntegrityError("Execution Envelope approval postflight blocked")
@@ -543,6 +537,13 @@ def _issue_action_grant(
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         return {"allowed": False, "reason": f"Unit directory does not exist: {unit_dir}"}
+    if not isinstance(action, str):
+        return {"allowed": False, "reason": "Action must be a string"}
+    if stage is not None and not isinstance(stage, str):
+        return {"allowed": False, "reason": "stage must be a string"}
+    request_issue = authorization_request_type_issue(target, method, credential_ref)
+    if request_issue is not None:
+        return {"allowed": False, "reason": request_issue}
     if action in AGENT_PROHIBITED_ACTIONS:
         return {
             "allowed": False,
@@ -710,15 +711,13 @@ def _authorize_action_locked(
             "reason": "Authorization receipt rejected: "
             + "; ".join(candidate_issues),
         }
-    _write_json(
-        unit_dir / "execution-authorizations.json", candidate_ledger
-    )
+    _write_unit_json(unit_dir, "execution-authorizations.json", candidate_ledger)
     persisted = _unit_json(unit_dir, "execution-authorizations.json")
     persisted_issues = _authorization_ledger_issues(
         persisted, unit, envelope, unit_dir=unit_dir
     )
-    if persisted_issues or persisted.get("grants", [])[-1].get("id") != grant["id"]:
-        _write_json(unit_dir / "execution-authorizations.json", ledger)
+    if persisted_issues or _last_authorization_id(persisted) != grant["id"]:
+        _write_unit_json(unit_dir, "execution-authorizations.json", ledger)
         return {
             "allowed": False,
             "reason": "Authorization receipt postflight failed",

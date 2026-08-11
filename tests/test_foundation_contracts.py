@@ -30,6 +30,23 @@ def test_naive_foundation_timestamp_is_normalized_to_utc() -> None:
     assert parsed.tzinfo == timezone.utc
 
 
+def test_foundation_rejects_unhashable_contract_references_as_schema_errors(
+    tmp_path: Path,
+) -> None:
+    foundation = tmp_path / "foundation"
+    shutil.copytree(ROOT / "foundation", foundation)
+    contract_path = foundation / "governance/contracts/agent-execution.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract["content"]["references"][0] = []
+    contract_path.write_text(
+        json.dumps(contract, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FoundationError, match="requires references and rules"):
+        load_foundation(foundation)
+
+
 def test_architecture_a_contract_assets_are_independent_versioned_approved_assets() -> None:
     foundation = load_foundation(ROOT / "foundation")
     expected = {
@@ -77,6 +94,20 @@ def test_condition_evaluators_fail_closed_for_decision_exception_and_dod() -> No
     dod = {"type": "required-dod", "unit_ref": "unit.json", "required_artifacts": ["architecture.md"], "evaluation_refs": ["dod-evaluation"], "evidence_ref": "evidence/verification.json"}
     assert evaluate_condition(dod, {"unit_ref": "unit.json", "artifacts": ["architecture.md"], "evaluations": ["dod-evaluation"], "evidence_ref": "evidence/verification.json", "evidence_passed": True})
     assert CONDITION_TYPES >= {"required-decision", "required-exception-controls", "required-dod"}
+
+
+def test_condition_evaluator_rejects_invalid_public_inputs() -> None:
+    condition = {
+        "type": "required-artifact",
+        "artifact": "verification",
+        "field": "passed",
+        "equals": True,
+    }
+
+    with pytest.raises(FoundationError, match="subject must be an object"):
+        evaluate_condition(condition, [])  # type: ignore[arg-type]
+    with pytest.raises(FoundationError, match="timezone-aware"):
+        evaluate_condition(condition, {}, now=datetime(2026, 8, 5))
 
 
 def test_condition_evaluators_reject_malformed_collections_and_escaping_targets() -> None:

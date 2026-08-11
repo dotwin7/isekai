@@ -6,8 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Iterable
 from .. import __version__
-from ..support.jsonio import write_bytes_atomic
-from ..support.locking import LockUnavailable, file_lock
+from ..support.locking import LockUnavailable, rooted_file_lock
 from .lockfile import (
     INSTALL_LOCK_NAME,
     WORKSPACE_ADAPTER_PATHS,
@@ -35,6 +34,12 @@ from .release import (
 )
 from ..foundation import FoundationError, load_foundation
 from .catalog import stage_catalog
+from .project_io import (
+    adapter_skill_source as _adapter_skill_source,
+    remove_path as _remove_path,
+    restore_project_file as _restore_project_file,
+    write_project_json as _write_project_json,
+)
 from .marketplace import (
     CLAUDE_PROJECT_SETTINGS,
     CODEX_REPO_MARKETPLACE,
@@ -47,25 +52,6 @@ from .marketplace import (
     _restore_host_slots,
     _write_launchers,
 )
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    elif path.exists() or path.is_symlink():
-        path.unlink()
-
-
-def _adapter_skill_source(adapter_source: Path, runtime: str) -> Path:
-    if (adapter_source / "SKILL.md").is_file():
-        # Current releases root every Adapter component at its Skill directory.
-        return adapter_source
-    # Accept the pre-project-Skill release layout during a staged migration.
-    return _component_root(
-        adapter_source,
-        "skills/isekai",
-        label=f"adapter:{runtime}.skill_path",
-    )
 
 
 def doctor_install(project: str | Path) -> dict[str, Any]:
@@ -227,7 +213,7 @@ def _adopt_foundation(project_root: Path, relative: str) -> bytes | None:
         label="project manifest",
     )
     project["foundation_path"] = relative
-    _write_json_atomic(path, project)
+    _write_project_json(project_root, "project.json", project)
     return before
 
 
@@ -250,8 +236,9 @@ def install_from_checkout(
     if not project_root.is_dir():
         raise DistributionError(f"project root does not exist: {project_root}")
     try:
-        with file_lock(
-            project_root / INSTALL_LOCK_NAME,
+        with rooted_file_lock(
+            project_root,
+            INSTALL_LOCK_NAME,
             subject=f"ISEKAI installation for {project_root}",
         ):
             release_root = Path(checkout).expanduser().resolve()
@@ -287,8 +274,9 @@ def _install_from_verified_checkout(
     if not project_root.is_dir():
         raise DistributionError(f"project root does not exist: {project_root}")
     try:
-        with file_lock(
-            project_root / INSTALL_LOCK_NAME,
+        with rooted_file_lock(
+            project_root,
+            INSTALL_LOCK_NAME,
             subject=f"ISEKAI installation for {project_root}",
         ):
             return _install_from_checkout_locked(checkout, project_root, **options)
@@ -314,6 +302,13 @@ def _install_from_checkout_locked(
     commits before loading release code. This lower-level helper trusts the caller
     to supply the checkout for the recorded full commit; ``ref`` is descriptive.
     """
+    for field, value in (
+        ("update", update),
+        ("include_foundation", include_foundation),
+        ("adopt_foundation", adopt_foundation),
+    ):
+        if not isinstance(value, bool):
+            raise DistributionError(f"{field} must be boolean")
     if not isinstance(commit, str) or not re.fullmatch(
         r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", commit
     ):
@@ -615,7 +610,7 @@ def _install_from_checkout_locked(
             project_before = _adopt_foundation(
                 project_root, str(foundation_entry["path"])
             )
-        _write_json_atomic(project_root / LOCK_NAME, lock)
+        _write_project_json(project_root, LOCK_NAME, lock)
         health = doctor_install(project_root)
         if not health["ready"]:
             raise DistributionError(
@@ -646,11 +641,11 @@ def _install_from_checkout_locked(
             ):
                 _remove_path(target)
         if project_before is not None:
-            write_bytes_atomic(project_root / "project.json", project_before)
+            _restore_project_file(project_root, "project.json", project_before)
         if lock_before is not None:
-            write_bytes_atomic(project_root / LOCK_NAME, lock_before)
+            _restore_project_file(project_root, LOCK_NAME, lock_before)
         else:
-            (project_root / LOCK_NAME).unlink(missing_ok=True)
+            _restore_project_file(project_root, LOCK_NAME, None)
         raise
     finally:
         if stage_root.exists():
@@ -693,8 +688,12 @@ def verify_adapter_handshake(
     protocol_version: str,
     project: str | Path = ".",
 ) -> dict[str, Any]:
-    if runtime not in RUNTIMES:
+    if not isinstance(runtime, str) or runtime not in RUNTIMES:
         raise DistributionError(f"unknown runtime: {runtime}")
+    if not isinstance(adapter_version, str) or not adapter_version.strip():
+        raise DistributionError("adapter version must be a non-empty string")
+    if not isinstance(protocol_version, str) or not protocol_version.strip():
+        raise DistributionError("protocol version must be a non-empty string")
     if protocol_version != PROTOCOL_VERSION:
         raise DistributionError(
             f"adapter protocol {protocol_version} is incompatible with Core protocol {PROTOCOL_VERSION}"

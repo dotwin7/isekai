@@ -7,8 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..support.files import metadata_is_path_alias
-from ..support.jsonio import write_json_atomic
+from ..support.files import (
+    UnsafeControlFile,
+    inspect_tree_beneath,
+    metadata_is_path_alias,
+)
 from .project import (
     _context_contract_changed_fields,
     _context_receipt_id,
@@ -22,6 +25,7 @@ from isekai.catalog.ai_dlc.unit.common import (
     _is_canonical_unit_directory,
     _unit_json,
     _unit_preflight_issues,
+    _write_unit_json,
     unit_lock,
 )
 from isekai.catalog.ai_dlc.unit.checkpointing import (
@@ -54,9 +58,17 @@ def _descendant_project_candidates(root: Path) -> list[Path]:
     for current, directories, files in os.walk(root):
         # Prune excluded trees during the walk. Filtering matches afterwards
         # still descends into node_modules and other large vendored trees.
-        directories[:] = sorted(
-            name for name in directories if name not in PROJECT_DISCOVERY_EXCLUDES
-        )
+        safe_directories: list[str] = []
+        for name in directories:
+            if name in PROJECT_DISCOVERY_EXCLUDES:
+                continue
+            try:
+                metadata = Path(current, name).lstat()
+            except OSError:
+                continue
+            if stat.S_ISDIR(metadata.st_mode) and not metadata_is_path_alias(metadata):
+                safe_directories.append(name)
+        directories[:] = sorted(safe_directories)
         if "project.json" in files:
             matches.append(Path(current, "project.json").absolute())
     return sorted(set(matches))
@@ -355,11 +367,20 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
     except ValueError as exc:
         raise SessionError(str(exc)) from exc
     progress_issues = checkpoint_progress_issues(selected, checkpoint=checkpoint)
+    try:
+        tree_files, _tree_directories = inspect_tree_beneath(
+            selected,
+            label="Unit tree",
+            strict=False,
+        )
+    except UnsafeControlFile as exc:
+        raise SessionError(str(exc)) from exc
+    lifecycle_status = session["unit"].get("status")
     return {
         **session,
         "resume": {
-            "active_unit": session["unit"].get("status")
-            not in {"learned", "abandoned"},
+            "active_unit": not isinstance(lifecycle_status, str)
+            or lifecycle_status not in {"learned", "abandoned"},
             "amendments": session["unit"].get("amendments"),
             "completed": checkpoint.get("completed", []),
             "pending": checkpoint.get("pending", []),
@@ -369,12 +390,9 @@ def resume_session(project: str | Path = ".", unit_dir: str | Path | None = None
             "checkpoint_issues": progress_issues,
             "recovery_required": bool(progress_issues),
             "artifact_count": sum(
-                1
-                for path in selected.rglob("*")
-                if path.is_file()
-                and not path.is_symlink()
-                and "__pycache__" not in path.parts
+                "__pycache__" not in path.parts
                 and not path.name.startswith(UNIT_LOCK_NAME)
+                for path in tree_files
             ),
         },
     }
@@ -442,7 +460,7 @@ def migrate_unit_context(
         previous_receipt_id = receipt.get("receipt_id")
         changed = migrated.get("receipt_id") != previous_receipt_id
         if changed:
-            write_json_atomic(selected_unit / "context-receipt.json", migrated)
+            _write_unit_json(selected_unit, "context-receipt.json", migrated)
             persisted = _unit_json(selected_unit, "context-receipt.json")
             if persisted.get("receipt_id") != migrated.get("receipt_id"):
                 raise SessionError("Unit Context Receipt migration postflight failed")
@@ -524,7 +542,7 @@ def update_checkpoint(
             blocked_by,
             next_action,
         )
-        write_json_atomic(path / "checkpoint.json", checkpoint)
+        _write_unit_json(path, "checkpoint.json", checkpoint)
     return {"path": str(path / "checkpoint.json"), "checkpoint": checkpoint}
 
 

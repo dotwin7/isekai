@@ -441,6 +441,24 @@ def test_doctor_fails_closed_after_installed_catalog_tampering(
     assert "catalog digest mismatch" in health["issues"]
 
 
+def test_doctor_rejects_an_untracked_alias_in_the_managed_tree(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    _install(project)
+    outside = tmp_path / "outside-managed.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    (project / ".isekai/untracked-link").symlink_to(outside)
+
+    health = doctor_install(project)
+
+    assert health["ready"] is False
+    assert any(
+        "managed installation contains a symlink" in issue
+        for issue in health["issues"]
+    )
+
+
 def test_doctor_checks_and_repairs_all_installed_execution_guards(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -661,16 +679,19 @@ def test_install_fails_closed_while_another_install_holds_the_project_lock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from isekai.distribution import install as distribution_module
-    from isekai.support.locking import file_lock as real_file_lock
+    from isekai.support.locking import rooted_file_lock as real_rooted_file_lock
 
     project = _project_with_foundation(tmp_path)
-    lock = project / distribution_module.INSTALL_LOCK_NAME
-    with real_file_lock(lock, subject="test installation holder"):
+    with real_rooted_file_lock(
+        project,
+        distribution_module.INSTALL_LOCK_NAME,
+        subject="test installation holder",
+    ):
         monkeypatch.setattr(
             distribution_module,
-            "file_lock",
-            lambda path, *, subject: real_file_lock(
-                path, subject=subject, timeout=0
+            "rooted_file_lock",
+            lambda root, relative, *, subject: real_rooted_file_lock(
+                root, relative, subject=subject, timeout=0
             ),
         )
         with pytest.raises(DistributionError, match="being modified"):
@@ -895,6 +916,26 @@ def test_malformed_install_lock_fails_closed_without_raw_cli_exception(
     assert any("lock source must be an object" in issue for issue in health["issues"])
     assert exit_code == 2
     assert "lock source must be an object" in captured.err
+
+
+def test_install_lock_validates_catalog_identity_and_source_digest(
+    tmp_path: Path,
+) -> None:
+    project = _project_with_foundation(tmp_path)
+    _install(project)
+    lock_path = project / "isekai.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["catalog"]["id"] = ""
+    lock["catalog"]["version"] = ""
+    lock["catalog"]["source_digest"] = "not-a-digest"
+    lock_path.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(DistributionError, match="lock catalog.version"):
+        load_install_lock(project)
+    health = doctor_install(project)
+    assert health["ready"] is False
+    assert any("lock catalog.id" in issue for issue in health["issues"])
+    assert any("lock catalog.source_digest" in issue for issue in health["issues"])
 
 
 @pytest.mark.parametrize("alias_kind", ["symlink", "hardlink"])
@@ -1316,14 +1357,18 @@ def test_legacy_plugin_migration_failure_restores_every_host_file(
     codex_before = codex_path.read_bytes()
     claude_before = claude_path.read_bytes()
     lock_before = (project / "isekai.lock.json").read_bytes()
-    original_write = marketplace_module._write_json_atomic
+    original_write = marketplace_module._write_host_json
 
-    def fail_claude_write(path: Path, value: dict[str, object]) -> None:
-        if path == project / ".claude/settings.json":
+    def fail_claude_write(
+        root: Path,
+        relative: str | Path,
+        value: dict[str, object],
+    ) -> None:
+        if Path(relative) == Path(".claude/settings.json"):
             raise OSError("forced second host write failure")
-        original_write(path, value)
+        original_write(root, relative, value)
 
-    monkeypatch.setattr(marketplace_module, "_write_json_atomic", fail_claude_write)
+    monkeypatch.setattr(marketplace_module, "_write_host_json", fail_claude_write)
 
     with pytest.raises(OSError, match="forced second host write failure"):
         install_from_checkout(
@@ -1428,14 +1473,18 @@ def test_rollback_failure_restores_current_project_lock_and_adapters(
     lock_before = (project / "isekai.lock.json").read_bytes()
     core_before = tree_digest(project / ".isekai/runtime/isekai")
     kiro_before = tree_digest(project / ".kiro/skills/isekai")
-    original_write = distribution_module._write_json_atomic
+    original_write = distribution_module._write_project_json
 
-    def fail_previous_lock(path: Path, value: dict[str, object]) -> None:
-        if path == project / "isekai.lock.json" and value.get("release") == "0.3.0":
+    def fail_previous_lock(
+        root: Path,
+        relative: str | Path,
+        value: dict[str, object],
+    ) -> None:
+        if Path(relative) == Path("isekai.lock.json") and value.get("release") == "0.3.0":
             raise OSError("forced rollback lock failure")
-        original_write(path, value)
+        original_write(root, relative, value)
 
-    monkeypatch.setattr(distribution_module, "_write_json_atomic", fail_previous_lock)
+    monkeypatch.setattr(distribution_module, "_write_project_json", fail_previous_lock)
 
     with pytest.raises(OSError, match="forced rollback lock failure"):
         rollback_install(project)

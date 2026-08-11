@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Iterator
 
 from .files import metadata_is_path_alias
+from .jsonio import (
+    UnsafeWritePath,
+    _fallback_rooted_target,
+    _open_rooted_parent,
+    _rooted_relative_path,
+    _supports_rooted_writes,
+)
 
 
 # Held sections are short, so a caller that arrives during one should wait for
@@ -27,6 +34,15 @@ def _same_open_file(descriptor: int, path: Path) -> bool:
     try:
         opened = os.fstat(descriptor)
         current = path.stat()
+    except FileNotFoundError:
+        return False
+    return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+
+
+def _same_open_file_at(descriptor: int, parent_descriptor: int, name: str) -> bool:
+    try:
+        opened = os.fstat(descriptor)
+        current = os.stat(name, dir_fd=parent_descriptor, follow_symlinks=False)
     except FileNotFoundError:
         return False
     return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
@@ -128,6 +144,70 @@ def _acquire(lock_path: Path, timeout: float = LOCK_WAIT_SECONDS) -> _LockClaim 
         time.sleep(_POLL_SECONDS)
 
 
+def _acquire_at(
+    parent_descriptor: int,
+    name: str,
+    timeout: float = LOCK_WAIT_SECONDS,
+) -> _LockClaim | None:
+    """Take a lock relative to a directory descriptor that remains open."""
+
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(name, flags, 0o600, dir_fd=parent_descriptor)
+        except FileNotFoundError:
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_POLL_SECONDS)
+            continue
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                return None
+            raise
+        try:
+            path_metadata = os.stat(
+                name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            path_metadata = None
+        if path_metadata is None:
+            os.close(descriptor)
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_POLL_SECONDS)
+            continue
+        if metadata_is_path_alias(path_metadata):
+            os.close(descriptor)
+            return None
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            os.close(descriptor)
+            return None
+        if metadata.st_nlink == 0:
+            os.close(descriptor)
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_POLL_SECONDS)
+            continue
+        if metadata.st_nlink != 1:
+            os.close(descriptor)
+            return None
+        if metadata.st_size == 0:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+        if _try_os_lock(descriptor):
+            if _same_open_file_at(descriptor, parent_descriptor, name):
+                return _LockClaim(descriptor)
+            _unlock(descriptor)
+        os.close(descriptor)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(_POLL_SECONDS)
+
+
 def _release(lock_path: Path, claim: _LockClaim) -> None:
     if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI/users
         # Windows does not allow unlinking an open file. Release and close first;
@@ -188,3 +268,73 @@ def file_lock(
         yield
     finally:
         _release(path, claim)
+
+
+@contextmanager
+def rooted_file_lock(
+    root: str | Path,
+    relative: str | Path,
+    *,
+    subject: str,
+    timeout: float = LOCK_WAIT_SECONDS,
+    parent_mode: int = 0o755,
+) -> Iterator[None]:
+    """Serialize a mutation without following a lock-path parent alias."""
+
+    trusted_root = Path(os.path.abspath(Path(root).expanduser()))
+    try:
+        relative_path = _rooted_relative_path(trusted_root, relative)
+    except UnsafeWritePath as exc:
+        raise LockUnavailable(str(exc)) from exc
+    if not _supports_rooted_writes():
+        try:
+            lock_target = _fallback_rooted_target(
+                trusted_root,
+                relative_path,
+                create_parents=True,
+                parent_mode=parent_mode,
+            )
+            with file_lock(
+                lock_target,
+                subject=subject,
+                timeout=timeout,
+            ):
+                yield
+        except UnsafeWritePath as exc:
+            raise LockUnavailable(f"{subject} has an unsafe lock path: {exc}") from exc
+        return
+    try:
+        parent_descriptors = _open_rooted_parent(
+            trusted_root,
+            relative_path,
+            create_parents=True,
+            parent_mode=parent_mode,
+        )
+    except (OSError, UnsafeWritePath) as exc:
+        raise LockUnavailable(f"{subject} has an unsafe lock path: {exc}") from exc
+    parent_descriptor = parent_descriptors[-1]
+    try:
+        claim = _acquire_at(parent_descriptor, relative_path.name, timeout)
+        if claim is None:
+            raise LockUnavailable(
+                f"{subject} is being modified by another process; retry after it completes"
+            )
+        try:
+            yield
+        finally:
+            try:
+                if _same_open_file_at(
+                    claim.descriptor,
+                    parent_descriptor,
+                    relative_path.name,
+                ):
+                    os.unlink(relative_path.name, dir_fd=parent_descriptor)
+                    os.fsync(parent_descriptor)
+            finally:
+                try:
+                    _unlock(claim.descriptor)
+                finally:
+                    os.close(claim.descriptor)
+    finally:
+        for descriptor in reversed(parent_descriptors):
+            os.close(descriptor)

@@ -105,15 +105,19 @@ def test_promotion_restores_catalog_when_atomic_writer_reports_failure(
     )
     reference = str(proposed["reference"])
     _approve(source, reference)
-    original_write = knowledge_module.write_json_atomic
+    original_write = knowledge_module._write_project_json
 
-    def write_then_fail(path: Path, value: Any) -> Path:
-        written = original_write(path, value)
-        if path.name == "catalog.json":
+    def write_then_fail(
+        root: Path,
+        relative: str,
+        value: dict[str, Any],
+        **kwargs: Any,
+    ) -> None:
+        original_write(root, relative, value, **kwargs)
+        if relative.endswith("catalog.json"):
             raise OSError("simulated post-replace failure")
-        return written
 
-    monkeypatch.setattr(knowledge_module, "write_json_atomic", write_then_fail)
+    monkeypatch.setattr(knowledge_module, "_write_project_json", write_then_fail)
 
     with pytest.raises(OSError, match="post-replace failure"):
         promote_project_knowledge(source, candidate=reference)
@@ -129,15 +133,19 @@ def test_proposal_removes_candidate_when_atomic_writer_reports_failure(
 ) -> None:
     project = make_project(tmp_path)
     source = _operating_unit(project)
-    original_write = knowledge_module.write_json_atomic
+    original_write = knowledge_module._write_project_json
 
-    def write_then_fail(path: Path, value: Any) -> Path:
-        written = original_write(path, value)
-        if path.parent.name == "candidates":
+    def write_then_fail(
+        root: Path,
+        relative: str,
+        value: dict[str, Any],
+        **kwargs: Any,
+    ) -> None:
+        original_write(root, relative, value, **kwargs)
+        if "/candidates/" in relative:
             raise OSError("simulated candidate post-replace failure")
-        return written
 
-    monkeypatch.setattr(knowledge_module, "write_json_atomic", write_then_fail)
+    monkeypatch.setattr(knowledge_module, "_write_project_json", write_then_fail)
 
     with pytest.raises(OSError, match="candidate post-replace failure"):
         propose_project_knowledge(

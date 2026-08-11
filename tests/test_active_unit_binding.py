@@ -128,6 +128,20 @@ def test_off_and_new_on_do_not_lose_the_unfinished_active_unit(tmp_path: Path) -
     assert activated["active_unit_binding"]["unit"]["path"] == str(unit)
 
 
+def test_active_binding_rejects_an_unhashable_unit_status(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = _runtime_unit(project)
+    manifest = json.loads((unit / "unit.json").read_text(encoding="utf-8"))
+    manifest["status"] = []
+    (unit / "unit.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match="invalid lifecycle status"):
+        dispatch("on", {"project": str(project)})
+
+
 def test_final_learned_transition_releases_the_core_binding(tmp_path: Path) -> None:
     from isekai.workflow.session import update_checkpoint
     from isekai.workflow import transition_unit
@@ -285,6 +299,38 @@ def test_binding_event_tampering_fails_closed(tmp_path: Path) -> None:
         )
 
     assert unit.is_dir()
+
+
+def test_binding_head_tampering_fails_closed(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    active = _runtime_unit(project)
+    sibling = initialize_unit(project, "변조 대상 형제 Unit", project.parent / "units")
+    state_path = project.parent / ".isekai-runtime/active-unit.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["active_unit"] = {
+        "unit_id": json.loads(
+            (sibling / "unit.json").read_text(encoding="utf-8")
+        )["id"],
+        "path": sibling.relative_to(project.parent).as_posix(),
+        "path_base": "project",
+    }
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match="active_unit does not match event history"):
+        dispatch(
+            "intake",
+            {
+                "project": str(project),
+                "source": "direct-request",
+                "goal": "결박 head를 바꿔 형제 Unit으로 전환한다.",
+                "change": "persistent",
+            },
+        )
+
+    assert active.is_dir()
 
 
 def test_core_binding_supports_an_explicit_external_unit_output(tmp_path: Path) -> None:

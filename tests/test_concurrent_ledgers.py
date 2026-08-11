@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from isekai.foundation import record_foundation_decision
-from isekai.support.locking import LockUnavailable, file_lock
+from isekai.support.locking import LockUnavailable, file_lock, rooted_file_lock
 from isekai.support.files import metadata_is_path_alias
 from isekai.workflow import (
     record_decision,
@@ -292,6 +292,22 @@ def test_file_lock_rejects_a_hardlink_without_touching_its_target(
 
     assert target.read_bytes() == b""
     assert lock.samefile(target)
+
+
+def test_rooted_file_lock_rejects_a_symlink_parent(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(LockUnavailable, match="unsafe lock path"):
+        with rooted_file_lock(root, "linked/artifact.lock", subject="artifact"):
+            pass
+
+    assert list(outside.iterdir()) == []
 
 
 def test_windows_reparse_metadata_is_treated_as_a_path_alias() -> None:

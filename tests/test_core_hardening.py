@@ -10,7 +10,13 @@ import pytest
 from isekai.cli import DIRECT_RUNTIME_ACTIONS, _parser, main
 from isekai.distribution import DistributionError, install_from_git, plan_git_update
 from isekai.foundation import load_foundation
-from isekai.support.jsonio import write_json_atomic
+from isekai.support.files import UnsafeControlFile, inspect_tree_beneath
+import isekai.support.jsonio as jsonio_module
+from isekai.support.jsonio import (
+    UnsafeWritePath,
+    write_bytes_atomic_beneath,
+    write_json_atomic,
+)
 from isekai.workflow.session import _descendant_project_candidates, update_checkpoint
 from isekai.workflow import initialize_unit, verify_unit
 from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant as authorize_action
@@ -141,6 +147,31 @@ def test_bootstrap_checkout_install_requires_a_clean_tree(tmp_path: Path) -> Non
             release, str(release), "v9.9.9", project, runtimes=("kiro",)
         )
     assert not (project / "isekai.lock.json").exists()
+
+
+def test_distribution_manifest_writer_rejects_an_aliased_output(
+    tmp_path: Path,
+) -> None:
+    import shutil
+
+    from isekai.distribution import write_distribution_manifest
+
+    release = tmp_path / "release"
+    shutil.copytree(
+        ROOT,
+        release,
+        ignore=shutil.ignore_patterns(".git", ".venv", "build", "__pycache__"),
+    )
+    manifest = release / "distribution/release.json"
+    manifest.rename(release / "distribution/release.backup.json")
+    outside = tmp_path / "outside-release.json"
+    outside.write_text("outside\n", encoding="utf-8")
+    manifest.symlink_to(outside)
+
+    with pytest.raises(DistributionError, match="single-link regular file"):
+        write_distribution_manifest(release)
+
+    assert outside.read_text(encoding="utf-8") == "outside\n"
 
 
 def test_bootstrap_checkout_install_rejects_a_mismatched_ref(tmp_path: Path) -> None:
@@ -576,6 +607,162 @@ def test_atomic_writer_leaves_no_partial_file_on_failure(tmp_path: Path) -> None
 
     assert json.loads(target.read_text(encoding="utf-8")) == {"ok": True}
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_rooted_atomic_writer_rejects_a_symlink_parent(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(UnsafeWritePath, match="parent is unsafe"):
+        write_bytes_atomic_beneath(root, "linked/record.txt", b"blocked")
+
+    assert not (outside / "record.txt").exists()
+
+
+@pytest.mark.skipif(
+    not jsonio_module._supports_rooted_writes(),
+    reason="descriptor-relative atomic writes require POSIX openat support",
+)
+def test_rooted_atomic_writer_cannot_be_redirected_by_parent_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "root"
+    parent = root / "safe"
+    held = root / "held"
+    outside = tmp_path / "outside"
+    parent.mkdir(parents=True)
+    outside.mkdir()
+    real_rename = os.rename
+    swapped = False
+
+    def swap_parent_before_commit(
+        source: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        destination: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+    ) -> None:
+        nonlocal swapped
+        if src_dir_fd is not None and dst_dir_fd is not None and not swapped:
+            swapped = True
+            real_rename(parent, held)
+            os.symlink(outside, parent, target_is_directory=True)
+        real_rename(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+        )
+
+    monkeypatch.setattr(jsonio_module.os, "rename", swap_parent_before_commit)
+    monkeypatch.setattr(jsonio_module, "_supports_rooted_writes", lambda: True)
+
+    with pytest.raises(UnsafeWritePath, match="parent changed during the write"):
+        write_bytes_atomic_beneath(root, "safe/record.txt", b"internal")
+
+    assert swapped is True
+    assert not (outside / "record.txt").exists()
+    assert (held / "record.txt").read_bytes() == b"internal"
+
+
+def test_rooted_atomic_writer_preserves_existing_mode(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    target = root / "tool.sh"
+    target.write_bytes(b"old")
+    target.chmod(0o751)
+
+    write_bytes_atomic_beneath(root, "tool.sh", b"new")
+
+    assert target.read_bytes() == b"new"
+    assert target.stat().st_mode & 0o777 == 0o751
+
+
+def test_rooted_atomic_writer_can_create_without_replacing(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    write_bytes_atomic_beneath(
+        root,
+        "record.json",
+        b"first",
+        replace_existing=False,
+    )
+
+    with pytest.raises(FileExistsError):
+        write_bytes_atomic_beneath(
+            root,
+            "record.json",
+            b"second",
+            replace_existing=False,
+        )
+
+    assert (root / "record.json").read_bytes() == b"first"
+
+
+def test_rooted_atomic_writer_supports_a_leaf_near_name_max(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    leaf = "a" * 240
+
+    write_bytes_atomic_beneath(root, leaf, b"content")
+
+    assert (root / leaf).read_bytes() == b"content"
+
+
+def test_authorization_rejects_non_string_public_inputs(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Authorization types", project.parent / "units")
+
+    invalid_action = authorize_action(
+        unit,
+        action=[],  # type: ignore[arg-type]
+        target="src/main.py",
+    )
+    invalid_target = authorize_action(
+        unit,
+        action="read",
+        target=[],  # type: ignore[arg-type]
+    )
+
+    assert invalid_action == {"allowed": False, "reason": "Action must be a string"}
+    assert invalid_target == {"allowed": False, "reason": "target must be a string"}
+
+
+def test_descriptor_tree_inspection_rejects_aliases_and_can_safely_omit_them(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "regular.txt").write_text("regular\n", encoding="utf-8")
+    (outside / "external.txt").write_text("external\n", encoding="utf-8")
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(UnsafeControlFile, match="symlink or junction"):
+        inspect_tree_beneath(root)
+
+    files, directories = inspect_tree_beneath(root, strict=False)
+    assert files == [Path("regular.txt")]
+    assert directories == []
+
+
+def test_unit_verification_reports_unhashable_manifest_values(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    unit = initialize_unit(project, "Malformed status", project.parent / "units")
+    manifest = json.loads((unit / "unit.json").read_text(encoding="utf-8"))
+    manifest["status"] = []
+    write_json_atomic(unit / "unit.json", manifest)
+
+    result = verify_unit(unit)
+
+    assert result["valid"] is False
+    assert any("invalid lifecycle status" in issue for issue in result["issues"])
 
 
 def test_control_readers_normalize_platform_os_errors(

@@ -7,7 +7,19 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from ..support.jsonio import write_bytes_atomic
+from ..support.files import (
+    UnsafeControlFile,
+    inspect_tree_beneath,
+    read_control_file_snapshot,
+)
+from ..support.jsonio import (
+    write_bytes_atomic,
+)
+from .project_io import (
+    unlink_project_file as _unlink_host_file,
+    write_project_bytes as _write_host_bytes,
+    write_project_json as _write_host_json,
+)
 from .release import (
     MANAGED_ROOT,
     LEGACY_PLUGIN_ID,
@@ -65,7 +77,7 @@ def _replace_tree(source: Path, target: Path) -> None:
     if target.exists():
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, target, ignore=_ignore_transient_files)
+    shutil.copytree(source, target, ignore=_ignore_transient_files, symlinks=True)
 
 
 def _ignore_transient_files(path: str, names: list[str]) -> set[str]:
@@ -74,13 +86,15 @@ def _ignore_transient_files(path: str, names: list[str]) -> set[str]:
 
 
 def _copy_managed_root(source: Path, destination: Path) -> None:
+    inspect_tree_beneath(source, label="managed installation")
+
     def ignore(path: str, names: list[str]) -> set[str]:
         ignored = _ignore_transient_files(path, names)
         if Path(path).resolve() == source.resolve():
             ignored.update({"rollback"} & set(names))
         return ignored
 
-    shutil.copytree(source, destination, ignore=ignore)
+    shutil.copytree(source, destination, ignore=ignore, symlinks=True)
 
 
 def _write_launchers(managed: Path) -> None:
@@ -289,9 +303,9 @@ def _remove_legacy_project_plugin_declarations(
                 "plugins": [],
             }
             if document == generated_empty:
-                path.unlink()
+                _unlink_host_file(project_root, CODEX_REPO_MARKETPLACE)
             else:
-                _write_json_atomic(path, document)
+                _write_host_json(project_root, CODEX_REPO_MARKETPLACE, document)
 
         if "claude" in selected:
             path = project_root / CLAUDE_PROJECT_SETTINGS
@@ -326,11 +340,11 @@ def _remove_legacy_project_plugin_declarations(
             if not enabled:
                 document.pop("enabledPlugins")
             if document:
-                _write_json_atomic(path, document)
+                _write_host_json(project_root, CLAUDE_PROJECT_SETTINGS, document)
             else:
-                path.unlink()
+                _unlink_host_file(project_root, CLAUDE_PROJECT_SETTINGS)
     except Exception as exc:
-        _restore_host_file_snapshots(snapshots, cause=exc)
+        _restore_host_file_snapshots(project_root, snapshots, cause=exc)
         raise
     return state
 
@@ -481,9 +495,9 @@ def _apply_project_host_documents(
     snapshots = _host_file_snapshots(project_root, paths)
     try:
         for relative, document in documents.items():
-            _write_json_atomic(project_root / relative, document)
+            _write_host_json(project_root, relative, document)
     except Exception as exc:
-        _restore_host_file_snapshots(snapshots, cause=exc)
+        _restore_host_file_snapshots(project_root, snapshots, cause=exc)
         raise
 
 
@@ -501,7 +515,7 @@ def _restore_host_slots(
     try:
         _restore_host_slots_unchecked(project_root, state, marketplace_name)
     except Exception as exc:
-        _restore_host_file_snapshots(snapshots, cause=exc)
+        _restore_host_file_snapshots(project_root, snapshots, cause=exc)
         raise
 
 
@@ -512,20 +526,22 @@ def _host_file_snapshots(
     snapshots: dict[Path, tuple[bytes, int] | None] = {}
     for path in paths:
         if path.exists() or path.is_symlink():
-            snapshots[path] = (
-                _read_control_bytes(
+            try:
+                content, metadata = read_control_file_snapshot(
                     path,
                     root=project_root,
                     label="project host configuration",
-                ),
-                stat.S_IMODE(path.lstat().st_mode),
-            )
+                )
+            except (OSError, UnsafeControlFile) as exc:
+                raise DistributionError(str(exc)) from exc
+            snapshots[path] = (content, stat.S_IMODE(metadata.st_mode))
         else:
             snapshots[path] = None
     return snapshots
 
 
 def _restore_host_file_snapshots(
+    project_root: Path,
     snapshots: dict[Path, tuple[bytes, int] | None],
     *,
     cause: Exception,
@@ -534,10 +550,15 @@ def _restore_host_file_snapshots(
     for path, snapshot in reversed(list(snapshots.items())):
         try:
             if snapshot is None:
-                path.unlink(missing_ok=True)
+                _unlink_host_file(project_root, path.relative_to(project_root))
             else:
                 content, mode = snapshot
-                write_bytes_atomic(path, content, mode=mode)
+                _write_host_bytes(
+                    project_root,
+                    path.relative_to(project_root),
+                    content,
+                    mode=mode,
+                )
         except Exception as exc:  # pragma: no cover - secondary filesystem failure
             errors.append(f"{path}: {exc}")
     if errors:
@@ -581,9 +602,9 @@ def _restore_host_slots_unchecked(
             "interface": {"displayName": f"ISEKAI ({marketplace_name})"},
             "plugins": [],
         }:
-            path.unlink(missing_ok=True)
+            _unlink_host_file(project_root, CODEX_REPO_MARKETPLACE)
         else:
-            _write_json_atomic(path, document)
+            _write_host_json(project_root, CODEX_REPO_MARKETPLACE, document)
     claude = state.get("claude")
     if isinstance(claude, dict):
         path = project_root / CLAUDE_PROJECT_SETTINGS
@@ -615,9 +636,9 @@ def _restore_host_slots_unchecked(
         if not claude.get("enabled_existed") and not enabled:
             document.pop("enabledPlugins", None)
         if not claude.get("file_existed") and not document:
-            path.unlink(missing_ok=True)
+            _unlink_host_file(project_root, CLAUDE_PROJECT_SETTINGS)
         else:
-            _write_json_atomic(path, document)
+            _write_host_json(project_root, CLAUDE_PROJECT_SETTINGS, document)
 
 
 def _managed_control_issues(
@@ -625,7 +646,12 @@ def _managed_control_issues(
     lock: dict[str, Any],
 ) -> list[str]:
     """Validate generated launchers and host metadata not covered by adapter digests."""
-    issues = _launcher_issues(project_root / MANAGED_ROOT)
+    managed = project_root / MANAGED_ROOT
+    try:
+        inspect_tree_beneath(managed, label="managed installation")
+    except UnsafeControlFile as exc:
+        return [str(exc)]
+    issues = _launcher_issues(managed)
     adapters = lock.get("adapters")
     if not isinstance(adapters, dict):
         return issues

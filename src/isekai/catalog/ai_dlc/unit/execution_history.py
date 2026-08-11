@@ -8,7 +8,7 @@ from typing import Any
 
 from isekai.support.errors import IntegrityError
 from .authorization import _authorization_ledger_digest, _authorization_ledger_issues
-from .common import _unit_json, _unit_path_without_symlinks, _write_json
+from .common import _unit_json, _unit_path_without_symlinks, _write_unit_json
 
 
 EXECUTION_AUTHORIZATION_RECORDS_DIR = "execution-authorization-records"
@@ -146,7 +146,21 @@ def _persist_execution_authorization_record(
                 "Execution authorization archive conflicts with an existing Envelope id"
             )
         return target
-    _write_json(target, record)
+    try:
+        _write_unit_json(
+            unit_dir,
+            relative,
+            record,
+            create_parents=True,
+            replace_existing=False,
+        )
+    except FileExistsError:
+        existing = _unit_json(unit_dir, relative)
+        if existing.get("record_digest") != record["record_digest"]:
+            raise IntegrityError(
+                "Execution authorization archive conflicts with an existing Envelope id"
+            ) from None
+        return target
     persisted = _unit_json(unit_dir, relative)
     persisted_issues = _execution_authorization_record_issues(
         persisted,

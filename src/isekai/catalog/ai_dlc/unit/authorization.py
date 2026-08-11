@@ -43,6 +43,15 @@ AUTHORIZATION_GRANT_REQUIRED_FIELDS = {
     "authorized_at",
 }
 
+
+def _last_authorization_id(ledger: Any) -> str | None:
+    grants = ledger.get("grants") if isinstance(ledger, dict) else None
+    if not isinstance(grants, list) or not grants or not isinstance(grants[-1], dict):
+        return None
+    grant_id = grants[-1].get("id")
+    return grant_id if isinstance(grant_id, str) else None
+
+
 def _authorization_ledger_digest(ledger: dict[str, Any]) -> str:
     encoded = json.dumps(
         ledger,

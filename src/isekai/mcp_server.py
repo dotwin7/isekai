@@ -166,6 +166,8 @@ class ProjectMcpServer:
     ) -> dict[str, Any]:
         values = dict(payload)
         project = values.get("project")
+        if project is not None and not isinstance(project, str):
+            raise ValueError("Core broker project must be a string")
         if project is not None and not self._same_project(discover_project(project)):
             raise ValueError("Core broker request targets a different Project")
         # Project-scoped defaults must not depend on the MCP process working
@@ -173,12 +175,17 @@ class ProjectMcpServer:
         values["project"] = str(self.project_manifest)
         unit = values.get("unit")
         if unit is not None:
-            unit_path = Path(str(unit)).expanduser().resolve()
+            if not isinstance(unit, str):
+                raise ValueError("Core broker Unit must be a string")
+            unit_path = Path(unit).expanduser().resolve()
             if not self._same_project(project_manifest_for_unit(unit_path)):
                 raise ValueError("Core broker Unit belongs to a different Project")
             values["unit"] = str(unit_path)
         if "path" in values:
-            requested_path = Path(str(values["path"])).expanduser().resolve()
+            raw_path = values["path"]
+            if not isinstance(raw_path, str):
+                raise ValueError("Core broker init path must be a string")
+            requested_path = Path(raw_path).expanduser().resolve()
             if requested_path != self.project_root:
                 raise ValueError("Core broker init path must be its fixed Project root")
         if action == "init":
@@ -187,7 +194,9 @@ class ProjectMcpServer:
             selected_foundation = self._selected_foundation()
             requested_foundation = values.get("foundation")
             if requested_foundation is not None:
-                requested_path = Path(str(requested_foundation)).expanduser()
+                if not isinstance(requested_foundation, str):
+                    raise ValueError("Core broker Foundation must be a string")
+                requested_path = Path(requested_foundation).expanduser()
                 if not requested_path.is_absolute():
                     requested_path = self.project_root / requested_path
                 if requested_path.resolve() != selected_foundation:
