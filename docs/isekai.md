@@ -2,14 +2,14 @@
 
 - 상태: Canonical
 - 작성일: 2026-08-03
-- 설명: 범용 AI-DLC 운영 모델 및 Security Engineering Domain Profile
+- 설명: Catalog 기반 프로젝트 로컬 AI 거버넌스 런타임 및 Security Engineering Domain Profile
 - 문서 역할: canonical 설계 문서 집합의 입구. 세부 계약은 아래 문서 맵의 파일이 주제별로 소유하며, 이 문서와 문서 맵의 파일 전체가 이 저장소의 유일한 canonical 설계 문서 집합이다.
 
 ## 1. 정의
 
-> ISEKAI는 기존 AI 에이전트를 활용해 소프트웨어 제품과 서비스를 AI 중심으로 기획·개발·검증·운영하는 범용 AI-DLC와, 이를 도메인별로 일관되게 적용하는 Engineering Foundation이다. 보안은 첫 번째 Domain Profile이자 우선 적용 영역이다.
+> ISEKAI는 기존 AI 에이전트를 활용해 소프트웨어 제품과 서비스를 AI 중심으로 기획·개발·검증·운영하는 프로젝트 로컬 AI 거버넌스 런타임이다. ISEKAI가 제공하는 기능은 공통 Catalog에 등록되며, AI-Driven Development Life Cycle(AI-DLC)이 첫 번째 active entry이고 Agent Control Plane이 외부 에이전트 거버넌스를 위한 preview entry로 등록되어 있다. 도메인별 적용은 Engineering Foundation의 Domain Profile로 분리하며, 보안은 첫 번째 Domain Profile이자 우선 적용 영역이다.
 
-최상위 목표는 **AWS AI-Driven Development Life Cycle과 유사한 범용 AI 중심 개발 생명주기를 구현하는 것**이다. 자체 Planner·Reasoner·Agent Loop는 만들지 않지만, 기존 Agent가 사용할 Project-local MCP gateway와 버전형 Skill·Connection·Agent Role capability를 AI-DLC 경계 안에서 제공한다. 보안기술팀과 보안 제품에서 먼저 검증하되 Core의 workflow·information model·governance는 특정 도메인에 종속시키지 않는다. Registry, Context Service와 Control Plane은 여러 Project의 실제 수요가 생길 때 단계적으로 분리한다.
+최상위 목표는 **AWS AI-Driven Development Life Cycle과 유사한 범용 AI 중심 개발 생명주기를 구현하는 것**이다. 자체 Planner·Reasoner·Agent Loop는 만들지 않지만, 기존 Agent가 사용할 Project-local MCP gateway와 버전형 Skill·Connection·Agent Role capability를 Catalog entry 경계 안에서 제공한다. 보안기술팀과 보안 제품에서 먼저 검증하되 Core의 workflow·information model·governance는 특정 도메인에 종속시키지 않는다. Registry, Context Service와 Control Plane은 여러 Project의 실제 수요가 생길 때 단계적으로 분리한다.
 
 참고: [AWS, AI-Driven Development Life Cycle: Reimagining Software Engineering, 2025-07-31](https://aws.amazon.com/blogs/devops/ai-driven-development-life-cycle/)
 

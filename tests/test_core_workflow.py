@@ -683,6 +683,7 @@ def test_unit_default_and_relative_outputs_are_project_relative(
             "unit_id": json.loads(
                 (default_unit / "unit.json").read_text(encoding="utf-8")
             )["id"],
+            "catalog_entry": "ai-dlc",
             "title": "Project Relative Default",
             "document_language": "ko",
             "status": "proposed",

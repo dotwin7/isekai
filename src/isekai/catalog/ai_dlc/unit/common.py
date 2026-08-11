@@ -186,6 +186,9 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         unit = _unit_json(unit_dir, "unit.json")
     except IntegrityError as exc:
         return [str(exc)]
+    catalog_entry = unit.get("catalog_entry")
+    if not isinstance(catalog_entry, str) or not catalog_entry.strip():
+        issues.append("Unit catalog_entry is missing")
     scope = unit.get("scope")
     if not isinstance(scope, str) or not scope.strip():
         issues.append("Unit scope is missing or ambiguous")

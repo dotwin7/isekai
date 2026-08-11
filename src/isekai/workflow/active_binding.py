@@ -298,6 +298,7 @@ def _binding_status(
             {
                 "path": str(current[0]),
                 "unit_id": current[1].get("id"),
+                "catalog_entry": current[1].get("catalog_entry"),
                 "title": current[1].get("title"),
                 "status": current[1].get("status"),
                 "phase": current[1].get("phase"),

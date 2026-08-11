@@ -37,10 +37,24 @@ def initialize_unit(
     output_root: str | Path | None = None,
     owner: str = "unassigned",
     intent: dict[str, Any] | None = None,
+    catalog_entry: str = "ai-dlc",
     _postflight: Callable[[Path], None] | None = None,
 ) -> Path:
     title = _validated_title(title)
+    if not isinstance(catalog_entry, str) or not catalog_entry.strip():
+        raise WorkflowError("catalog_entry must be a non-empty string")
     receipt = resolve_context(project_path, WorkRoute.UNIT)
+    catalog = receipt.get("catalog", {})
+    catalog_entries = catalog.get("entries", [])
+    active_ids = [
+        e["id"]
+        for e in catalog_entries
+        if isinstance(e, dict) and e.get("active")
+    ]
+    if catalog_entry not in active_ids:
+        raise WorkflowError(
+            f"catalog_entry must be an active catalog entry: {catalog_entry}"
+        )
     manifest_path = Path(str(receipt["source_manifest"])).resolve()
     project_root = manifest_path.parent.resolve()
     if output_root is None:
@@ -100,6 +114,7 @@ def initialize_unit(
         unit_dir / "unit.json",
         {
             "id": unit_id,
+            "catalog_entry": catalog_entry,
             "title": title,
             "project_id": receipt["project_id"],
             "phase": "inception",

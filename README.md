@@ -1,20 +1,25 @@
 # ISEKAI
 
-ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 스킬 기반 AI-Driven Development Life Cycle(AI-DLC)입니다. 기존 AI 에이전트를 교체하지 않고, 에이전트 대화에 버전이 고정된 Foundation·Project·Unit 계약을 로드합니다.
+ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 프로젝트 로컬 AI 거버넌스 런타임입니다. 기존 AI 에이전트를 교체하지 않고, 에이전트 대화에 버전이 고정된 Foundation·Project·Unit 계약을 로드합니다. ISEKAI가 제공하는 기능은 공통 Catalog에 등록되며, 현재 AI-Driven Development Life Cycle(AI-DLC)이 첫 번째 active entry이고 Agent Control Plane이 preview로 등록되어 있습니다.
 
-배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 AI-DLC Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하며 승인된 파일 변경을 직접 적용합니다. 별도 Agent Brain이나 lifecycle 훅을 전제로 하지 않습니다.
+배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하며 승인된 파일 변경을 직접 적용합니다. 별도 Agent Brain이나 lifecycle 훅을 전제로 하지 않습니다.
 
 현재 버전은 `0.3.0`입니다. `prove` 기반 Core 영수증과 Evidence 결박, 전체 Evidence 이력 감사, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter, L2 외부 API 계약과 공통 Catalog·제어 기반을 제공합니다.
 
+| Catalog entry | 버전 | 상태 | 설명 |
+|---|---|---|---|
+| AI-DLC | 0.3.0 | active | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리 |
+| Agent Control | 0.1.0 | preview | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어 |
+
 ## ISEKAI가 하는 일
 
-ISEKAI를 켜면 일반 채팅 요청을 먼저 정규화하고 작업의 지속성·위험·불확실성에 따라 세 경로로 나눕니다.
+ISEKAI Core는 Catalog에 등록된 기능의 공통 승인 경계·상태·증거 검증을 담당합니다. 현재 active entry인 AI-DLC를 켜면 일반 채팅 요청을 먼저 정규화하고 작업의 지속성·위험·불확실성에 따라 세 경로로 나눕니다.
 
 | 경로 | 대상 | 처리 방식 |
 |---|---|---|
 | Query | 설명, 조회, 읽기 전용 분석 | 산출물 없이 바로 응답 |
 | Quick Change | 작고 명확하며 되돌리기 쉬운 변경 | 최소 변경과 관련 검증 |
-| Unit | 제품 계약, 여러 컴포넌트, 고위험·장기 작업 | Inception부터 Operations까지 AI-DLC 적용 |
+| Unit | 제품 계약, 여러 컴포넌트, 고위험·장기 작업 | Inception부터 Operations까지 AI-DLC lifecycle 적용 |
 
 Unit 작업에서는 Intent, Decision, Evidence, Receipt와 Checkpoint를 저장해 사람과 에이전트가 다른 세션에서도 같은 맥락을 이어갈 수 있습니다. 중요한 수명주기 전환과 고위험 판단은 사람의 명시적 결정을 요구합니다. 라우팅 규칙과 Inception부터 Learn까지의 수명주기 정의는 [AI-DLC Workflow](docs/ai-dlc/workflow.md)와 [Unit 계약](docs/ai-dlc/unit.md)에 있습니다.
 
@@ -30,17 +35,26 @@ Codex / Claude / Kiro Runtime Adapter
 Foundation + Project + Unit artifacts
 ```
 
-### Runtime, Skill, Core의 차이
+### Runtime, Skill, Core, Catalog의 차이
 
 | 구성 | 역할 |
 |---|---|
-| Project Runtime | 프로젝트별로 버전이 고정되는 Core·Foundation·Runtime Skill 묶음 |
+| Project Runtime | 프로젝트별로 버전이 고정되는 Core·Catalog·Foundation·Runtime Skill 묶음 |
 | Runtime Skill | 각 호스트의 repo/project/workspace 검색 위치에 설치되어 호출 방식·라우팅·안전 규칙을 제공하는 얇은 Adapter |
-| Core | workflow·호환성·Decision·Evidence를 검증하고 Unit 문서와 Project 변경을 원자적 gateway action으로 적용하는 로컬 실행기 |
+| Core | 공통 승인 경계·호환성·Decision·Evidence를 검증하고 Catalog entry의 action을 원자적 gateway로 실행하는 로컬 실행기 |
+| Catalog | ISEKAI가 제공하는 기능의 공통 목록. 각 entry는 ID·버전·상태·action·resource·digest로 식별되며 Core MCP 통제면에 등록됨 |
 
 Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, Foundation과 Unit artifact가 권위 있는 상태이며 Adapter는 Core와 handshake한 뒤 이를 사용합니다.
 
-ISEKAI Catalog는 이세카이가 제공하는 기능을 하나의 공통 목록과 계약으로 묶습니다. 각 Catalog entry는 Project-local Core MCP 통제면에 등록되며 ID·버전·상태·action·resource·digest로 식별됩니다. 현재 Catalog에는 실행 가능한 AI-DLC가 등록돼 있고, 향후 추가 기능은 각각 독립된 ISEKAI Catalog entry package로 배포해 같은 Catalog에 등록합니다. 자세한 계약은 [ISEKAI Catalog](docs/catalog.md)를 참고하세요.
+```text
+ISEKAI Runtime
+├─ Core MCP control plane (공통 승인·검증·실행 경계)
+└─ Catalog
+   ├─ AI-DLC 0.3.0 (active)        개발주기 관리
+   └─ Agent Control 0.1.0 (preview) 외부 에이전트 거버넌스
+```
+
+Catalog entry는 자기 상태와 동작을 소유하지만 Foundation, Project Agent level, Unit Envelope를 확장하지 못합니다. 현재 AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, 추가 기능은 각각 독립된 ISEKAI Catalog entry package로 배포해 같은 Catalog에 등록합니다. 자세한 계약은 [ISEKAI Catalog](docs/catalog.md)를 참고하세요.
 
 Catalog 배포 원본은 이세카이 저장소의 `catalog/catalog.json`과 `catalog/<entry-id>/<version>/`에서 관리합니다. Git release는 이 디렉터리 전체를 독립 component digest로 결박하고 설치기가 대상 프로젝트의 `.isekai/catalog/`에 배치합니다.
 
@@ -147,7 +161,7 @@ project/
 ├── .kiro/skills/isekai/             # Kiro를 선택한 경우
 ├── isekai.lock.json                 # Git ref, commit, component digest
 ├── project.json                     # Project 계약
-└── units/                           # 지속되는 AI-DLC 작업 단위
+└── units/                           # 지속되는 Unit 작업
 ```
 
 설치기는 bootstrap, Core, host-neutral Runtime contract, Catalog, Foundation과 Adapter의 파일 경로·bytes·실행 비트를 포함한 SHA-256 tree digest를 검증하고 component의 symlink·hardlink·특수 파일을 거부합니다. 공통 Runtime component에는 manifest·호환성 Evidence·Runtime Skill 생성 원본도 포함됩니다. `project.json`, `isekai.lock.json`과 배포 control manifest도 single-link regular file로만 읽고 lock의 필드 타입과 digest 형식을 사용 전에 검증합니다. 또한 Git revision 표현이 아닌 canonical tag 또는 전체 commit만 받고, checkout의 origin·immutable ref·HEAD·clean worktree와 일치하는 Git commit만 `isekai.lock.json`에 고정합니다. update가 만드는 rollback snapshot 전체는 새 lock의 digest에 결박되며, rollback은 이를 확인하고 redo snapshot을 다시 결박한 뒤에만 복원합니다. 이전 marketplace 기반 0.1.0 설치를 업데이트하면 ISEKAI가 소유한 legacy 선언만 제거하고 다른 host 설정은 보존합니다.
@@ -194,9 +208,9 @@ Runtime Adapter는 `intake`를 호출할 때 전체 대화 맥락에서 변경 �
 
 Project 경로를 생략하면 Core는 현재 디렉터리, 가장 가까운 상위 디렉터리, 단일 하위 workspace 순서로 `project.json`을 찾습니다. 후보가 여러 개면 자동 선택하지 않고 사용자에게 경로 선택을 요구합니다.
 
-## Unit lifecycle
+## Unit lifecycle (AI-DLC)
 
-지속적인 변경은 다음 lifecycle을 따릅니다.
+AI-DLC의 지속적인 변경은 다음 lifecycle을 따릅니다.
 
 ```text
 Inception → Human Decision → Construction → Validation
@@ -310,11 +324,12 @@ Unit과 Foundation 원장은 read-modify-write 문서이므로, 모든 변경은
 
 ```text
 isekai/
+├── catalog/                # ISEKAI Catalog: entry manifest와 package
 ├── distribution/           # release manifest와 component digest
 ├── foundation/             # Core 계약, Profile, Policy, Evaluation
 ├── runtime/                # host-neutral Runtime 계약과 프로젝트 Skill 원본
 ├── scripts/                # POSIX / PowerShell bootstrap installer
-├── src/isekai/             # 로컬 Core와 CLI
+├── src/isekai/             # 로컬 Core, Catalog entry controller와 CLI
 ├── tests/                  # 계약, lifecycle, 설치·업데이트 테스트
 ├── docs/                   # canonical 설계 문서 집합 (isekai.md가 입구)
 └── project.json            # 이 저장소 자체의 Project 계약

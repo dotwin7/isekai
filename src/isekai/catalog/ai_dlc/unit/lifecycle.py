@@ -445,6 +445,22 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     decisions = read_artifact("decisions.json")
     checkpoint = read_artifact("checkpoint.json")
     issues.extend(_unit_preflight_issues(unit_dir))
+    catalog_entry = unit.get("catalog_entry")
+    if isinstance(catalog_entry, str) and catalog_entry.strip():
+        try:
+            from isekai.workflow.catalog import load_catalog
+
+            known_ids = [
+                e["id"]
+                for e in load_catalog().get("entries", [])
+                if isinstance(e, dict)
+            ]
+            if catalog_entry not in known_ids:
+                issues.append(
+                    f"Unit catalog_entry references unknown entry: {catalog_entry}"
+                )
+        except Exception as exc:
+            issues.append(f"cannot validate Unit catalog_entry: {exc}")
     envelope_path = unit_dir / "execution-envelope.json"
     envelope: dict[str, Any] | None = None
     ledger: dict[str, Any] | None = None
@@ -677,6 +693,7 @@ def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
     return {
         "valid": valid,
         "unit_id": unit.get("id"),
+        "catalog_entry": unit.get("catalog_entry"),
         "title": unit.get("title"),
         "document_language": unit.get("document_language"),
         "phase": unit.get("phase"),

@@ -18,6 +18,7 @@ _ID = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?")
 _STATUSES = {"active", "preview", "deprecated"}
 _DELIVERY_MODES = {"core-bundled", "catalog-package"}
+_BINDING_MODES = {"single", "multiple"}
 _AUTHORITY = "cannot-expand-foundation-project-or-unit-authority"
 
 
@@ -86,6 +87,7 @@ def _load_catalog_entry(
         "description",
         "control_protocol",
         "delivery",
+        "binding_mode",
         "actions",
         "resources",
         "authority",
@@ -122,6 +124,8 @@ def _load_catalog_entry(
         )
     if value["delivery"] not in _DELIVERY_MODES:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid delivery")
+    if value.get("binding_mode") not in _BINDING_MODES:
+        raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid binding_mode")
     if value["authority"] != _AUTHORITY:
         raise FoundationError(f"ISEKAI catalog entry {entry_id} has invalid authority")
     normalized = dict(value)
@@ -251,4 +255,29 @@ def read_catalog_resource(catalog: dict[str, Any], uri: str) -> dict[str, str]:
         "uri": uri,
         "mimeType": "application/json",
         "text": json.dumps(value, ensure_ascii=False, indent=2),
+    }
+
+
+def select_active_entries(catalog: dict[str, Any]) -> dict[str, Any]:
+    """Summarize catalog entries and auto-select when exactly one is active."""
+    entries = catalog.get("entries", [])
+    if not isinstance(entries, list):
+        return {"catalog_entries": [], "active_entries": [], "selected_entry": None}
+    summaries = [
+        {
+            "id": entry.get("id"),
+            "version": entry.get("version"),
+            "status": entry.get("status"),
+            "active": entry.get("active", False),
+            "binding_mode": entry.get("binding_mode"),
+            "actions": entry.get("actions", []),
+        }
+        for entry in entries
+        if isinstance(entry, dict)
+    ]
+    active_ids = sorted(s["id"] for s in summaries if s["active"])
+    return {
+        "catalog_entries": summaries,
+        "active_entries": active_ids,
+        "selected_entry": active_ids[0] if len(active_ids) == 1 else None,
     }

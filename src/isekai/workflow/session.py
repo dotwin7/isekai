@@ -163,6 +163,7 @@ def _unit_ref(path: Path, status: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": str(path),
         "unit_id": status.get("unit_id"),
+        "catalog_entry": status.get("catalog_entry"),
         "title": status.get("title"),
         "document_language": status.get("document_language"),
         "phase": status.get("phase"),
@@ -186,6 +187,7 @@ def _unit_candidate_ref(path: Path) -> dict[str, Any]:
         return {
             "path": str(path),
             "unit_id": None,
+            "catalog_entry": None,
             "title": None,
             "document_language": None,
             "status": None,
@@ -194,6 +196,7 @@ def _unit_candidate_ref(path: Path) -> dict[str, Any]:
     return {
         "path": str(path),
         "unit_id": unit.get("id"),
+        "catalog_entry": unit.get("catalog_entry"),
         "title": unit.get("title"),
         "document_language": unit.get("document_language"),
         "status": unit.get("status"),
@@ -215,6 +218,8 @@ def build_project_session(
     route: WorkRoute = WorkRoute.UNIT,
 ) -> dict[str, Any]:
     """Build Project context without selecting, validating, or resuming a Unit."""
+    from .catalog import select_active_entries
+
     project_path = discover_project(project)
     context = resolve_context(project_path, route)
     unit_candidates = _unit_candidates(project_path)
@@ -225,6 +230,7 @@ def build_project_session(
             "version": context["project_version"],
         },
         "context": context,
+        "catalog_selection": select_active_entries(context.get("catalog", {})),
         "unit": None,
         "unit_candidate_details": [
             _unit_candidate_ref(path) for path in unit_candidates

@@ -35,6 +35,7 @@ from ..workflow.active_binding import (
 )
 from ..workflow.authorization import authorize_action
 from ..workflow import initialize_project, load_catalog
+from ..workflow.catalog import select_active_entries
 from ..workflow.project_knowledge import (
     project_knowledge_status,
     promote_project_knowledge,
@@ -423,6 +424,9 @@ def _intake(values: Mapping[str, Any]) -> dict[str, Any]:
                 "use active-unit-detach only after an explicit user decision"
             ),
         }
+    selection = select_active_entries(load_catalog())
+    if not any("intake" in s.get("actions", []) for s in selection["catalog_entries"] if s["active"]):
+        raise RuntimeContractError("no active catalog entry supports the intake action")
     return intake(values)
 
 
@@ -498,8 +502,19 @@ def _route(values: Mapping[str, Any]) -> dict[str, Any]:
     return classify_work(request).as_dict()
 
 
+def _resolve_catalog_entry(values: Mapping[str, Any]) -> str:
+    entry = values.get("catalog_entry")
+    if entry is not None:
+        return str(entry)
+    selected = select_active_entries(load_catalog())["selected_entry"]
+    if selected is None:
+        raise RuntimeContractError("multiple active catalog entries; catalog_entry is required")
+    return str(selected)
+
+
 def _unit_init(values: Mapping[str, Any]) -> dict[str, Any]:
     project = discover_project(_required(values, "project"))
+    catalog_entry = _resolve_catalog_entry(values)
     with active_unit_creation_guard(project) as bind:
         binding: dict[str, Any] | None = None
 
@@ -517,12 +532,14 @@ def _unit_init(values: Mapping[str, Any]) -> dict[str, Any]:
             values.get("output"),
             str(values.get("owner", "unassigned")),
             intent=values.get("intent"),
+            catalog_entry=str(catalog_entry),
             _postflight=bind_created,
         )
         if binding is None:  # pragma: no cover - initialize_unit always calls postflight
             raise RuntimeContractError("Unit initialization did not bind its Unit")
     return {
         "created": str(path),
+        "catalog_entry": str(catalog_entry),
         "active_unit_binding": binding,
     }
 
@@ -539,18 +556,15 @@ def _active_unit_detach(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _checkpoint(values: Mapping[str, Any]) -> dict[str, Any]:
     return update_checkpoint(
-        _required(values, "unit"),
-        completed=_list_field(values, "completed"),
-        pending=_list_field(values, "pending"),
-        blocked_by=_list_field(values, "blocked_by"),
+        _required(values, "unit"), completed=_list_field(values, "completed"),
+        pending=_list_field(values, "pending"), blocked_by=_list_field(values, "blocked_by"),
         next_action=str(_required(values, "next_action")),
     )
 
 
 def _amend(values: Mapping[str, Any]) -> dict[str, Any]:
     return record_unit_amendment(
-        _required(values, "unit"),
-        request=str(_required(values, "request")),
+        _required(values, "unit"), request=str(_required(values, "request")),
         reason=str(values.get("reason", "")),
         affected_artifacts=_list_field(values, "affected_artifacts"),
         requested_by=str(_required(values, "requested_by")),
@@ -559,29 +573,22 @@ def _amend(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _envelope_propose(values: Mapping[str, Any]) -> dict[str, Any]:
     return propose_execution_envelope(
-        _required(values, "unit"),
-        scope=_list_field(values, "scope"),
+        _required(values, "unit"), scope=_list_field(values, "scope"),
         stages=_list_field(values, "stages"),
         allowed_actions=_list_field(values, "allowed_actions"),
         forbidden_actions=_list_field(values, "forbidden_actions"),
         external_access=_list_field(values, "external_access"),
         max_iterations=values.get("max_iterations", 0),
         proposed_by=str(_required(values, "proposed_by")),
-        expires_in_hours=values.get(
-            "expires_in_hours", EXECUTION_ENVELOPE_DEFAULT_HOURS
-        ),
+        expires_in_hours=values.get("expires_in_hours", EXECUTION_ENVELOPE_DEFAULT_HOURS),
     )
 
 
 def _authorize(values: Mapping[str, Any]) -> dict[str, Any]:
-    requested_action = str(_required(values, "requested_action"))
     return authorize_action(
-        _required(values, "unit"),
-        action=requested_action,
-        target=values.get("target"),
-        stage=values.get("stage"),
-        method=values.get("method"),
-        credential_ref=values.get("credential_ref"),
+        _required(values, "unit"), action=str(_required(values, "requested_action")),
+        target=values.get("target"), stage=values.get("stage"),
+        method=values.get("method"), credential_ref=values.get("credential_ref"),
     )
 
 
@@ -593,18 +600,13 @@ def _managed_edit(values: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _artifact_write(values: Mapping[str, Any]) -> dict[str, Any]:
-    return write_unit_artifacts(
-        _required(values, "unit"),
-        artifacts=_list_field(values, "artifacts"),
-    )
+    return write_unit_artifacts(_required(values, "unit"), artifacts=_list_field(values, "artifacts"))
 
 
 def _prove(values: Mapping[str, Any]) -> dict[str, Any]:
     return execute_proof(
-        _required(values, "unit"),
-        target=str(_required(values, "target")),
-        command=_list_field(values, "command"),
-        timeout_seconds=values.get("timeout_seconds", 300),
+        _required(values, "unit"), target=str(_required(values, "target")),
+        command=_list_field(values, "command"), timeout_seconds=values.get("timeout_seconds", 300),
     )
 
 
@@ -635,9 +637,7 @@ def _decision(values: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _transition(values: Mapping[str, Any]) -> dict[str, Any]:
-    unit = str(_required(values, "unit"))
-    target = str(_required(values, "to"))
-    return transition_unit(unit, target)
+    return transition_unit(str(_required(values, "unit")), str(_required(values, "to")))
 
 
 def _verify(values: Mapping[str, Any]) -> dict[str, Any]:
