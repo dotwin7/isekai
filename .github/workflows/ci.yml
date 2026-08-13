@@ -37,6 +37,24 @@ jobs:
           sudo apt-get update &&
           sudo apt-get install --yes --no-install-recommends
           bubblewrap=0.9.0-1ubuntu0.1
+      - name: Allow Bubblewrap user namespaces
+        shell: bash
+        run: |
+          # Ubuntu 24.04 mediates unprivileged user namespaces with AppArmor.
+          # Grant only bwrap the permission; keep the global restriction intact.
+          userns_restriction_before="$(sysctl --values kernel.apparmor_restrict_unprivileged_userns)"
+          printf '%s\n' \
+            'abi <abi/4.0>,' \
+            'include <tunables/global>' \
+            '' \
+            '/usr/bin/bwrap flags=(unconfined) {' \
+            '  userns,' \
+            '  include if exists <local/isekai-bwrap>' \
+            '}' \
+            | sudo tee /etc/apparmor.d/isekai-bwrap > /dev/null
+          sudo apparmor_parser --replace /etc/apparmor.d/isekai-bwrap
+          test "$(sysctl --values kernel.apparmor_restrict_unprivileged_userns)" \
+            = "$userns_restriction_before"
       - name: Install package and test dependencies
         run: uv sync --frozen --extra test
       - name: Require Linux proof sandbox provider
