@@ -63,7 +63,21 @@ jobs:
           "from isekai.catalog.ai_dlc.unit.proof_sandbox import require_sandbox_provider;
           assert require_sandbox_provider() == 'linux-bubblewrap'"
       - name: Run tests
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          output_file="$(mktemp)"
+          set +e
+          python -m pytest -q 2>&1 | tee "$output_file"
+          status="${PIPESTATUS[0]}"
+          set -e
+          if test "$status" -ne 0; then
+            summary="$(tail -n 120 "$output_file")"
+            summary="${summary//'%'/'%25'}"
+            summary="${summary//$'\r'/'%0D'}"
+            summary="${summary//$'\n'/'%0A'}"
+            echo "::error title=pytest failed::$summary"
+          fi
+          exit "$status"
       - name: Type check
         run: python -m mypy src/isekai/
       - name: Compile sources
