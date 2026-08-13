@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from .types import FOUNDATION_DECISION_FIELDS, FoundationError, FoundationRelease
-from .validation import _parse_timestamp
+from .validation import parse_timestamp as _parse_timestamp
 
 
 def _foundation_record_digest(record: dict[str, Any], digest_field: str) -> str:
@@ -182,3 +182,8 @@ def _foundation_decision_history_issues(
         digest = entry.get("decision_digest")
         previous_digest = digest if isinstance(digest, str) else None
     return issues
+
+
+foundation_decision_digest = _foundation_decision_digest
+foundation_decision_history_issues = _foundation_decision_history_issues
+foundation_evidence_digest = _foundation_evidence_digest

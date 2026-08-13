@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from .authorization import (
-    _authorization_target_protection_issue,
-    _normalize_authorization_target,
+    authorization_target_protection_issue as _authorization_target_protection_issue,
+    normalize_authorization_target as _normalize_authorization_target,
 )
 from .external_access import (
     EXTERNAL_API_ACTION,

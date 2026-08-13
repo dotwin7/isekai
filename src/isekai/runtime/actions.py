@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
-from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from ..support.files import UnsafeControlFile, read_control_file
+from ..support.files import read_control_file
 from ..support.logging import ActionTimer, LOGGER, configure_logging
 from ..distribution import verify_adapter_handshake
 from ..foundation import (
@@ -34,8 +32,8 @@ from ..workflow.active_binding import (
     project_manifest_for_unit,
 )
 from ..workflow.authorization import authorize_action
-from ..workflow import initialize_project, load_catalog
-from ..workflow.catalog import select_active_entries
+from ..workflow.catalog import load_catalog, select_active_entries
+from ..workflow.project import initialize_project
 from ..workflow.project_knowledge import (
     project_knowledge_status,
     promote_project_knowledge,
@@ -61,7 +59,6 @@ from .active_guard import (
     UNIT_BOUND_ACTIONS as _UNIT_BOUND_ACTIONS,
     guard_active_unit as _guard_active_unit,
 )
-from .catalog_contract import catalog_model_issues
 from .request_fields import (
     RuntimeContractError,
     boolean_field as _boolean_field,
@@ -71,271 +68,15 @@ from .request_fields import (
     string_list_field as _string_list_field,
 )
 
-COMPATIBILITY_PATH = Path(__file__).resolve().parents[1] / "data/compatibility.json"
-COMPATIBILITY_OBSERVATION_STATUSES = {
-    "live-verified",
-    "validation-only",
-    "unavailable",
-    "unlinked-legacy",
-}
-
-
-def _compatibility_issues(value: dict[str, Any]) -> list[str]:
-    issues: list[str] = []
-    if value.get("schema_version") != "1.0.0":
-        issues.append("compatibility matrix has an unsupported schema_version")
-    if value.get("protocol_version") != "1.2.0":
-        issues.append("compatibility matrix has an unsupported protocol_version")
-    runtime_contract = value.get("runtime_contract")
-    if not isinstance(runtime_contract, dict):
-        issues.append("compatibility runtime_contract must be an object")
-    else:
-        if runtime_contract.get("high_risk_actions") != []:
-            issues.append("compatibility runtime_contract cannot allow high-risk actions")
-        if runtime_contract.get("human_decision_actions") != [
-            "amend",
-            "active-unit-detach",
-            "decision",
-            "foundation-decision",
-            "foundation-promote",
-        ]:
-            issues.append(
-                "compatibility runtime_contract has invalid human_decision_actions"
-            )
-        if runtime_contract.get("external_agent_actions") != ["external-api"]:
-            issues.append(
-                "compatibility runtime_contract has invalid external_agent_actions"
-            )
-        if runtime_contract.get("credential_handling") != (
-            "opaque-reference-resolved-by-host"
-        ):
-            issues.append(
-                "compatibility runtime_contract has invalid credential_handling"
-            )
-    trust_model = value.get("trust_model")
-    expected_trust_model = {
-        "core_enforcement": "record-consistency-tamper-detection-active-unit-binding-and-managed-execution",
-        "action_execution": "core-managed-edit-and-proof",
-        "proof_isolation": "os-enforced-source-and-user-data-read-denial-write-confinement-network-denial-fail-closed",
-        "conversation_change_reporting": "runtime-adapter-attested-not-core-observed",
-        "human_identity": "caller-attested-not-core-verified",
-        "evidence_execution": "core-receipted-for-proofs",
-        "secret_resolution": "runtime-host-outside-core",
-        "external_controls_required": [
-            "host direct-write tools disabled in favor of the Core gateway",
-            "active-Unit user-turn routing by the Runtime Adapter",
-            "authenticated human confirmation channel",
-            "CI or host execution provenance",
-            "host secret broker and output redaction",
-        ],
-    }
-    if trust_model != expected_trust_model:
-        issues.append("compatibility matrix has an invalid trust_model")
-    issues.extend(catalog_model_issues(value.get("catalog_model")))
-    policy = value.get("policy")
-    if not isinstance(policy, dict):
-        issues.append("compatibility policy must be an object")
-    else:
-        for field in ("classification", "tested_versions_are", "legacy_versions_are"):
-            if not isinstance(policy.get(field), str) or not policy[field].strip():
-                issues.append(f"compatibility policy requires {field}")
-    runtimes = value.get("runtimes")
-    observations = value.get("observations")
-    if not isinstance(runtimes, list) or not runtimes:
-        return ["compatibility runtimes must be a non-empty list"]
-    if not isinstance(observations, list):
-        return ["compatibility observations must be a list"]
-
-    observation_by_id: dict[str, dict[str, Any]] = {}
-    for index, observation in enumerate(observations):
-        if not isinstance(observation, dict):
-            issues.append(f"compatibility observation {index} must be an object")
-            continue
-        observation_id = observation.get("id")
-        if not isinstance(observation_id, str) or not observation_id.strip():
-            issues.append(f"compatibility observation {index} requires id")
-        elif observation_id in observation_by_id:
-            issues.append(f"duplicate compatibility observation: {observation_id}")
-        else:
-            observation_by_id[observation_id] = observation
-        status = observation.get("status")
-        if not isinstance(status, str) or status not in COMPATIBILITY_OBSERVATION_STATUSES:
-            issues.append(f"compatibility observation {index} has invalid status")
-        for field in ("runtime", "evidence_strength", "source_ref"):
-            if not isinstance(observation.get(field), str) or not observation[field].strip():
-                issues.append(f"compatibility observation {index} requires {field}")
-        version = observation.get("version")
-        if version is not None and (
-            not isinstance(version, str) or not version.strip()
-        ):
-            issues.append(f"compatibility observation {index} has invalid version")
-        observed_on = observation.get("observed_on")
-        if observed_on is not None:
-            try:
-                date.fromisoformat(observed_on)
-            except (TypeError, ValueError):
-                issues.append(
-                    f"compatibility observation {index} has invalid observed_on"
-                )
-        if status == "unlinked-legacy" and observed_on is not None:
-            issues.append(
-                f"compatibility observation {index} legacy evidence cannot claim observed_on"
-            )
-        if isinstance(status, str) and status in {
-            "live-verified",
-            "validation-only",
-            "unavailable",
-        } and (
-            observed_on is None
-        ):
-            issues.append(f"compatibility observation {index} requires observed_on")
-        if isinstance(status, str) and status in {
-            "live-verified",
-            "validation-only",
-            "unlinked-legacy",
-        } and (
-            not isinstance(version, str) or not version.strip()
-        ):
-            issues.append(
-                f"compatibility observation {index} status requires version"
-            )
-        checks = observation.get("checks")
-        if not isinstance(checks, list) or not checks or any(
-            not isinstance(check, str) or not check.strip() for check in checks
-        ):
-            issues.append(
-                f"compatibility observation {index} requires non-empty checks"
-            )
-
-    seen_runtimes: set[str] = set()
-    referenced_observations: list[str] = []
-    for index, runtime in enumerate(runtimes):
-        if not isinstance(runtime, dict):
-            issues.append(f"compatibility runtime {index} must be an object")
-            continue
-        runtime_id = runtime.get("id")
-        if not isinstance(runtime_id, str) or not runtime_id.strip():
-            issues.append(f"compatibility runtime {index} requires id")
-            continue
-        if runtime_id in seen_runtimes:
-            issues.append(f"duplicate compatibility runtime: {runtime_id}")
-        seen_runtimes.add(runtime_id)
-        references = runtime.get("evidence_refs")
-        if not isinstance(references, list) or any(
-            not isinstance(reference, str) or not reference.strip()
-            for reference in references
-        ):
-            issues.append(f"compatibility runtime {runtime_id} has invalid evidence_refs")
-            continue
-        if len(set(references)) != len(references):
-            issues.append(
-                f"compatibility runtime {runtime_id} has duplicate evidence_refs"
-            )
-        referenced_observations.extend(references)
-        for field in ("cli", "surface"):
-            if not isinstance(runtime.get(field), str) or not runtime[field].strip():
-                issues.append(f"compatibility runtime {runtime_id} requires {field}")
-        for field in ("host_checks", "core_checks"):
-            checks = runtime.get(field)
-            if not isinstance(checks, list) or not checks or any(
-                not isinstance(check, str) or not check.strip() for check in checks
-            ):
-                issues.append(
-                    f"compatibility runtime {runtime_id} requires non-empty {field}"
-                )
-        referenced = [observation_by_id.get(reference) for reference in references]
-        if any(observation is None for observation in referenced):
-            issues.append(
-                f"compatibility runtime {runtime_id} references missing evidence"
-            )
-            continue
-        if any(
-            observation.get("runtime") != runtime_id
-            for observation in referenced
-            if observation is not None
-        ):
-            issues.append(
-                f"compatibility runtime {runtime_id} references another runtime's evidence"
-            )
-        declared_versions: dict[str, list[str]] = {}
-        invalid_versions = False
-        for field in ("tested_versions", "legacy_versions"):
-            versions = runtime.get(field)
-            if (
-                not isinstance(versions, list)
-                or any(
-                    not isinstance(version, str) or not version.strip()
-                    for version in versions
-                )
-                or len(set(versions)) != len(versions)
-            ):
-                issues.append(
-                    f"compatibility runtime {runtime_id} has invalid {field}"
-                )
-                invalid_versions = True
-            else:
-                declared_versions[field] = versions
-        if invalid_versions:
-            continue
-        if set(declared_versions["tested_versions"]) & set(
-            declared_versions["legacy_versions"]
-        ):
-            issues.append(
-                f"compatibility runtime {runtime_id} versions cannot be tested and legacy"
-            )
-        live_versions = sorted(
-            str(observation["version"])
-            for observation in referenced
-            if observation is not None
-            and observation.get("status") == "live-verified"
-            and isinstance(observation.get("version"), str)
-        )
-        legacy_versions = sorted(
-            str(observation["version"])
-            for observation in referenced
-            if observation is not None
-            and observation.get("status") == "unlinked-legacy"
-            and isinstance(observation.get("version"), str)
-        )
-        if sorted(declared_versions["tested_versions"]) != live_versions:
-            issues.append(
-                f"compatibility runtime {runtime_id} tested_versions lack live evidence"
-            )
-        if sorted(declared_versions["legacy_versions"]) != legacy_versions:
-            issues.append(
-                f"compatibility runtime {runtime_id} legacy_versions lack legacy evidence"
-            )
-    unreferenced = sorted(set(observation_by_id) - set(referenced_observations))
-    if unreferenced:
-        issues.append(
-            "compatibility observations are not linked to runtimes: "
-            + ", ".join(unreferenced)
-        )
-    return issues
+from .compatibility import (
+    compatibility_issues as _compatibility_issues,
+    load_compatibility as _load_compatibility,
+)
 
 
 def load_compatibility() -> dict[str, Any]:
-    try:
-        content = read_control_file(
-            COMPATIBILITY_PATH,
-            root=COMPATIBILITY_PATH.parent,
-            label="compatibility matrix",
-        ).decode("utf-8")
-        value = json.loads(content)
-    except FileNotFoundError as exc:
-        raise RuntimeContractError(f"missing compatibility matrix: {COMPATIBILITY_PATH}") from exc
-    except UnsafeControlFile as exc:
-        raise RuntimeContractError(str(exc)) from exc
-    except OSError as exc:
-        raise RuntimeContractError(f"cannot safely read compatibility matrix: {exc}") from exc
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeContractError(f"invalid compatibility matrix: {exc}") from exc
-    if not isinstance(value, dict):
-        raise RuntimeContractError("compatibility matrix must be an object")
-    issues = _compatibility_issues(value)
-    if issues:
-        raise RuntimeContractError("invalid compatibility matrix: " + "; ".join(issues))
-    return value
+    """Load through the action-layer read seam used by host integrations."""
+    return _load_compatibility(read_control_file)
 
 
 def _handshake(values: Mapping[str, Any]) -> dict[str, Any]:

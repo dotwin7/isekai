@@ -13,10 +13,10 @@ from typing import Iterator
 from .files import metadata_is_path_alias
 from .jsonio import (
     UnsafeWritePath,
-    _fallback_rooted_target,
-    _open_rooted_parent,
-    _rooted_relative_path,
-    _supports_rooted_writes,
+    fallback_rooted_target as _fallback_rooted_target,
+    open_rooted_parent as _open_rooted_parent,
+    rooted_relative_path as _rooted_relative_path,
+    supports_rooted_writes as _supports_rooted_writes,
 )
 
 

@@ -17,24 +17,28 @@ from isekai.support.jsonio import (
     write_bytes_atomic_beneath,
 )
 from isekai.support.errors import IntegrityError, LifecycleError, WorkflowError
-from isekai.workflow.project import _receipt_source_manifest_path
+from isekai.workflow.project import receipt_source_manifest_path as _receipt_source_manifest_path
 from .amendments import AMENDABLE_ARTIFACT_GATES, amendment_status
 from .artifacts import ACCEPTANCE_CHECKBOX
-from .decisions import TERMINAL_STATUSES
-from .authorization import _authorization_ledger_issues, _last_authorization_id
+from .decision_schema import TERMINAL_STATUSES
+from .authorization import (
+    authorization_ledger_issues as _authorization_ledger_issues,
+    last_authorization_id as _last_authorization_id,
+)
 from .authorization_request import resolve_authorization_request
 from .common import (
-    _unit_bytes,
-    _unit_json,
-    _unit_path_without_symlinks,
-    _write_unit_json,
+    unit_bytes as _unit_bytes,
+    unit_json as _unit_json,
+    unit_path_without_symlinks as _unit_path_without_symlinks,
+    write_unit_json as _write_unit_json,
     unit_lock,
 )
-from .execution import _authorize_action_locked
+from .execution import authorize_action_locked as _authorize_action_locked
 from .proof_sandbox import build_sandbox_invocation
 from .proof_runtime import (
     MAX_PROOF_CAPTURE_BYTES,
     MAX_PROOF_OUTPUT_BYTES,
+    ProofRun,
     capture_managed_process as _capture_managed_process,
     copy_test_workspace as _copy_test_workspace,
     isolated_test_command as _isolated_test_command,
@@ -331,15 +335,11 @@ def _normalize_command(command: object) -> list[str]:
     return list(command)
 
 
-def execute_proof(
+def _validated_proof_request(
     path: str | Path,
-    *,
-    target: str,
     command: object,
-    timeout_seconds: int = 300,
-) -> dict[str, Any]:
-    """Authorize, execute, and receipt a verification run inside Core."""
-
+    timeout_seconds: int,
+) -> tuple[Path, list[str]]:
     unit_dir = Path(path).expanduser().resolve()
     if not unit_dir.is_dir():
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
@@ -350,17 +350,170 @@ def execute_proof(
         or timeout_seconds < 1
         or timeout_seconds > MAX_PROOF_SECONDS
     ):
-        raise WorkflowError(
-            f"proof timeout must be 1-{MAX_PROOF_SECONDS} seconds"
+        raise WorkflowError(f"proof timeout must be 1-{MAX_PROOF_SECONDS} seconds")
+    return unit_dir, argv
+
+
+def _run_proof(
+    project_root: Path,
+    argv: list[str],
+    timeout_seconds: int,
+) -> ProofRun:
+    with tempfile.TemporaryDirectory(prefix="isekai-proof-") as temp:
+        temp_root = Path(temp).resolve()
+        sandbox_project = temp_root / "project"
+        dependency_roots = _copy_test_workspace(project_root, sandbox_project)
+        environment = _proof_environment(
+            temp_root,
+            dependency_roots=dependency_roots,
         )
+        sandbox = build_sandbox_invocation(
+            argv,
+            temp_root=temp_root,
+            workspace=sandbox_project,
+            source_project=project_root,
+            dependency_roots=dependency_roots,
+            environment=environment,
+            timeout_seconds=timeout_seconds,
+        )
+        process = subprocess.Popen(
+            sandbox.argv,
+            cwd=sandbox_project,
+            env=sandbox.environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=os.name == "posix",
+        )
+        (
+            exit_code,
+            timed_out,
+            output_limit_exceeded,
+            stdout_capture,
+            stderr_capture,
+        ) = _capture_managed_process(process, timeout_seconds=timeout_seconds)
+        return ProofRun(
+            argv=argv,
+            dependency_roots=dependency_roots,
+            provider=sandbox.provider,
+            sandbox_policy=sandbox.sandbox_policy,
+            filesystem_isolation=sandbox.filesystem_isolation,
+            network_isolation=sandbox.network_isolation,
+            process_isolation=sandbox.process_isolation,
+            resource_limits=sandbox.resource_limits,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            output_limit_exceeded=output_limit_exceeded,
+            stdout_digest=stdout_capture.digest,
+            stderr_digest=stderr_capture.digest,
+            stdout=stdout_capture.text,
+            stderr=stderr_capture.text,
+            stdout_truncated=stdout_capture.truncated,
+            stderr_truncated=stderr_capture.truncated,
+            stdout_bytes=stdout_capture.byte_count,
+            stderr_bytes=stderr_capture.byte_count,
+        )
+
+
+def _proof_execution_record(
+    run: ProofRun,
+    project_root: Path,
+) -> dict[str, Any]:
+    status = (
+        "timed-out"
+        if run.timed_out
+        else ("output-limit-exceeded" if run.output_limit_exceeded else "completed")
+    )
+    execution: dict[str, Any] = {
+        "type": "core-proof",
+        "status": status,
+        "workspace": "disposable-copy",
+        "sandbox_provider": run.provider,
+        "sandbox_policy": run.sandbox_policy,
+        "filesystem_isolation": run.filesystem_isolation,
+        "network_isolation": run.network_isolation,
+        "process_isolation": run.process_isolation,
+        "resource_limits": run.resource_limits,
+        "environment": "core-allowlisted",
+        "dependency_views": [
+            root.relative_to(project_root).as_posix()
+            for root in run.dependency_roots
+        ],
+        "command": run.argv,
+        "exit_code": run.exit_code,
+        "timed_out": run.timed_out,
+        "stdout_digest": run.stdout_digest,
+        "stderr_digest": run.stderr_digest,
+        "stdout_bytes": run.stdout_bytes,
+        "stderr_bytes": run.stderr_bytes,
+        "stdout_truncated": run.stdout_truncated,
+        "stderr_truncated": run.stderr_truncated,
+        "output_capture_limit_bytes": MAX_PROOF_CAPTURE_BYTES,
+        "output_limit_exceeded": run.output_limit_exceeded,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    execution["evidence_command"] = proof_command_text(run.argv)
+    execution["evidence_output_digest"] = proof_output_digest(execution)
+    return execution
+
+
+def _persist_proof_receipt(
+    unit_dir: Path,
+    *,
+    unit: dict[str, Any],
+    envelope: dict[str, Any],
+    authorization: dict[str, Any],
+    execution: dict[str, Any],
+) -> None:
+    candidate_ledger = _unit_json(unit_dir, "execution-authorizations.json")
+    grants = candidate_ledger.get("grants")
+    if not isinstance(grants, list) or not grants:
+        raise IntegrityError("proof authorization grant was not persisted")
+    grant = grants[-1]
+    if not isinstance(grant, dict) or grant.get("id") != authorization.get(
+        "authorization_id"
+    ):
+        raise IntegrityError("proof authorization grant changed concurrently")
+    grant["execution"] = execution
+    issues = _authorization_ledger_issues(
+        candidate_ledger, unit, envelope, unit_dir=unit_dir
+    )
+    if issues:
+        raise IntegrityError("proof receipt rejected: " + "; ".join(issues))
+    _write_unit_json(unit_dir, "execution-authorizations.json", candidate_ledger)
+
+
+def _restore_proof_ledger(
+    unit_dir: Path,
+    previous_ledger_bytes: bytes,
+    cause: Exception,
+) -> None:
+    try:
+        _write_managed_bytes(
+            unit_dir,
+            "execution-authorizations.json",
+            previous_ledger_bytes,
+        )
+    except Exception as restore_exc:  # pragma: no cover - secondary failure
+        raise IntegrityError(
+            "proof failed and authorization ledger could not be restored: "
+            f"{restore_exc}"
+        ) from cause
+
+
+def execute_proof(
+    path: str | Path,
+    *,
+    target: str,
+    command: object,
+    timeout_seconds: int = 300,
+) -> dict[str, Any]:
+    """Authorize, execute, and receipt a verification run inside Core."""
+    unit_dir, argv = _validated_proof_request(path, command, timeout_seconds)
     with unit_lock(unit_dir):
         unit = _unit_json(unit_dir, "unit.json")
-        if isinstance(unit.get("status"), str) and unit.get(
-            "status"
-        ) in TERMINAL_STATUSES:
-            raise LifecycleError(
-                f"a {unit.get('status')} Unit cannot execute proofs"
-            )
+        if isinstance(unit.get("status"), str) and unit.get("status") in TERMINAL_STATUSES:
+            raise LifecycleError(f"a {unit.get('status')} Unit cannot execute proofs")
         receipt = _unit_json(unit_dir, "context-receipt.json")
         project_root = _receipt_source_manifest_path(
             receipt, unit_dir=unit_dir
@@ -381,144 +534,33 @@ def execute_proof(
         if authorization.get("allowed") is not True:
             raise LifecycleError(str(authorization.get("reason", "proof blocked")))
         try:
-            with tempfile.TemporaryDirectory(prefix="isekai-proof-") as temp:
-                # Seatbelt evaluates canonical filesystem paths.  macOS exposes
-                # its per-user temporary directory through /var -> /private/var,
-                # so bind the sandbox contract to the resolved spelling.
-                temp_root = Path(temp).resolve()
-                sandbox_project = temp_root / "project"
-                dependency_roots = _copy_test_workspace(
-                    project_root,
-                    sandbox_project,
-                )
-                environment = _proof_environment(
-                    temp_root,
-                    dependency_roots=dependency_roots,
-                )
-                sandbox = build_sandbox_invocation(
-                    argv,
-                    temp_root=temp_root,
-                    workspace=sandbox_project,
-                    source_project=project_root,
-                    dependency_roots=dependency_roots,
-                    environment=environment,
-                    timeout_seconds=timeout_seconds,
-                )
-                process = subprocess.Popen(
-                    sandbox.argv,
-                    cwd=sandbox_project,
-                    env=sandbox.environment,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    start_new_session=os.name == "posix",
-                )
-                (
-                    exit_code,
-                    timed_out,
-                    output_limit_exceeded,
-                    stdout_capture,
-                    stderr_capture,
-                ) = _capture_managed_process(
-                    process,
-                    timeout_seconds=timeout_seconds,
-                )
-                stdout_digest = stdout_capture.digest
-                stderr_digest = stderr_capture.digest
-                stdout = stdout_capture.text
-                stderr = stderr_capture.text
-                stdout_truncated = stdout_capture.truncated
-                stderr_truncated = stderr_capture.truncated
-                stdout_bytes = stdout_capture.byte_count
-                stderr_bytes = stderr_capture.byte_count
-            candidate_ledger = _unit_json(
-                unit_dir, "execution-authorizations.json"
-            )
-            grants = candidate_ledger.get("grants")
-            if not isinstance(grants, list) or not grants:
-                raise IntegrityError("proof authorization grant was not persisted")
-            grant = grants[-1]
-            if not isinstance(grant, dict) or grant.get("id") != authorization.get(
-                "authorization_id"
-            ):
-                raise IntegrityError("proof authorization grant changed concurrently")
-            execution = {
-                "type": "core-proof",
-                "status": (
-                    "timed-out"
-                    if timed_out
-                    else (
-                        "output-limit-exceeded"
-                        if output_limit_exceeded
-                        else "completed"
-                    )
-                ),
-                "workspace": "disposable-copy",
-                "sandbox_provider": sandbox.provider,
-                "sandbox_policy": sandbox.sandbox_policy,
-                "filesystem_isolation": sandbox.filesystem_isolation,
-                "network_isolation": sandbox.network_isolation,
-                "process_isolation": sandbox.process_isolation,
-                "resource_limits": sandbox.resource_limits,
-                "environment": "core-allowlisted",
-                "dependency_views": [
-                    root.relative_to(project_root).as_posix()
-                    for root in dependency_roots
-                ],
-                "command": argv,
-                "exit_code": exit_code,
-                "timed_out": timed_out,
-                "stdout_digest": stdout_digest,
-                "stderr_digest": stderr_digest,
-                "stdout_bytes": stdout_bytes,
-                "stderr_bytes": stderr_bytes,
-                "stdout_truncated": stdout_truncated,
-                "stderr_truncated": stderr_truncated,
-                "output_capture_limit_bytes": MAX_PROOF_CAPTURE_BYTES,
-                "output_limit_exceeded": output_limit_exceeded,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }
-            execution["evidence_command"] = proof_command_text(argv)
-            execution["evidence_output_digest"] = proof_output_digest(execution)
-            grant["execution"] = execution
-            issues = _authorization_ledger_issues(
-                candidate_ledger, unit, envelope, unit_dir=unit_dir
-            )
-            if issues:
-                raise IntegrityError(
-                    "proof receipt rejected: " + "; ".join(issues)
-                )
-            _write_unit_json(
+            run = _run_proof(project_root, argv, timeout_seconds)
+            execution = _proof_execution_record(run, project_root)
+            _persist_proof_receipt(
                 unit_dir,
-                "execution-authorizations.json",
-                candidate_ledger,
+                unit=unit,
+                envelope=envelope,
+                authorization=authorization,
+                execution=execution,
             )
         except Exception as exc:
-            try:
-                _write_managed_bytes(
-                    unit_dir,
-                    "execution-authorizations.json",
-                    previous_ledger_bytes,
-                )
-            except Exception as restore_exc:  # pragma: no cover - secondary failure
-                raise IntegrityError(
-                    "proof failed and authorization ledger could not be restored: "
-                    f"{restore_exc}"
-                ) from exc
+            _restore_proof_ledger(unit_dir, previous_ledger_bytes, exc)
             raise
         return {
             **authorization,
             "passed": (
-                exit_code == 0 and not timed_out and not output_limit_exceeded
+                run.exit_code == 0
+                and not run.timed_out
+                and not run.output_limit_exceeded
             ),
             "execution": execution,
             "evidence_command": {
                 "authorization_id": authorization["authorization_id"],
             },
-            "stdout": stdout,
-            "stderr": stderr,
-            "stdout_truncated": stdout_truncated,
-            "stderr_truncated": stderr_truncated,
+            "stdout": run.stdout,
+            "stderr": run.stderr,
+            "stdout_truncated": run.stdout_truncated,
+            "stderr_truncated": run.stderr_truncated,
             "host_execution_required": False,
         }
 

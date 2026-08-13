@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from ..distribution import MANIFEST_PATH
+from ..distribution.release import MANIFEST_PATH
 from ..workflow import (
     EXECUTION_ENVELOPE_DEFAULT_HOURS,
     EXECUTION_ENVELOPE_MAX_HOURS,
@@ -50,10 +50,7 @@ DIRECT_RUNTIME_ACTIONS = {
 }
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m isekai")
-    commands = parser.add_subparsers(dest="command", required=True)
-
+def _add_project_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     mcp_serve = commands.add_parser(
         "mcp-serve", help="serve the Project-scoped Core tool gateway over stdio"
     )
@@ -142,11 +139,10 @@ def _parser() -> argparse.ArgumentParser:
     structure = commands.add_parser("structure", help="list prototype files")
     structure.add_argument("--root", default=".")
 
-    runtime = commands.add_parser(
-        "runtime", help="run the ISEKAI project-local runtime contract"
-    )
-    runtime_commands = runtime.add_subparsers(dest="runtime_command", required=True)
 
+def _add_runtime_project_commands(
+    runtime_commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     runtime_project_init = runtime_commands.add_parser(
         "init", help="initialize an ISEKAI project manifest and Unit root"
     )
@@ -218,6 +214,10 @@ def _parser() -> argparse.ArgumentParser:
         help="show the ISEKAI Catalog for this Runtime",
     )
 
+
+def _add_foundation_commands(
+    runtime_commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     runtime_release_check = runtime_commands.add_parser(
         "release-check", help="report Foundation release-readiness blockers"
     )
@@ -270,6 +270,10 @@ def _parser() -> argparse.ArgumentParser:
     runtime_project_knowledge_promote.add_argument("--unit", required=True)
     runtime_project_knowledge_promote.add_argument("--candidate", required=True)
 
+
+def _add_unit_context_commands(
+    runtime_commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     runtime_resume = runtime_commands.add_parser("resume", help="restore Unit checkpoint context")
     runtime_resume.add_argument("--project", default=".")
     runtime_resume.add_argument("--unit")
@@ -315,6 +319,10 @@ def _parser() -> argparse.ArgumentParser:
     runtime_active_unit_detach.add_argument("--requested-by", dest="requested_by", required=True)
     runtime_active_unit_detach.add_argument("--reason", required=True)
 
+
+def _add_execution_commands(
+    runtime_commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     runtime_envelope_propose = runtime_commands.add_parser(
         "envelope-propose", help="propose an adaptive Execution Envelope for a Unit"
     )
@@ -383,6 +391,10 @@ def _parser() -> argparse.ArgumentParser:
         "--timeout-seconds", type=int, default=300
     )
 
+
+def _add_evidence_and_decision_commands(
+    runtime_commands: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     runtime_evidence = runtime_commands.add_parser("evidence", help="record structured verification Evidence")
     runtime_evidence.add_argument("--unit", required=True)
     runtime_evidence.add_argument("--passed", action="store_true")
@@ -431,4 +443,22 @@ def _parser() -> argparse.ArgumentParser:
     runtime_verify = runtime_commands.add_parser("verify", help="verify a Unit through the runtime contract")
     runtime_verify.add_argument("--unit", required=True)
 
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m isekai")
+    commands = parser.add_subparsers(dest="command", required=True)
+    _add_project_commands(commands)
+
+    runtime = commands.add_parser(
+        "runtime", help="run the ISEKAI project-local runtime contract"
+    )
+    runtime_commands = runtime.add_subparsers(dest="runtime_command", required=True)
+    _add_runtime_project_commands(runtime_commands)
+    _add_foundation_commands(runtime_commands)
+    _add_unit_context_commands(runtime_commands)
+    _add_execution_commands(runtime_commands)
+    _add_evidence_and_decision_commands(runtime_commands)
     return parser
+
+
+build_parser = _parser

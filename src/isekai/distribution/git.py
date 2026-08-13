@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
-from .install import install_from_checkout, load_install_lock
+from .install import install_from_checkout
+from .lockfile import load_install_lock
 from .release import (
     DistributionError,
-    _normalize_runtimes,
-    _verify_or_raise,
+    normalize_runtimes as _normalize_runtimes,
+    verify_or_raise as _verify_or_raise,
 )
 
 
@@ -451,3 +452,10 @@ def plan_git_update(
         "requires_confirmation": True,
         "new_conversation_required": bool({"codex", "claude"} & set(selected)),
     }
+
+
+run_git = _git
+reject_moved_ref = _reject_moved_ref
+resolve_immutable_git_ref = _resolve_immutable_git_ref
+validate_git_source = _validate_git_source
+verify_checkout_claim = _verify_checkout_claim

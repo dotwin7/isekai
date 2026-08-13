@@ -214,12 +214,12 @@ class FoundationRelease:
                     "human approval is required"
                 )
         from .evaluation import evaluate_all_evaluations
-        from .promotion import _approval_blockers
+        from .release_validation import approval_blockers
 
         # Grade the evaluation matrix once and reuse it; approval blockers report
         # the same failures, so the results must not be recomputed per consumer.
         evaluations = evaluate_all_evaluations(self)
-        blockers.extend(_approval_blockers(self, evaluations=evaluations))
+        blockers.extend(approval_blockers(self, evaluations=evaluations))
         return {
             "ready": not blockers,
             "summary": self.summary(),

@@ -12,8 +12,8 @@ from .release import (
     MANAGED_ROOT,
     RUNTIMES,
     DistributionError,
-    _read_control_json,
-    _safe_relative_path,
+    read_control_json as _read_control_json,
+    safe_relative_path as _safe_relative_path,
 )
 
 
@@ -264,3 +264,9 @@ def _workspace_adapter_owned(adapters: object, runtime: str) -> bool:
     return isinstance(entry, dict) and (
         entry.get("path") == expected or entry.get("workspace_path") == expected
     )
+
+
+installed_path = _installed_path
+load_install_lock_path = _load_install_lock_path
+project_path_without_symlinks = _project_path_without_symlinks
+workspace_adapter_owned = _workspace_adapter_owned

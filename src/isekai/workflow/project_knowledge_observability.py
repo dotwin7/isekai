@@ -7,8 +7,8 @@ from isekai.support.errors import IntegrityError
 from isekai.support.files import UnsafeControlFile, inspect_tree_beneath
 from .project_knowledge_schema import CANDIDATE_REFERENCE, candidate_issues
 from .project_knowledge_storage import managed_project_directory, safe_project_json
-from isekai.catalog.ai_dlc.unit.common import _unit_json
-from isekai.catalog.ai_dlc.unit.decisions import _decision_ledger_issues
+from isekai.catalog.ai_dlc.unit.common import unit_json as _unit_json
+from isekai.catalog.ai_dlc.unit.decision_schema import decision_ledger_issues
 
 
 CANDIDATE_STATUSES = (
@@ -77,7 +77,7 @@ def _candidate_decision(
     try:
         unit = _unit_json(unit_dir, "unit.json")
         decisions = _unit_json(unit_dir, "decisions.json")
-        ledger_issues = _decision_ledger_issues(
+        ledger_issues = decision_ledger_issues(
             decisions,
             unit_id=str(unit.get("id")),
             scope=str(unit.get("scope")),
@@ -194,6 +194,7 @@ def candidate_status_details(
         if candidate.get("id") != match.group(1):
             issues.append("Project Knowledge candidate id does not match its path")
         source_unit = _source_unit_path(project_root, candidate) if not issues else None
+        decision: dict[str, Any]
         if source_unit is None:
             decision = {
                 "available": False,

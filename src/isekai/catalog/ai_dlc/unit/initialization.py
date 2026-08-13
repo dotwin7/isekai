@@ -3,26 +3,25 @@ from __future__ import annotations
 import re
 import tempfile
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from isekai.support.errors import WorkflowError
 from isekai.catalog.ai_dlc.intake import normalize_intent
-from isekai.workflow.project import _portable_context_receipt, resolve_context
+from isekai.workflow.project import portable_context_receipt as _portable_context_receipt, resolve_context
 from isekai.workflow.project_knowledge import (
     current_project_knowledge,
     select_project_knowledge_context,
 )
 from isekai.catalog.ai_dlc.routing import AGENT_PROHIBITED_ACTIONS, WorkRoute
-from .authorization import _authorization_ledger_digest
+from .authorization import authorization_ledger_digest as _authorization_ledger_digest
 from .artifacts import unit_document_templates
 from .checkpointing import authorization_progress_cursor
-from .common import _write_json
-from .execution import (
-    EXECUTION_ENVELOPE_DEFAULT_HOURS,
-    _execution_envelope_approval_digest,
-)
+from .common import write_json as _write_json
+from .execution import EXECUTION_ENVELOPE_DEFAULT_HOURS
+from .execution_schema import execution_envelope_approval_digest
 
 
 def _validated_title(value: str) -> str:
@@ -40,211 +39,244 @@ def _validated_owner(value: str) -> str:
     return value.strip()
 
 
-def initialize_unit(
-    project_path: str | Path,
-    title: str,
-    output_root: str | Path | None = None,
-    owner: str = "unassigned",
-    intent: dict[str, Any] | None = None,
-    catalog_entry: str = "ai-dlc",
-    _postflight: Callable[[Path], None] | None = None,
-) -> Path:
-    title = _validated_title(title)
-    owner = _validated_owner(owner)
-    if not isinstance(catalog_entry, str) or not catalog_entry.strip():
+@dataclass(frozen=True)
+class _UnitInitializationPlan:
+    title: str
+    owner: str
+    catalog_entry: str
+    receipt: dict[str, Any]
+    project_root: Path
+    output_root: Path
+    final_unit_dir: Path
+    unit_id: str
+    normalized_intent: dict[str, Any]
+    document_language: str
+
+
+@dataclass(frozen=True)
+class _UnitDocumentPlan:
+    intent: str
+    templates: dict[str, str]
+    pending: list[str]
+    next_action: str
+
+
+def _validated_catalog_entry(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
         raise WorkflowError("catalog_entry must be a non-empty string")
-    if catalog_entry != "ai-dlc":
+    if value != "ai-dlc":
         raise WorkflowError(
             "AI-DLC Unit initialization requires catalog_entry ai-dlc; "
             "other Catalog entries must use their own resource model"
         )
+    return value
+
+
+def _resolved_output_root(
+    project_root: Path,
+    output_root: str | Path | None,
+) -> Path:
+    requested = Path("units") if output_root is None else Path(output_root).expanduser()
+    resolved = (
+        requested.resolve()
+        if requested.is_absolute()
+        else (project_root / requested).resolve()
+    )
+    if not requested.is_absolute():
+        try:
+            resolved.relative_to(project_root)
+        except ValueError as exc:
+            raise WorkflowError(
+                f"relative Unit output escapes project root: {requested}"
+            ) from exc
+    return resolved
+
+
+def _initialization_plan(
+    project_path: str | Path,
+    *,
+    title: str,
+    owner: str,
+    output_root: str | Path | None,
+    intent: dict[str, Any] | None,
+    catalog_entry: str,
+) -> _UnitInitializationPlan:
     if intent is not None and not isinstance(intent, dict):
         raise WorkflowError("intent must be an object")
     receipt = resolve_context(project_path, WorkRoute.UNIT)
     catalog = receipt.get("catalog", {})
     catalog_entries = catalog.get("entries", [])
     active_ids = [
-        e["id"]
-        for e in catalog_entries
-        if isinstance(e, dict) and e.get("active")
+        entry["id"]
+        for entry in catalog_entries
+        if isinstance(entry, dict) and entry.get("active")
     ]
     if "ai-dlc" not in active_ids:
         raise WorkflowError(
             "AI-DLC Unit initialization requires the active ai-dlc Catalog entry"
         )
-    manifest_path = Path(str(receipt["source_manifest"])).resolve()
-    project_root = manifest_path.parent.resolve()
-    if output_root is None:
-        requested_output_root = Path("units")
-        resolved_output_root = (project_root / requested_output_root).resolve()
-        output_label: str | Path = requested_output_root
-    else:
-        requested_output_root = Path(output_root).expanduser()
-        if requested_output_root.is_absolute():
-            resolved_output_root = requested_output_root.resolve()
-            output_label = output_root
-        else:
-            resolved_output_root = (project_root / requested_output_root).resolve()
-            output_label = output_root
-    if output_root is None or not requested_output_root.is_absolute():
-        try:
-            resolved_output_root.relative_to(project_root)
-        except ValueError as exc:
-            raise WorkflowError(
-                f"relative Unit output escapes project root: {output_label}"
-            ) from exc
-    intent_values = dict(intent or {})
-    intent_values.setdefault("goal", title)
-    normalized_intent = normalize_intent(intent_values)
-    goal = normalized_intent["goal"]
-    intent_source = normalized_intent["source"]
-    expected_outcome = normalized_intent["expected_outcome"]
+    project_root = Path(str(receipt["source_manifest"])).resolve().parent
+    resolved_output_root = _resolved_output_root(project_root, output_root)
+    normalized_intent = normalize_intent({"goal": title, **(intent or {})})
     work_scope = normalized_intent["scope"]
-    constraints = normalized_intent["constraints"]
-    acceptance_criteria = normalized_intent["acceptance_criteria"]
     receipt["project_knowledge"] = select_project_knowledge_context(
         current_project_knowledge(project_root, str(receipt["project_id"])),
         work_scope,
     )
-    document_language = receipt["document_language"]
     unit_id = (
         f"UNIT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-"
         f"{uuid.uuid4().hex.upper()}"
     )
-    output_root = resolved_output_root.resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
-    final_unit_dir = output_root / unit_id.lower()
+    resolved_output_root.mkdir(parents=True, exist_ok=True)
+    final_unit_dir = resolved_output_root / unit_id.lower()
     if final_unit_dir.exists():
         raise FileExistsError(f"unit already exists: {final_unit_dir}")
-    receipt = _portable_context_receipt(
+    portable_receipt = _portable_context_receipt(
         receipt,
         project_root=project_root,
         unit_dir=final_unit_dir,
     )
-    staging = tempfile.TemporaryDirectory(
-        prefix=f".{unit_id.lower()}.stage-",
-        dir=output_root,
+    return _UnitInitializationPlan(
+        title=title,
+        owner=owner,
+        catalog_entry=catalog_entry,
+        receipt=portable_receipt,
+        project_root=project_root,
+        output_root=resolved_output_root,
+        final_unit_dir=final_unit_dir,
+        unit_id=unit_id,
+        normalized_intent=normalized_intent,
+        document_language=str(portable_receipt["document_language"]),
     )
-    unit_dir = Path(staging.name)
 
-    _write_json(
-        unit_dir / "unit.json",
-        {
-            "id": unit_id,
-            "catalog_entry": catalog_entry,
-            "title": title,
-            "project_id": receipt["project_id"],
-            "phase": "inception",
-            "status": "proposed",
-            "owner": owner,
-            "scope": f"project:{receipt['project_id']}",
-            "work_scope": work_scope,
-            "intent_source": intent_source,
-            "document_language": document_language,
-            "goal": goal,
-            "expected_outcome": expected_outcome,
-            "constraints": constraints,
-            "acceptance_criteria": acceptance_criteria,
-            "intake": {
-                "change": normalized_intent["change"],
-                "risk": normalized_intent["risk"],
-                "ambiguous": normalized_intent["ambiguous"],
-                "multi_party": normalized_intent["multi_party"],
-                "remote": normalized_intent["remote"],
-                "sensitive": normalized_intent["sensitive"],
-                "classification": normalized_intent["classification"],
-            },
-            "foundation_version": receipt["foundation_version"],
-            "foundation_digest": receipt["foundation_digest"],
-        },
-    )
-    if document_language == "ko":
-        intent_heading = {
+
+def _document_plan(plan: _UnitInitializationPlan) -> _UnitDocumentPlan:
+    intent = plan.normalized_intent
+    if plan.document_language == "ko":
+        headings = {
             "goal": "## 목표",
             "outcome": "## 기대 결과",
             "scope": "## 범위",
             "constraints": "## 제약사항",
             "acceptance": "## 인수 조건",
         }
-        expected_placeholder = "기대 결과를 정의합니다."
-        scope_placeholder = "- 작업 범위를 정의합니다."
-        constraint_placeholder = "- 제약사항을 정의합니다."
-        acceptance_placeholder = "- [ ] 검증 가능한 인수 조건을 정의합니다."
-        templates = unit_document_templates("ko")
+        placeholders = (
+            "기대 결과를 정의합니다.",
+            "- 작업 범위를 정의합니다.",
+            "- 제약사항을 정의합니다.",
+            "- [ ] 검증 가능한 인수 조건을 정의합니다.",
+        )
         pending = ["Inception 내용 구체화"]
         next_action = "의도와 인수 조건을 구체화합니다."
+        templates = unit_document_templates("ko")
     else:
-        intent_heading = {
+        headings = {
             "goal": "## Goal",
             "outcome": "## Expected outcome",
             "scope": "## Scope",
             "constraints": "## Constraints",
             "acceptance": "## Acceptance criteria",
         }
-        expected_placeholder = "Define the expected outcome."
-        scope_placeholder = "- Define the work scope."
-        constraint_placeholder = "- Define constraints."
-        acceptance_placeholder = "- [ ] Define verifiable acceptance criteria."
-        templates = unit_document_templates("en")
+        placeholders = (
+            "Define the expected outcome.",
+            "- Define the work scope.",
+            "- Define constraints.",
+            "- [ ] Define verifiable acceptance criteria.",
+        )
         pending = ["inception elaboration"]
         next_action = "clarify intent and acceptance criteria"
-
-    scope_lines = [f"- {item}" for item in work_scope] or [scope_placeholder]
-    constraint_lines = [f"- {item}" for item in constraints] or [constraint_placeholder]
-    acceptance_lines = [f"- [ ] {item}" for item in acceptance_criteria] or [acceptance_placeholder]
-    intent_lines = [
-        f"# {title}",
-        "",
-        intent_heading["goal"],
-        "",
-        goal,
-        "",
-        intent_heading["outcome"],
-        "",
-        expected_outcome or expected_placeholder,
-        "",
-        intent_heading["scope"],
-        "",
-        *scope_lines,
-        "",
-        intent_heading["constraints"],
-        "",
-        *constraint_lines,
-        "",
-        intent_heading["acceptance"],
-        "",
-        *acceptance_lines,
-        "",
+        templates = unit_document_templates("en")
+    expected_placeholder, scope_placeholder, constraint_placeholder, acceptance_placeholder = placeholders
+    scope_lines = [f"- {item}" for item in intent["scope"]] or [scope_placeholder]
+    constraint_lines = [f"- {item}" for item in intent["constraints"]] or [
+        constraint_placeholder
     ]
-    (unit_dir / "intent.md").write_text("\n".join(intent_lines), encoding="utf-8")
-    for relative, content in templates.items():
+    acceptance_lines = [
+        f"- [ ] {item}" for item in intent["acceptance_criteria"]
+    ] or [acceptance_placeholder]
+    lines = [
+        f"# {plan.title}", "", headings["goal"], "", intent["goal"], "",
+        headings["outcome"], "", intent["expected_outcome"] or expected_placeholder,
+        "", headings["scope"], "", *scope_lines, "", headings["constraints"],
+        "", *constraint_lines, "", headings["acceptance"], "",
+        *acceptance_lines, "",
+    ]
+    return _UnitDocumentPlan(
+        intent="\n".join(lines),
+        templates=templates,
+        pending=pending,
+        next_action=next_action,
+    )
+
+
+def _write_unit_documents(
+    unit_dir: Path,
+    plan: _UnitInitializationPlan,
+    documents: _UnitDocumentPlan,
+) -> None:
+    intent = plan.normalized_intent
+    _write_json(
+        unit_dir / "unit.json",
+        {
+            "id": plan.unit_id,
+            "catalog_entry": plan.catalog_entry,
+            "title": plan.title,
+            "project_id": plan.receipt["project_id"],
+            "phase": "inception",
+            "status": "proposed",
+            "owner": plan.owner,
+            "scope": f"project:{plan.receipt['project_id']}",
+            "work_scope": intent["scope"],
+            "intent_source": intent["source"],
+            "document_language": plan.document_language,
+            "goal": intent["goal"],
+            "expected_outcome": intent["expected_outcome"],
+            "constraints": intent["constraints"],
+            "acceptance_criteria": intent["acceptance_criteria"],
+            "intake": {
+                key: intent[key]
+                for key in (
+                    "change", "risk", "ambiguous", "multi_party", "remote",
+                    "sensitive", "classification",
+                )
+            },
+            "foundation_version": plan.receipt["foundation_version"],
+            "foundation_digest": plan.receipt["foundation_digest"],
+        },
+    )
+    (unit_dir / "intent.md").write_text(documents.intent, encoding="utf-8")
+    for relative, content in documents.templates.items():
         (unit_dir / relative).write_text(content, encoding="utf-8")
     (unit_dir / "evaluations").mkdir()
     (unit_dir / "evidence").mkdir()
     _write_json(
         unit_dir / "evaluations/criteria.json",
-        {
-            "unit_id": unit_id,
-            "visibility": "evaluation-only",
-            "criteria": [],
-        },
+        {"unit_id": plan.unit_id, "visibility": "evaluation-only", "criteria": []},
     )
-    _write_json(unit_dir / "decisions.json", {"unit_id": unit_id, "decisions": []})
+    _write_json(
+        unit_dir / "decisions.json",
+        {"unit_id": plan.unit_id, "decisions": []},
+    )
     _write_json(
         unit_dir / "amendments.json",
         {
             "type": "unit-amendment-ledger",
             "schema_version": "1.0.0",
-            "unit_id": unit_id,
+            "unit_id": plan.unit_id,
             "amendments": [],
         },
     )
-    envelope_now = datetime.now(timezone.utc)
-    initial_envelope = {
-        "id": f"ENV-{unit_id}-INITIAL",
+
+
+def _initial_execution_contract(
+    plan: _UnitInitializationPlan,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    envelope: dict[str, Any] = {
+        "id": f"ENV-{plan.unit_id}-INITIAL",
         "type": "execution-envelope",
         "schema_version": "1.0.0",
-        "unit_id": unit_id,
+        "unit_id": plan.unit_id,
         "status": "proposed",
         "scope": [],
         "stages": [],
@@ -252,42 +284,49 @@ def initialize_unit(
         "forbidden_actions": sorted(AGENT_PROHIBITED_ACTIONS),
         "external_access": [],
         "max_iterations": 0,
-        "proposed_by": owner,
-        "proposed_at": envelope_now.isoformat(),
+        "proposed_by": plan.owner,
+        "proposed_at": now.isoformat(),
         "expires_at": (
-            envelope_now + timedelta(hours=EXECUTION_ENVELOPE_DEFAULT_HOURS)
+            now + timedelta(hours=EXECUTION_ENVELOPE_DEFAULT_HOURS)
         ).isoformat(),
     }
-    initial_envelope["approval_digest"] = _execution_envelope_approval_digest(
-        initial_envelope
-    )
-    _write_json(unit_dir / "execution-envelope.json", initial_envelope)
-    initial_authorizations = {
+    envelope["approval_digest"] = execution_envelope_approval_digest(envelope)
+    authorizations: dict[str, Any] = {
         "type": "execution-authorization-ledger",
         "schema_version": "1.0.0",
-        "unit_id": unit_id,
-        "envelope_id": initial_envelope["id"],
-        "approval_digest": initial_envelope["approval_digest"],
+        "unit_id": plan.unit_id,
+        "envelope_id": envelope["id"],
+        "approval_digest": envelope["approval_digest"],
         "grants": [],
     }
-    _write_json(unit_dir / "execution-authorizations.json", initial_authorizations)
+    return envelope, authorizations
+
+
+def _write_execution_contracts(
+    unit_dir: Path,
+    plan: _UnitInitializationPlan,
+    documents: _UnitDocumentPlan,
+) -> None:
+    envelope, authorizations = _initial_execution_contract(plan)
+    _write_json(unit_dir / "execution-envelope.json", envelope)
+    _write_json(unit_dir / "execution-authorizations.json", authorizations)
     _write_json(
         unit_dir / "evidence/verification.json",
         {
             "id": "",
             "type": "verification-evidence",
             "schema_version": "1.0.0",
-            "unit_id": unit_id,
+            "unit_id": plan.unit_id,
             "stage": "inception",
             "passed": False,
             "scope": "",
             "recorded_by": "",
             "recorded_at": "",
             "commands": [],
-            "envelope_id": initial_envelope["id"],
-            "envelope_digest": initial_envelope["approval_digest"],
+            "envelope_id": envelope["id"],
+            "envelope_digest": envelope["approval_digest"],
             "authorization_ledger_digest": _authorization_ledger_digest(
-                initial_authorizations
+                authorizations
             ),
             "authorization_count": 0,
         },
@@ -295,21 +334,29 @@ def initialize_unit(
     _write_json(
         unit_dir / "checkpoint.json",
         {
-            "unit_id": unit_id,
+            "unit_id": plan.unit_id,
             "completed": [],
-            "pending": pending,
+            "pending": documents.pending,
             "blocked_by": [],
-            "next_action": next_action,
+            "next_action": documents.next_action,
             "authorization_cursor": authorization_progress_cursor(
-                unit_dir, initial_authorizations
+                unit_dir, authorizations
             ),
         },
     )
-    _write_json(unit_dir / "context-receipt.json", receipt)
+    _write_json(unit_dir / "context-receipt.json", plan.receipt)
+
+
+def _commit_staged_unit(
+    staging: tempfile.TemporaryDirectory[str],
+    unit_dir: Path,
+    final_unit_dir: Path,
+    postflight: Callable[[Path], None] | None,
+) -> None:
     unit_dir.rename(final_unit_dir)
     try:
-        if _postflight is not None:
-            _postflight(final_unit_dir)
+        if postflight is not None:
+            postflight(final_unit_dir)
     except Exception as exc:
         try:
             final_unit_dir.rename(unit_dir)
@@ -321,4 +368,40 @@ def initialize_unit(
             ) from exc
         raise
     staging.cleanup()
-    return final_unit_dir
+
+
+def initialize_unit(
+    project_path: str | Path,
+    title: str,
+    output_root: str | Path | None = None,
+    owner: str = "unassigned",
+    intent: dict[str, Any] | None = None,
+    catalog_entry: str = "ai-dlc",
+    _postflight: Callable[[Path], None] | None = None,
+) -> Path:
+    title = _validated_title(title)
+    owner = _validated_owner(owner)
+    catalog_entry = _validated_catalog_entry(catalog_entry)
+    plan = _initialization_plan(
+        project_path,
+        title=title,
+        owner=owner,
+        output_root=output_root,
+        intent=intent,
+        catalog_entry=catalog_entry,
+    )
+    documents = _document_plan(plan)
+    staging = tempfile.TemporaryDirectory(
+        prefix=f".{plan.unit_id.lower()}.stage-",
+        dir=plan.output_root,
+    )
+    unit_dir = Path(staging.name)
+    _write_unit_documents(unit_dir, plan, documents)
+    _write_execution_contracts(unit_dir, plan, documents)
+    _commit_staged_unit(
+        staging,
+        unit_dir,
+        plan.final_unit_dir,
+        _postflight,
+    )
+    return plan.final_unit_dir

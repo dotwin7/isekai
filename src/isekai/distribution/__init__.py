@@ -3,24 +3,26 @@ from __future__ import annotations
 """Stable distribution API backed by release, install, and Git modules."""
 
 from .git import (
-    _git,
-    _reject_moved_ref,
-    _resolve_immutable_git_ref,
-    _validate_git_source,
+    run_git as _git,
+    reject_moved_ref as _reject_moved_ref,
+    resolve_immutable_git_ref as _resolve_immutable_git_ref,
+    validate_git_source as _validate_git_source,
     install_from_bootstrap_checkout,
     install_from_git,
     plan_git_update,
 )
 from .install import (
-    _adopt_foundation,
-    _current_foundation_matches,
-    _installed_path,
-    _project_path_without_symlinks,
+    adopt_foundation as _adopt_foundation,
+    current_foundation_matches as _current_foundation_matches,
     doctor_install,
     install_from_checkout,
-    load_install_lock,
     rollback_install,
     verify_adapter_handshake,
+)
+from .lockfile import (
+    installed_path as _installed_path,
+    project_path_without_symlinks as _project_path_without_symlinks,
+    load_install_lock,
 )
 from .execution_profile import apply_execution_profile, execution_profile_status
 from .release import (
@@ -32,12 +34,12 @@ from .release import (
     PROTOCOL_VERSION,
     RUNTIMES,
     DistributionError,
-    _component_root,
-    _normalize_runtimes,
-    _read_json,
-    _safe_relative_path,
-    _verify_or_raise,
-    _write_json_atomic,
+    component_root as _component_root,
+    normalize_runtimes as _normalize_runtimes,
+    read_json as _read_json,
+    safe_relative_path as _safe_relative_path,
+    verify_or_raise as _verify_or_raise,
+    write_json_atomic as _write_json_atomic,
     build_distribution_manifest,
     load_distribution_manifest,
     tree_digest,
@@ -45,8 +47,8 @@ from .release import (
     write_distribution_manifest,
 )
 from .marketplace import (
-    _copy_managed_root,
-    _replace_tree,
+    copy_managed_root as _copy_managed_root,
+    replace_tree as _replace_tree,
 )
 
 

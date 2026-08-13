@@ -15,7 +15,7 @@
     "package": "isekai-core-runtime",
     "version": "0.3.1",
     "path": "src/isekai",
-    "digest": "sha256:516ba8efa4455142b59e59ed3a616c9bfca64bf433c51ab711bebbdc88fcf675"
+    "digest": "sha256:d0f4c7b101c362a11eb4f2594aeb2346c793a87fc3fc582ff51c47d817fe056f"
   },
   "bootstrap": {
     "id": "bootstrap",

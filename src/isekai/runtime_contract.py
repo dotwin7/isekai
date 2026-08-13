@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from . import __version__
-from .distribution import PROTOCOL_VERSION
-from .runtime.actions import RuntimeContractError, execute_action, load_compatibility
+from .distribution.release import PROTOCOL_VERSION
+from .runtime.actions import execute_action
+from .runtime.compatibility import load_compatibility
+from .runtime.request_fields import RuntimeContractError
 
 
 RUNTIME_ID = "isekai-project-runtime"

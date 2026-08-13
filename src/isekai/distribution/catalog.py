@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .marketplace import _replace_tree
-from .release import MANAGED_ROOT, _component_root, _verified_tree_digest
+from .marketplace import replace_tree as _replace_tree
+from .release import (
+    MANAGED_ROOT,
+    component_root as _component_root,
+    verified_tree_digest as _verified_tree_digest,
+)
 
 
 def stage_catalog(

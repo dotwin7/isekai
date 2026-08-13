@@ -3,9 +3,9 @@ from __future__ import annotations
 """Stable Foundation API backed by model, validation, evaluation, and promotion modules."""
 
 from .evaluation import (
-    _as_release,
-    _evaluate_case,
-    _evaluation_condition,
+    as_release as _as_release,
+    evaluate_case as _evaluate_case,
+    evaluation_condition as _evaluation_condition,
     evaluate_all_evaluations,
     evaluate_condition,
     evaluate_foundation,
@@ -16,18 +16,20 @@ from .evaluation import (
     validate_rule_definition,
 )
 from .promotion import (
-    _approval_blockers,
-    _foundation_evidence_issues,
-    _latest_foundation_decision,
-    _postflight_promotion,
-    _preflight_promotion,
-    _replace_staged,
-    _restore_original,
-    _write_staged_json,
+    postflight_promotion as _postflight_promotion,
+    preflight_promotion as _preflight_promotion,
+    replace_staged as _replace_staged,
+    restore_original as _restore_original,
+    write_staged_json as _write_staged_json,
     plan_foundation_promotion,
     promote_foundation,
     record_foundation_decision,
     record_foundation_evidence,
+)
+from .release_validation import (
+    approval_blockers as _approval_blockers,
+    foundation_evidence_issues as _foundation_evidence_issues,
+    latest_foundation_decision as _latest_foundation_decision,
 )
 from .types import (
     ALLOWED_ASSET_KINDS,
@@ -44,16 +46,16 @@ from .types import (
     FoundationRelease,
 )
 from .validation import (
-    _load_foundation_documents,
-    _load_json,
-    _parse_timestamp,
-    _safe_path,
-    _validate_asset_specific,
-    _validate_condition,
-    _validate_cross_references,
-    _validate_provenance,
-    _validate_provenance_record,
-    _validate_rule_metadata,
+    load_foundation_documents as _load_foundation_documents,
+    load_json as _load_json,
+    parse_timestamp as _parse_timestamp,
+    safe_path as _safe_path,
+    validate_asset_specific as _validate_asset_specific,
+    validate_condition as _validate_condition,
+    validate_cross_references as _validate_cross_references,
+    validate_provenance as _validate_provenance,
+    validate_provenance_record as _validate_provenance_record,
+    validate_rule_metadata as _validate_rule_metadata,
     load_foundation,
     validate_context,
 )

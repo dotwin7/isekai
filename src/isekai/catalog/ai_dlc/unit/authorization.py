@@ -7,16 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from isekai.support.scope import scope_pattern_matches
-from isekai.workflow.project import _receipt_source_manifest_path
+from isekai.workflow.project import receipt_source_manifest_path as _receipt_source_manifest_path
 from isekai.catalog.ai_dlc.routing import AGENT_ALLOWED_ACTIONS
 from .common import (
     PROTECTED_UNIT_ARTIFACT_PREFIXES,
     PROTECTED_UNIT_ARTIFACTS,
     UNIT_LOCK_NAME,
-    _is_unit_directory,
-    _unit_json,
+    is_unit_directory as _is_unit_directory,
+    unit_json as _unit_json,
 )
-from .common import _is_iso_timestamp
+from .common import is_iso_timestamp as _is_iso_timestamp
 from .external_access import (
     EXTERNAL_API_ACTION,
     matching_external_access,
@@ -615,3 +615,11 @@ def _validate_local_grant_target(
             issues.append(
                 f"Execution authorization grant {index} is invalid: {protection_issue}"
             )
+
+
+# Typed internal authorization contract.
+authorization_ledger_digest = _authorization_ledger_digest
+authorization_ledger_issues = _authorization_ledger_issues
+last_authorization_id = _last_authorization_id
+authorization_target_protection_issue = _authorization_target_protection_issue
+normalize_authorization_target = _normalize_authorization_target

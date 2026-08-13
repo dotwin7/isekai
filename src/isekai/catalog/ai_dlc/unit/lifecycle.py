@@ -7,7 +7,9 @@ from typing import Any
 
 from isekai.support.files import UnsafeControlFile, inspect_tree_beneath
 
-from .authorization import _authorization_ledger_issues
+from ._unit_verification import execute_unit_verification
+from ._verification_contract import UnitVerificationOperations
+from .authorization import authorization_ledger_issues as _authorization_ledger_issues
 from .artifacts import (
     approved_artifact_snapshot_issues,
     latest_decision_artifact_issues,
@@ -18,40 +20,43 @@ from .checkpointing import checkpoint_progress_issues
 from .common import (
     UNIT_LOCK_NAME,
     UNIT_REQUIRED_FILES,
-    _restore_snapshots,
-    _unit_bytes,
-    _unit_json,
-    _unit_maximum_agent_level,
-    _unit_path_without_symlinks,
-    _unit_preflight_issues,
-    _unit_text,
-    _write_unit_json,
+    decision_description_language_issues as _decision_description_language_issues,
+    restore_snapshots as _restore_snapshots,
+    unit_bytes as _unit_bytes,
+    unit_json as _unit_json,
+    unit_maximum_agent_level as _unit_maximum_agent_level,
+    unit_path_without_symlinks as _unit_path_without_symlinks,
+    unit_preflight_issues as _unit_preflight_issues,
+    unit_text as _unit_text,
+    write_unit_json as _write_unit_json,
     unit_lock,
 )
-from .decisions import (
+from .decision_schema import (
     ALLOWED_TRANSITIONS,
     LIFECYCLE_STATUSES,
     REQUIRED_DECISIONS_FOR_TRANSITIONS,
     STATUS_PHASE,
-    _approved_envelope_decision_issues,
-    _decision_description_language_issues,
-    _decision_ledger_issues,
-    _has_approved_decision,
-    _latest_decision,
-    _release_decision_evidence_issues,
+    decision_ledger_issues,
+    has_approved_decision,
+    latest_decision,
+)
+from .decisions import (
+    approved_envelope_decision_issues,
+    release_decision_evidence_issues,
 )
 from .amendments import amendment_status, transition_amendment_issues
 from isekai.support.errors import IntegrityError, LifecycleError, PreflightError, WorkflowError
 from .evidence import (
-    _current_authorization_context,
-    _evidence_issues,
-    _historical_evidence_issues,
-    _passing_evidence,
+    current_authorization_context as _current_authorization_context,
+    historical_evidence_issues as _historical_evidence_issues,
+    passing_evidence as _passing_evidence,
+    validate_evidence,
 )
-from .execution import _approve_execution_envelope, _execution_envelope_issues
+from .execution import approve_execution_envelope_locked as _approve_execution_envelope
+from .execution_schema import execution_envelope_issues
 from .execution_history import (
     EXECUTION_AUTHORIZATION_RECORDS_DIR,
-    _execution_authorization_record_issues,
+    execution_authorization_record_issues as _execution_authorization_record_issues,
 )
 
 
@@ -220,7 +225,7 @@ def _human_gate_status(
     approved = False
     gate_decisions: list[dict[str, Any]] = []
     if gate is not None and decisions is not None:
-        approved = _has_approved_decision(
+        approved = has_approved_decision(
             decisions,
             gate,
             unit_id=str(unit.get("id")),
@@ -327,7 +332,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
                 f"transition to {target_status} has unresolved Unit amendments: "
                 + "; ".join(amendment_issues)
             )
-        if not _has_approved_decision(
+        if not has_approved_decision(
             decisions,
             required_gate,
             unit_id=str(unit.get("id")),
@@ -354,7 +359,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
     try:
         if target_status == "construction":
             decisions = _unit_json(unit_dir, "decisions.json")
-            inception_decision = _latest_decision(decisions, "inception")
+            inception_decision = latest_decision(decisions, "inception")
             if inception_decision is None or inception_decision.get("outcome") != "approved":
                 raise LifecycleError("Execution Envelope needs an approved inception Decision")
             envelope_before = _unit_bytes(unit_dir, "execution-envelope.json")
@@ -367,7 +372,7 @@ def _transition_unit_locked(unit_dir: Path, target_status: str) -> dict[str, Any
             )
         if target_status in {"releasing", "operating"}:
             decisions = _unit_json(unit_dir, "decisions.json")
-            release_binding_issues = _release_decision_evidence_issues(
+            release_binding_issues = release_decision_evidence_issues(
                 unit_dir, decisions, unit
             )
             if release_binding_issues:
@@ -435,313 +440,224 @@ def verify_unit(path: str | Path) -> dict[str, Any]:
         return _verify_unit_locked(unit_dir)
 
 
-def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
-    tree_files, tree_issues = _tree_inventory(unit_dir)
-    tree_safe = not tree_issues
-    present = {
-        file.as_posix()
-        for file in tree_files
-        if "__pycache__" not in file.parts
-        and not file.name.startswith(UNIT_LOCK_NAME)
-    }
-    missing = sorted(UNIT_REQUIRED_FILES - present)
-    issues: list[str] = list(tree_issues)
+class _LifecycleVerificationAdapter(UnitVerificationOperations):
+    def tree_inventory(self, unit_dir: Path) -> tuple[list[Path], list[str]]:
+        return _tree_inventory(unit_dir)
 
-    def read_artifact(relative: str) -> dict[str, Any] | None:
-        try:
-            return _unit_json(unit_dir, relative)
-        except IntegrityError as exc:
-            issues.append(str(exc))
-            return None
+    def read_json(self, unit_dir: Path, relative: str) -> dict[str, Any]:
+        return _unit_json(unit_dir, relative)
 
-    unit = read_artifact("unit.json") or {}
-    decisions = read_artifact("decisions.json")
-    checkpoint = read_artifact("checkpoint.json")
-    issues.extend(_unit_preflight_issues(unit_dir))
-    catalog_entry = unit.get("catalog_entry")
-    if isinstance(catalog_entry, str) and catalog_entry.strip():
-        try:
-            from isekai.workflow.catalog import load_catalog
+    def unit_preflight_issues(self, unit_dir: Path) -> list[str]:
+        return _unit_preflight_issues(unit_dir)
 
-            known_ids = [
-                e["id"]
-                for e in load_catalog().get("entries", [])
-                if isinstance(e, dict)
-            ]
-            if catalog_entry not in known_ids:
-                issues.append(
-                    f"Unit catalog_entry references unknown entry: {catalog_entry}"
-                )
-        except Exception as exc:
-            issues.append(f"cannot validate Unit catalog_entry: {exc}")
-    envelope_path = unit_dir / "execution-envelope.json"
-    envelope: dict[str, Any] | None = None
-    ledger: dict[str, Any] | None = None
-    authorization_contexts: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    try:
-        maximum_agent_level = _unit_maximum_agent_level(unit_dir)
-    except IntegrityError as exc:
-        issues.append(str(exc))
-        maximum_agent_level = None
-    if envelope_path.is_file():
-        envelope = read_artifact("execution-envelope.json")
-        if envelope is not None:
-            # Verification audits structure and binding, not whether the
-            # approval window is still open, so a Unit stays verifiable after
-            # its Envelope lapses.
-            issues.extend(
-                _execution_envelope_issues(
-                    envelope,
-                    str(unit.get("id")),
-                    check_expiry=False,
-                    maximum_agent_level=maximum_agent_level,
-                )
-            )
-            issues.extend(_approved_envelope_decision_issues(unit_dir, envelope, unit))
-    ledger_path = unit_dir / "execution-authorizations.json"
-    if ledger_path.is_file() and envelope is not None:
-        ledger = read_artifact("execution-authorizations.json")
-        if ledger is not None:
-            issues.extend(
-                _authorization_ledger_issues(
-                    ledger, unit, envelope, unit_dir=unit_dir
-                )
-            )
-            authorization_contexts.append((envelope, ledger))
+    def unit_maximum_agent_level(self, unit_dir: Path) -> str:
+        return _unit_maximum_agent_level(unit_dir)
 
-    authorization_records = unit_dir / EXECUTION_AUTHORIZATION_RECORDS_DIR
-    if authorization_records.is_symlink():
-        issues.append("Execution authorization records path contains a symlink")
-    elif authorization_records.exists() and not authorization_records.is_dir():
-        issues.append("Execution authorization records path must be a directory")
-    elif tree_safe and authorization_records.is_dir():
-        try:
-            record_paths = sorted(authorization_records.iterdir())
-        except OSError as exc:
-            issues.append(f"cannot inspect Execution authorization records: {exc}")
-            record_paths = []
-        for record_path in record_paths:
-            relative = record_path.relative_to(unit_dir).as_posix()
-            if (
-                record_path.is_symlink()
-                or not record_path.is_file()
-                or record_path.suffix != ".json"
-            ):
-                issues.append(
-                    f"Execution authorization record must be a regular JSON file: {relative}"
-                )
-                continue
-            record = read_artifact(relative)
-            if record is not None:
-                issues.extend(
-                    _execution_authorization_record_issues(
-                        record,
-                        unit,
-                        expected_envelope_id=record_path.stem,
-                    )
-                )
-                archived_envelope = record.get("envelope")
-                archived_ledger = record.get("authorization_ledger")
-                if isinstance(archived_envelope, dict):
-                    issues.extend(
-                        "archived " + issue
-                        for issue in _execution_envelope_issues(
-                            archived_envelope,
-                            str(unit.get("id")),
-                            check_expiry=False,
-                            maximum_agent_level=maximum_agent_level,
-                        )
-                    )
-                    if isinstance(archived_ledger, dict):
-                        authorization_contexts.append(
-                            (archived_envelope, archived_ledger)
-                        )
+    def known_catalog_ids(self) -> list[str]:
+        from isekai.workflow.catalog import load_catalog
 
-    decision_entries = decisions.get("decisions") if decisions is not None else None
-    if decisions is not None:
-        issues.extend(
-            _decision_ledger_issues(
-                decisions,
-                unit_id=str(unit.get("id")),
-                scope=str(unit.get("scope")),
-            )
+        return [
+            str(entry["id"])
+            for entry in load_catalog().get("entries", [])
+            if isinstance(entry, dict) and "id" in entry
+        ]
+
+    def execution_envelope_issues(
+        self,
+        envelope: Any,
+        unit_id: str,
+        *,
+        check_expiry: bool,
+        maximum_agent_level: str | None,
+    ) -> list[str]:
+        return execution_envelope_issues(
+            envelope,
+            unit_id,
+            check_expiry=check_expiry,
+            maximum_agent_level=maximum_agent_level,
         )
-        from isekai.workflow.project_knowledge import knowledge_decision_candidate_issues
 
-        issues.extend(knowledge_decision_candidate_issues(unit_dir, decisions))
-        issues.extend(approved_artifact_snapshot_issues(unit_dir, decisions))
-    issues.extend(_human_document_language_issues(unit_dir, unit, decisions))
-    if isinstance(decision_entries, list) and not decision_entries:
-        issues.append("at least one recorded decision is required")
-    elif isinstance(decision_entries, list):
-        if decisions is not None:
-            if isinstance(unit.get("status"), str) and unit.get("status") in {
-                "awaiting-release-decision",
-                "releasing",
-            }:
-                issues.extend(
-                    _release_decision_evidence_issues(
-                        unit_dir, decisions, unit, require_current=True
-                    )
-                )
-            elif isinstance(unit.get("status"), str) and unit.get("status") in {
-                "operating",
-                "learned",
-            }:
-                issues.extend(
-                    _release_decision_evidence_issues(
-                        unit_dir, decisions, unit, require_current=False
-                    )
-                )
+    def approved_envelope_decision_issues(
+        self,
+        unit_dir: Path,
+        envelope: dict[str, Any],
+        unit: dict[str, Any],
+    ) -> list[str]:
+        return approved_envelope_decision_issues(unit_dir, envelope, unit)
 
-    status = unit.get("status")
-    if not isinstance(status, str) or status not in LIFECYCLE_STATUSES:
-        issues.append(f"invalid lifecycle status: {status}")
-    elif isinstance(status, str):
-        issues.extend(status_artifact_readiness_issues(unit_dir, status))
-    required_gate = REQUIRED_DECISIONS_FOR_TRANSITIONS.get(str(status) if status is not None else "")
-    if required_gate and isinstance(decision_entries, list):
-        if decisions is not None and not _has_approved_decision(decisions, required_gate):
-            issues.append(
-                f"status {status} requires an approved {required_gate} Decision"
-            )
-    if (
-        isinstance(status, str)
-        and status in STATUS_PHASE
-        and unit.get("phase") != STATUS_PHASE[status]
-    ):
-        issues.append("Unit phase does not match lifecycle status")
-    if checkpoint is not None:
-        if checkpoint.get("unit_id") != unit.get("id"):
-            issues.append("checkpoint unit_id does not match Unit")
-        # An abandoned Unit may legitimately close with blockers and pending
-        # work; that unfinished state is why it was abandoned.
-        if checkpoint.get("blocked_by") and unit.get("status") != "abandoned":
-            issues.append("checkpoint has blockers")
-        if unit.get("status") == "learned" and checkpoint.get("pending"):
-            issues.append("learned Unit cannot have pending work")
+    def authorization_ledger_issues(
+        self,
+        ledger: Any,
+        unit: dict[str, Any],
+        envelope: dict[str, Any],
+        *,
+        unit_dir: Path,
+    ) -> list[str]:
+        return _authorization_ledger_issues(
+            ledger, unit, envelope, unit_dir=unit_dir
+        )
 
-    issues.extend(_acceptance_criteria_issues(unit_dir))
-    amendments = amendment_status(
-        unit_dir,
-        unit=unit,
-        decisions=decisions if decisions is not None else {"decisions": []},
-    )
-    issues.extend(amendments["issues"])
-    issues.extend(
-        f"pending Unit amendment {item.get('id')} requires a fresh "
-        f"{item.get('required_gate')} Decision"
-        for item in amendments["pending"]
-    )
+    def authorization_record_issues(
+        self,
+        record: Any,
+        unit: dict[str, Any],
+        *,
+        expected_envelope_id: str | None = None,
+    ) -> list[str]:
+        return _execution_authorization_record_issues(
+            record,
+            unit,
+            expected_envelope_id=expected_envelope_id,
+        )
 
-    criteria_path = unit_dir / "evaluations/criteria.json"
-    if criteria_path.is_file():
-        criteria = read_artifact("evaluations/criteria.json")
-        if criteria is not None and criteria.get("visibility") != "evaluation-only":
-            issues.append("evaluation criteria must be evaluation-only")
+    def decision_ledger_issues(
+        self,
+        decisions: Any,
+        *,
+        unit_id: str | None = None,
+        scope: str | None = None,
+    ) -> list[str]:
+        return decision_ledger_issues(
+            decisions,
+            unit_id=unit_id,
+            scope=scope,
+        )
 
-    evidence_path = unit_dir / "evidence/verification.json"
-    evidence: dict[str, Any] | None = None
+    def knowledge_decision_candidate_issues(
+        self,
+        unit_dir: Path,
+        decisions: dict[str, Any],
+    ) -> list[str]:
+        from isekai.workflow.project_knowledge import (
+            knowledge_decision_candidate_issues,
+        )
 
-    evidence_records = unit_dir / "evidence/records"
-    if evidence_records.is_symlink():
-        issues.append("verification Evidence records path contains a symlink")
-    elif evidence_records.exists() and not evidence_records.is_dir():
-        issues.append("verification Evidence records path must be a directory")
-    elif tree_safe and evidence_records.is_dir():
-        try:
-            evidence_record_paths = sorted(evidence_records.iterdir())
-        except OSError as exc:
-            issues.append(f"cannot inspect verification Evidence records: {exc}")
-            evidence_record_paths = []
-        for record_path in evidence_record_paths:
-            relative = record_path.relative_to(unit_dir).as_posix()
-            if (
-                record_path.is_symlink()
-                or not record_path.is_file()
-                or record_path.suffix != ".json"
-            ):
-                issues.append(
-                    f"verification Evidence record must be a regular JSON file: {relative}"
-                )
-                continue
-            record = read_artifact(relative)
-            if record is None:
-                continue
-            if record.get("id") != record_path.stem:
-                issues.append(
-                    "verification Evidence record id does not match its path: "
-                    + relative
-                )
-            issues.extend(
-                _historical_evidence_issues(
-                    record,
-                    str(unit.get("id")),
-                    authorization_contexts,
-                )
-            )
+        return knowledge_decision_candidate_issues(unit_dir, decisions)
 
-    if evidence_path.is_file():
-        evidence = read_artifact("evidence/verification.json")
-        if evidence is not None:
-            try:
-                binding, grants = _current_authorization_context(
-                    unit_dir, unit, check_expiry=False
-                )
-            except WorkflowError as exc:
-                issues.append(str(exc))
-                binding = None
-                grants = None
-            issues.extend(
-                _evidence_issues(
-                    evidence,
-                    str(unit.get("id")),
-                    authorization_binding=binding,
-                    authorization_grants=grants,
-                )
-            )
+    def approved_artifact_snapshot_issues(
+        self,
+        unit_dir: Path,
+        decisions: dict[str, Any],
+    ) -> list[str]:
+        return approved_artifact_snapshot_issues(unit_dir, decisions)
 
-    progress_issues = (
-        checkpoint_progress_issues(
+    def human_document_language_issues(
+        self,
+        unit_dir: Path,
+        unit: dict[str, Any],
+        decisions: dict[str, Any] | None,
+    ) -> list[str]:
+        return _human_document_language_issues(unit_dir, unit, decisions)
+
+    def release_decision_evidence_issues(
+        self,
+        unit_dir: Path,
+        decisions: dict[str, Any],
+        unit: dict[str, Any],
+        *,
+        require_current: bool,
+    ) -> list[str]:
+        return release_decision_evidence_issues(
+            unit_dir,
+            decisions,
+            unit,
+            require_current=require_current,
+        )
+
+    def status_artifact_readiness_issues(
+        self,
+        unit_dir: Path,
+        status: str,
+    ) -> list[str]:
+        return status_artifact_readiness_issues(unit_dir, status)
+
+    def has_approved_decision(
+        self,
+        decisions: dict[str, Any],
+        gate: str,
+    ) -> bool:
+        return has_approved_decision(decisions, gate)
+
+    def acceptance_criteria_issues(self, unit_dir: Path) -> list[str]:
+        return _acceptance_criteria_issues(unit_dir)
+
+    def amendment_status(
+        self,
+        unit_dir: Path,
+        *,
+        unit: dict[str, Any],
+        decisions: dict[str, Any],
+    ) -> dict[str, Any]:
+        return amendment_status(unit_dir, unit=unit, decisions=decisions)
+
+    def historical_evidence_issues(
+        self,
+        evidence: Any,
+        unit_id: str,
+        authorization_contexts: list[tuple[dict[str, Any], dict[str, Any]]],
+    ) -> list[str]:
+        return _historical_evidence_issues(
+            evidence,
+            unit_id,
+            authorization_contexts,
+        )
+
+    def current_authorization_context(
+        self,
+        unit_dir: Path,
+        unit: dict[str, Any],
+        *,
+        check_expiry: bool,
+    ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        return _current_authorization_context(
+            unit_dir,
+            unit,
+            check_expiry=check_expiry,
+        )
+
+    def evidence_issues(
+        self,
+        evidence: Any,
+        unit_id: str | None = None,
+        *,
+        require_passing: bool = True,
+        authorization_binding: dict[str, Any] | None = None,
+        authorization_grants: dict[str, dict[str, Any]] | None = None,
+    ) -> list[str]:
+        return validate_evidence(
+            evidence,
+            unit_id,
+            require_passing=require_passing,
+            authorization_binding=authorization_binding,
+            authorization_grants=authorization_grants,
+        )
+
+    def checkpoint_progress_issues(
+        self,
+        unit_dir: Path,
+        *,
+        checkpoint: dict[str, Any],
+        active_ledger: dict[str, Any],
+    ) -> list[str]:
+        return checkpoint_progress_issues(
             unit_dir,
             checkpoint=checkpoint,
-            active_ledger=ledger,
+            active_ledger=active_ledger,
         )
-        if checkpoint is not None and ledger is not None
-        else ["checkpoint progress cannot be evaluated"]
-    )
-    issues.extend(progress_issues)
-    issues = list(dict.fromkeys(issues))
-    valid = not missing and not issues
-    return {
-        "valid": valid,
-        "unit_id": unit.get("id"),
-        "catalog_entry": unit.get("catalog_entry"),
-        "title": unit.get("title"),
-        "document_language": unit.get("document_language"),
-        "phase": unit.get("phase"),
-        "status": unit.get("status"),
-        "artifact_count": len(present),
-        "missing": missing,
-        "issues": issues,
-        "decision_count": len(decision_entries) if isinstance(decision_entries, list) else 0,
-        "project_id": unit.get("project_id"),
-        "pending": checkpoint.get("pending", []) if checkpoint is not None else [],
-        "blocked_by": checkpoint.get("blocked_by", []) if checkpoint is not None else [],
-        "checkpoint_progress": {
-            "fresh": not progress_issues,
-            "issues": progress_issues,
-        },
-        "amendments": amendments,
-        "human_gate": _human_gate_status(unit, decisions),
-        "evidence": {
-            "id": evidence.get("id"),
-            "passed": evidence.get("passed"),
-            "stage": evidence.get("stage"),
-            "command_count": len(evidence.get("commands", [])),
-        } if evidence is not None else None,
-    }
 
+    def human_gate_status(
+        self,
+        unit: dict[str, Any],
+        decisions: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return _human_gate_status(unit, decisions)
+
+
+_VERIFICATION_OPERATIONS: UnitVerificationOperations = _LifecycleVerificationAdapter()
+
+
+def _verify_unit_locked(unit_dir: Path) -> dict[str, Any]:
+    return dict(execute_unit_verification(unit_dir, _VERIFICATION_OPERATIONS))
 
 def unit_status(path: str | Path) -> dict[str, Any]:
     result = verify_unit(path)

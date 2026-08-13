@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -12,264 +11,49 @@ from isekai.catalog.ai_dlc.routing import (
     AGENT_LEVEL_ALLOWED_ACTIONS,
     AGENT_PROHIBITED_ACTIONS,
 )
-from .authorization import _authorization_ledger_issues, _last_authorization_id
+from .authorization import (
+    authorization_ledger_issues as _authorization_ledger_issues,
+    last_authorization_id as _last_authorization_id,
+)
 from .authorization_request import authorization_request_type_issue, external_grant_metadata, external_request_count, resolve_authorization_request
-from .execution_history import _execution_authorization_record_relative, _persist_execution_authorization_record
+from .execution_history import (
+    execution_authorization_record_relative as _execution_authorization_record_relative,
+    persist_execution_authorization_record as _persist_execution_authorization_record,
+)
 from .execution_schema import (
-    _execution_envelope_approval_digest,
-    _scope_pattern_issue,
-    _scope_pattern_matches,
+    EXECUTION_ENVELOPE_DEFAULT_HOURS as EXECUTION_ENVELOPE_DEFAULT_HOURS,
+    EXECUTION_ENVELOPE_MAX_HOURS as EXECUTION_ENVELOPE_MAX_HOURS,
+    EXECUTION_ENVELOPE_PROPOSABLE_STATUSES,
+    EXECUTION_ENVELOPE_REQUIRED_FIELDS as EXECUTION_ENVELOPE_REQUIRED_FIELDS,
+    EXECUTION_ENVELOPE_STATUSES as EXECUTION_ENVELOPE_STATUSES,
+    EXECUTION_STAGE_DEPTHS as EXECUTION_STAGE_DEPTHS,
+    EXECUTION_STAGE_DISPOSITIONS as EXECUTION_STAGE_DISPOSITIONS,
+    execution_envelope_approval_digest,
+    execution_envelope_issues,
+    scope_pattern_issue as _scope_pattern_issue,
+    envelope_scope_pattern_matches as _scope_pattern_matches,
 )
 from .common import (
-    _restore_snapshots,
-    _unlink_unit_file,
-    _unit_bytes,
-    _unit_json,
-    _unit_maximum_agent_level,
-    _unit_path_without_symlinks,
-    _unit_preflight_issues,
-    _write_unit_json,
+    restore_snapshots as _restore_snapshots,
+    unlink_unit_file as _unlink_unit_file,
+    unit_bytes as _unit_bytes,
+    unit_json as _unit_json,
+    unit_maximum_agent_level as _unit_maximum_agent_level,
+    unit_path_without_symlinks as _unit_path_without_symlinks,
+    unit_preflight_issues as _unit_preflight_issues,
+    write_unit_json as _write_unit_json,
     unit_lock,
 )
 from .checkpointing import progress_authorization_block, progress_authorization_obligation
-from .decisions import (
-    _approved_envelope_decision_issues,
-    _decision_ledger_issues,
-    _decision_record_issues,
-    _latest_decision,
+from .decisions import approved_envelope_decision_issues
+from .decision_schema import (
+    decision_ledger_issues,
+    decision_record_issues,
+    latest_decision,
 )
 from .external_access import EXTERNAL_API_ACTION, external_access_policy_issues
 
 
-EXECUTION_ENVELOPE_REQUIRED_FIELDS = {
-    "id",
-    "type",
-    "schema_version",
-    "unit_id",
-    "status",
-    "scope",
-    "stages",
-    "allowed_actions",
-    "forbidden_actions",
-    "max_iterations",
-    "proposed_by",
-    "proposed_at",
-    "expires_at",
-    "approval_digest",
-}
-EXECUTION_ENVELOPE_STATUSES = {"proposed", "approved"}
-EXECUTION_STAGE_DEPTHS = {"light", "standard", "deep"}
-EXECUTION_STAGE_DISPOSITIONS = {"apply", "skip"}
-EXECUTION_ENVELOPE_DEFAULT_HOURS = 168
-EXECUTION_ENVELOPE_MAX_HOURS = 720
-EXECUTION_ENVELOPE_PROPOSABLE_STATUSES = {
-    "proposed",
-    "inception",
-    "awaiting-inception-decision",
-    "construction",
-    "validation",
-    "awaiting-release-decision",
-    "releasing",
-    "operating",
-}
-
-
-def _execution_envelope_issues(
-    envelope: Any,
-    unit_id: str | None = None,
-    *,
-    require_approved: bool = False,
-    check_expiry: bool = True,
-    maximum_agent_level: str | None = None,
-) -> list[str]:
-    """Report structural problems with an Envelope.
-
-    ``check_expiry`` separates the two questions an Envelope answers. Structure
-    and binding are permanent properties, so ``verify_unit`` checks them for the
-    whole life of a Unit. Expiry only decides whether the approval still
-    authorizes new actions, so it is checked when granting or binding an
-    approval - never when auditing a Unit that has already moved on.
-    """
-    if not isinstance(envelope, dict):
-        return ["Execution Envelope must be an object"]
-    issues: list[str] = []
-    missing = sorted(EXECUTION_ENVELOPE_REQUIRED_FIELDS - envelope.keys())
-    if missing:
-        issues.append(f"Execution Envelope missing fields: {', '.join(missing)}")
-    if envelope.get("type") != "execution-envelope":
-        issues.append("Execution Envelope has an invalid type")
-    if envelope.get("schema_version") != "1.0.0":
-        issues.append("Execution Envelope has an unsupported schema_version")
-    if unit_id is not None and envelope.get("unit_id") != unit_id:
-        issues.append("Execution Envelope unit_id does not match Unit")
-    status = envelope.get("status")
-    if not isinstance(status, str) or status not in EXECUTION_ENVELOPE_STATUSES:
-        issues.append("Execution Envelope has an invalid status")
-    approval_digest = envelope.get("approval_digest")
-    if not isinstance(approval_digest, str) or not re.fullmatch(
-        r"sha256:[0-9a-f]{64}", approval_digest
-    ):
-        issues.append("Execution Envelope approval_digest must be a SHA-256 digest")
-    elif approval_digest != _execution_envelope_approval_digest(envelope):
-        issues.append("Execution Envelope approval_digest does not match its approval subject")
-    expires_at = envelope.get("expires_at")
-    if not isinstance(expires_at, str) or not expires_at.strip():
-        issues.append("Execution Envelope requires expires_at")
-    else:
-        try:
-            expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=timezone.utc)
-            if check_expiry and expiry <= datetime.now(timezone.utc):
-                issues.append(
-                    "Execution Envelope is expired; propose a new Envelope and "
-                    "record a new approved inception Decision to renew it"
-                )
-        except ValueError:
-            issues.append("Execution Envelope expires_at must be an ISO-8601 timestamp")
-    if require_approved and envelope.get("status") != "approved":
-        issues.append("Execution Envelope is not approved")
-    for field in ("scope", "allowed_actions", "forbidden_actions"):
-        value = envelope.get(field)
-        if not isinstance(value, list) or any(
-            not isinstance(item, str) or not item.strip() for item in value
-        ):
-            issues.append(f"Execution Envelope {field} must be a list of strings")
-        elif field in {"scope", "allowed_actions"} and not value:
-            issues.append(f"Execution Envelope {field} must not be empty")
-        if field == "scope" and isinstance(value, list):
-            issues.extend(
-                issue
-                for item in value
-                if isinstance(item, str)
-                for issue in [_scope_pattern_issue(item)]
-                if issue is not None
-            )
-    allowed_actions = envelope.get("allowed_actions")
-    forbidden_actions = envelope.get("forbidden_actions")
-    external_access = envelope.get("external_access", [])
-    issues.extend(external_access_policy_issues(external_access))
-    if isinstance(allowed_actions, list) and all(
-        isinstance(item, str) for item in allowed_actions
-    ):
-        unknown_actions = sorted(set(allowed_actions) - AGENT_ALLOWED_ACTIONS)
-        if unknown_actions:
-            issues.append(
-                "Execution Envelope contains unsupported allowed actions: "
-                + ", ".join(unknown_actions)
-            )
-        prohibited_actions = sorted(set(allowed_actions) & AGENT_PROHIBITED_ACTIONS)
-        if prohibited_actions:
-            issues.append(
-                "Execution Envelope cannot allow prohibited actions: "
-                + ", ".join(prohibited_actions)
-            )
-        if maximum_agent_level is not None:
-            level_actions = AGENT_LEVEL_ALLOWED_ACTIONS.get(maximum_agent_level)
-            if level_actions is None:
-                issues.append(
-                    "Execution Envelope has an unsupported maximum_agent_level: "
-                    + maximum_agent_level
-                )
-            else:
-                above_level = sorted(set(allowed_actions) - level_actions)
-                if above_level:
-                    issues.append(
-                        "Execution Envelope actions exceed Project "
-                        f"maximum_agent_level {maximum_agent_level}: "
-                        + ", ".join(above_level)
-                    )
-        if isinstance(forbidden_actions, list) and all(
-            isinstance(item, str) for item in forbidden_actions
-        ):
-            overlap = sorted(set(allowed_actions) & set(forbidden_actions))
-            if overlap:
-                issues.append(
-                    "Execution Envelope actions cannot be both allowed and forbidden: "
-                    + ", ".join(overlap)
-                )
-        if EXTERNAL_API_ACTION in allowed_actions:
-            if not isinstance(external_access, list) or not external_access:
-                issues.append(
-                    "Execution Envelope external-api action requires external_access"
-                )
-        elif isinstance(external_access, list) and external_access:
-            issues.append(
-                "Execution Envelope external_access requires external-api in allowed_actions"
-            )
-    max_iterations = envelope.get("max_iterations")
-    if not isinstance(max_iterations, int) or isinstance(max_iterations, bool) or max_iterations <= 0:
-        issues.append("Execution Envelope max_iterations must be a positive integer")
-    stages = envelope.get("stages")
-    if not isinstance(stages, list) or not stages:
-        issues.append("Execution Envelope must define at least one stage")
-    else:
-        seen_stage_names: set[str] = set()
-        for index, stage in enumerate(stages):
-            if not isinstance(stage, dict):
-                issues.append(f"Execution Envelope stage {index} must be an object")
-                continue
-            if not isinstance(stage.get("name"), str) or not stage["name"].strip():
-                issues.append(f"Execution Envelope stage {index} needs name")
-            elif stage["name"] in seen_stage_names:
-                issues.append(f"Execution Envelope has duplicate stage: {stage['name']}")
-            else:
-                seen_stage_names.add(stage["name"])
-            depth = stage.get("depth")
-            if not isinstance(depth, str) or depth not in EXECUTION_STAGE_DEPTHS:
-                issues.append(
-                    f"Execution Envelope stage {index} depth must be one of: "
-                    + ", ".join(sorted(EXECUTION_STAGE_DEPTHS))
-                )
-            disposition = stage.get("disposition")
-            if disposition is not None:
-                if not isinstance(disposition, str) or disposition not in (
-                    EXECUTION_STAGE_DISPOSITIONS
-                ):
-                    issues.append(
-                        f"Execution Envelope stage {index} disposition must be one of: "
-                        + ", ".join(sorted(EXECUTION_STAGE_DISPOSITIONS))
-                    )
-                if not isinstance(stage.get("reason"), str) or not stage["reason"].strip():
-                    issues.append(
-                        f"Execution Envelope stage {index} with a disposition needs reason"
-                    )
-            actions = stage.get("allowed_actions")
-            if not isinstance(actions, list) or any(
-                not isinstance(item, str) or not item.strip() for item in actions
-            ):
-                issues.append(
-                    f"Execution Envelope stage {index} allowed_actions must be a list of strings"
-                )
-            else:
-                unknown_stage_actions = sorted(set(actions) - AGENT_ALLOWED_ACTIONS)
-                if unknown_stage_actions:
-                    issues.append(
-                        f"Execution Envelope stage {index} contains unsupported actions: "
-                        + ", ".join(unknown_stage_actions)
-                    )
-                if isinstance(allowed_actions, list):
-                    outside_envelope = sorted(set(actions) - set(allowed_actions))
-                    if outside_envelope:
-                        issues.append(
-                            f"Execution Envelope stage {index} actions are not allowed by the envelope: "
-                            + ", ".join(outside_envelope)
-                        )
-                if disposition == "skip" and actions:
-                    issues.append(
-                        f"Execution Envelope skipped stage {index} cannot allow actions"
-                    )
-    if require_approved or envelope.get("status") == "approved":
-        if not isinstance(envelope.get("approval_decision_id"), str) or not envelope.get("approval_decision_id", "").strip():
-            issues.append("approved Execution Envelope needs approval_decision_id")
-        approval_decision_digest = envelope.get("approval_decision_digest")
-        if not isinstance(approval_decision_digest, str) or not re.fullmatch(
-            r"sha256:[0-9a-f]{64}", approval_decision_digest
-        ):
-            issues.append("approved Execution Envelope needs approval_decision_digest")
-        if not isinstance(envelope.get("approved_at"), str) or not envelope.get("approved_at", "").strip():
-            issues.append("approved Execution Envelope needs approved_at")
-    return issues
 
 
 def propose_execution_envelope(
@@ -359,8 +143,8 @@ def _propose_execution_envelope_locked(
         "proposed_at": now.isoformat(),
         "expires_at": (now + timedelta(hours=expires_in_hours)).isoformat(),
     }
-    envelope["approval_digest"] = _execution_envelope_approval_digest(envelope)
-    issues = _execution_envelope_issues(
+    envelope["approval_digest"] = execution_envelope_approval_digest(envelope)
+    issues = execution_envelope_issues(
         envelope,
         str(unit.get("id")),
         maximum_agent_level=_unit_maximum_agent_level(unit_dir),
@@ -444,14 +228,14 @@ def _propose_execution_envelope_locked(
 def _approve_execution_envelope(unit_dir: Path, decision: dict[str, Any]) -> None:
     envelope = _unit_json(unit_dir, "execution-envelope.json")
     unit = _unit_json(unit_dir, "unit.json")
-    issues = _execution_envelope_issues(
+    issues = execution_envelope_issues(
         envelope,
         str(unit.get("id")),
         maximum_agent_level=_unit_maximum_agent_level(unit_dir),
     )
     if issues:
         raise AuthorizationError("Execution Envelope approval blocked: " + "; ".join(issues))
-    decision_issues = _decision_record_issues(
+    decision_issues = decision_record_issues(
         decision,
         unit_id=str(unit.get("id")),
         scope=str(unit.get("scope")),
@@ -502,7 +286,7 @@ def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
             )
         decisions = _unit_json(unit_dir, "decisions.json")
         unit = _unit_json(unit_dir, "unit.json")
-        decision_issues = _decision_ledger_issues(
+        decision_issues = decision_ledger_issues(
             decisions,
             unit_id=str(unit.get("id")),
             scope=str(unit.get("scope")),
@@ -512,7 +296,7 @@ def approve_execution_envelope(path: str | Path) -> dict[str, Any]:
                 "Execution Envelope approval blocked: "
                 + "; ".join(decision_issues)
             )
-        decision = _latest_decision(decisions, "inception")
+        decision = latest_decision(decisions, "inception")
         if decision is None or decision.get("outcome") != "approved":
             raise LifecycleError("Execution Envelope needs an approved inception Decision")
         _approve_execution_envelope(unit_dir, decision)
@@ -589,7 +373,7 @@ def _authorize_action_locked(
             "allowed": False,
             "reason": "Action preflight blocked: " + "; ".join(preflight),
         }
-    envelope_issues = _execution_envelope_issues(
+    envelope_issues = execution_envelope_issues(
         envelope,
         str(unit.get("id")),
         require_approved=True,
@@ -600,7 +384,7 @@ def _authorize_action_locked(
             "allowed": False,
             "reason": "Action blocked: " + "; ".join(envelope_issues),
         }
-    decision_issues = _approved_envelope_decision_issues(
+    decision_issues = approved_envelope_decision_issues(
         unit_dir, envelope, unit
     )
     if decision_issues:
@@ -746,3 +530,9 @@ def _authorize_action_locked(
             }
         )
     return result
+
+
+# Typed internal execution transaction contract.
+approve_execution_envelope_locked = _approve_execution_envelope
+authorize_action_locked = _authorize_action_locked
+issue_action_grant = _issue_action_grant

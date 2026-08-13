@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .common import _parse_iso_timestamp
+from .common import parse_iso_timestamp as _parse_iso_timestamp
 from .proof_runtime import proof_command_text, proof_output_digest
 
 

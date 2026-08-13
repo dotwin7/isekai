@@ -8,6 +8,7 @@ import signal
 import stat
 import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from typing import Mapping
@@ -26,6 +27,29 @@ PROOF_ROOT_IGNORED_NAMES = {
 }
 PROOF_RECURSIVE_IGNORED_NAMES = {"__pycache__"}
 PROOF_DEPENDENCY_NAMES = {".venv", "node_modules"}
+
+
+@dataclass(frozen=True)
+class ProofRun:
+    argv: list[str]
+    dependency_roots: list[Path]
+    provider: str
+    sandbox_policy: str
+    filesystem_isolation: str
+    network_isolation: str
+    process_isolation: str
+    resource_limits: dict[str, int]
+    exit_code: int | None
+    timed_out: bool
+    output_limit_exceeded: bool
+    stdout_digest: str
+    stderr_digest: str
+    stdout: str
+    stderr: str
+    stdout_truncated: bool
+    stderr_truncated: bool
+    stdout_bytes: int
+    stderr_bytes: int
 
 
 def validated_dependency_roots(

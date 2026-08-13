@@ -7,6 +7,10 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from ._marketplace_validation import (
+    MarketplaceValidationOperations,
+    managed_control_issues as _validate_managed_controls,
+)
 from ..support.files import (
     UnsafeControlFile,
     inspect_tree_beneath,
@@ -24,12 +28,12 @@ from .release import (
     MANAGED_ROOT,
     LEGACY_PLUGIN_ID,
     DistributionError,
-    _is_transient,
-    _read_control_bytes,
-    _read_control_json,
-    _read_json,
-    _verified_tree_digest,
-    _write_json_atomic,
+    is_transient as _is_transient,
+    read_control_bytes as _read_control_bytes,
+    read_control_json as _read_control_json,
+    read_json as _read_json,
+    verified_tree_digest as _verified_tree_digest,
+    write_json_atomic as _write_json_atomic,
 )
 
 
@@ -641,110 +645,49 @@ def _restore_host_slots_unchecked(
             _write_host_json(project_root, CLAUDE_PROJECT_SETTINGS, document)
 
 
-def _managed_control_issues(
+class _MarketplaceValidationAdapter(MarketplaceValidationOperations):
+    def launcher_issues(self, managed: Path) -> list[str]:
+        return _launcher_issues(managed)
+
+    def codex_marketplace_manifest(
+        self, marketplace_name: str, *, managed: bool = False
+    ) -> dict[str, Any]:
+        return _codex_marketplace_manifest(marketplace_name, managed=managed)
+
+    def claude_marketplace_manifest(
+        self, marketplace_name: str, version: str
+    ) -> dict[str, Any]:
+        return _claude_marketplace_manifest(marketplace_name, version)
+
+    def read_control_json(
+        self, path: Path, *, root: Path, label: str
+    ) -> dict[str, Any]:
+        return _read_control_json(path, root=root, label=label)
+
+    def find_plugin(self, plugins: list[Any]) -> tuple[int | None, Any]:
+        return _find_plugin(plugins)
+
+    def codex_plugin_entry(self, *, managed: bool) -> dict[str, Any]:
+        return _codex_plugin_entry(managed=managed)
+
+
+_VALIDATION_OPERATIONS: MarketplaceValidationOperations = (
+    _MarketplaceValidationAdapter()
+)
+
+
+def managed_control_issues(
     project_root: Path,
     lock: dict[str, Any],
 ) -> list[str]:
-    """Validate generated launchers and host metadata not covered by adapter digests."""
-    managed = project_root / MANAGED_ROOT
-    try:
-        inspect_tree_beneath(managed, label="managed installation")
-    except UnsafeControlFile as exc:
-        return [str(exc)]
-    issues = _launcher_issues(managed)
-    adapters = lock.get("adapters")
-    if not isinstance(adapters, dict):
-        return issues
-    selected = {
-        runtime
-        for runtime, legacy_path in {
-            "codex": f"{MANAGED_ROOT}/marketplaces/codex/plugins/{LEGACY_PLUGIN_ID}",
-            "claude": f"{MANAGED_ROOT}/marketplaces/claude/plugins/{LEGACY_PLUGIN_ID}",
-        }.items()
-        if isinstance(adapters.get(runtime), dict)
-        and adapters[runtime].get("path") == legacy_path
-    }
-    if not selected:
-        return issues
-    marketplace_name = lock.get("marketplace")
-    if not isinstance(marketplace_name, str) or not marketplace_name.strip():
-        return [*issues, "lock marketplace must be a non-empty string"]
+    return _validate_managed_controls(project_root, lock, _VALIDATION_OPERATIONS)
 
-    expected_documents: list[tuple[str, Path, dict[str, Any]]] = []
-    if "codex" in selected:
-        expected_documents.append(
-            (
-                "codex",
-                project_root
-                / MANAGED_ROOT
-                / "marketplaces/codex/.agents/plugins/marketplace.json",
-                _codex_marketplace_manifest(marketplace_name),
-            )
-        )
-    if "claude" in selected:
-        entry = adapters.get("claude")
-        version = entry.get("version") if isinstance(entry, dict) else None
-        if not isinstance(version, str) or not version:
-            issues.append("claude adapter lock has no version for marketplace validation")
-        else:
-            expected_documents.append(
-                (
-                    "claude",
-                    project_root
-                    / MANAGED_ROOT
-                    / "marketplaces/claude/.claude-plugin/marketplace.json",
-                    _claude_marketplace_manifest(marketplace_name, version),
-                )
-            )
-    for runtime, path, expected in expected_documents:
-        try:
-            actual = _read_control_json(
-                path,
-                root=project_root,
-                label=f"{runtime} marketplace metadata",
-            )
-        except DistributionError as exc:
-            issues.append(str(exc))
-            continue
-        if actual != expected:
-            issues.append(f"{runtime} marketplace metadata mismatch")
-    if "codex" in selected:
-        try:
-            document = _read_control_json(
-                project_root / CODEX_REPO_MARKETPLACE,
-                root=project_root,
-                label="Codex repo marketplace",
-            )
-            plugins = document.get("plugins")
-            if not isinstance(plugins, list):
-                raise DistributionError("Codex repo marketplace plugins must be a list")
-            _, entry = _find_plugin(plugins)
-            if entry != _codex_plugin_entry(managed=True):
-                issues.append("Codex repo marketplace ISEKAI entry mismatch")
-        except DistributionError as exc:
-            issues.append(str(exc))
-    if "claude" in selected:
-        try:
-            settings = _read_control_json(
-                project_root / CLAUDE_PROJECT_SETTINGS,
-                root=project_root,
-                label="Claude project settings",
-            )
-            marketplaces = settings.get("extraKnownMarketplaces")
-            enabled = settings.get("enabledPlugins")
-            expected_marketplace = {
-                "source": {
-                    "source": "directory",
-                    "path": f"./{MANAGED_ROOT}/marketplaces/claude",
-                }
-            }
-            plugin_key = f"{LEGACY_PLUGIN_ID}@{marketplace_name}"
-            if not isinstance(marketplaces, dict) or (
-                marketplaces.get(marketplace_name) != expected_marketplace
-            ):
-                issues.append("Claude project marketplace declaration mismatch")
-            if not isinstance(enabled, dict) or enabled.get(plugin_key) is not True:
-                issues.append("Claude project plugin enablement mismatch")
-        except DistributionError as exc:
-            issues.append(str(exc))
-    return issues
+
+# Typed internal marketplace transaction contract.
+adapter_uses_managed_plugin = _adapter_uses_managed_plugin
+capture_host_slots = _capture_host_slots
+copy_managed_root = _copy_managed_root
+remove_legacy_project_plugin_declarations = _remove_legacy_project_plugin_declarations
+replace_tree = _replace_tree
+restore_host_slots = _restore_host_slots
+write_launchers = _write_launchers

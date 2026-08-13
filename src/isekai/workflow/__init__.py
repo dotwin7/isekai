@@ -8,6 +8,9 @@ so that existing callers continue to work.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from .project import initialize_project as _initialize_project
 from .project import load_project, resolve_context
 from .catalog import (
@@ -26,14 +29,14 @@ from isekai.support.errors import (
 
 
 def initialize_project(
-    path=".",
+    path: str | Path = ".",
     *,
-    project_id=None,
-    foundation_path=None,
-    profiles=None,
-    document_language="ko",
-    maximum_agent_level="L0",
-):
+    project_id: str | None = None,
+    foundation_path: str | None = None,
+    profiles: list[str] | None = None,
+    document_language: str = "ko",
+    maximum_agent_level: str = "L0",
+) -> Path:
     """Initialize through the stable facade and preserve postflight injection."""
     return _initialize_project(
         path,
@@ -46,7 +49,7 @@ def initialize_project(
     )
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy re-export of AI-DLC symbols that callers previously found here."""
     from .authorization import authorize_action as _authorize_action
     from .project_knowledge import (
@@ -70,7 +73,7 @@ def __getattr__(name: str):
     from isekai.catalog.ai_dlc.unit.authorization import (
         AUTHORIZATION_GRANT_REQUIRED_FIELDS as _AUTHORIZATION_GRANT_REQUIRED_FIELDS,
         AUTHORIZATION_LEDGER_REQUIRED_FIELDS as _AUTHORIZATION_LEDGER_REQUIRED_FIELDS,
-        _authorization_ledger_issues,
+        authorization_ledger_issues as _authorization_ledger_issues,
     )
     from isekai.catalog.ai_dlc.unit.amendments import (
         record_unit_amendment as _record_unit_amendment,
@@ -79,12 +82,16 @@ def __getattr__(name: str):
         PROTECTED_UNIT_ARTIFACTS as _PROTECTED_UNIT_ARTIFACTS,
         UNIT_LOCK_NAME as _UNIT_LOCK_NAME,
         UNIT_REQUIRED_FILES as _UNIT_REQUIRED_FILES,
-        _is_iso_timestamp,
-        _unit_json,
-        _unit_preflight_issues,
+        is_iso_timestamp as _is_iso_timestamp,
+        unit_json as _unit_json,
+        unit_preflight_issues as _unit_preflight_issues,
         unit_lock as _unit_lock,
     )
     from isekai.catalog.ai_dlc.unit.decisions import (
+        approved_envelope_decision_issues as _approved_envelope_decision_issues,
+        record_decision as _record_decision,
+    )
+    from isekai.catalog.ai_dlc.unit.decision_schema import (
         ALLOWED_TRANSITIONS as _ALLOWED_TRANSITIONS,
         DECISION_GATES as _DECISION_GATES,
         DECISION_OUTCOMES as _DECISION_OUTCOMES,
@@ -93,30 +100,30 @@ def __getattr__(name: str):
         LIFECYCLE_STATUSES as _LIFECYCLE_STATUSES,
         REQUIRED_DECISIONS_FOR_TRANSITIONS as _REQUIRED_DECISIONS_FOR_TRANSITIONS,
         STATUS_PHASE as _STATUS_PHASE,
-        _approved_envelope_decision_issues,
-        _decision_packet_issues,
-        _decision_record_digest,
-        _decision_record_issues,
-        _has_approved_decision,
-        _latest_decision,
-        record_decision as _record_decision,
+        decision_packet_issues as _decision_packet_issues,
+        decision_record_digest as _decision_record_digest,
+        decision_record_issues as _decision_record_issues,
+        has_approved_decision as _has_approved_decision,
+        latest_decision as _latest_decision,
     )
     from isekai.catalog.ai_dlc.unit.evidence import (
-        _evidence_issues,
-        _passing_evidence,
+        passing_evidence as _passing_evidence,
         build_command_evidence as _build_command_evidence,
         record_evidence as _record_evidence,
+        validate_evidence as _evidence_issues,
     )
     from isekai.catalog.ai_dlc.unit.execution import (
         EXECUTION_ENVELOPE_DEFAULT_HOURS as _EXECUTION_ENVELOPE_DEFAULT_HOURS,
         EXECUTION_ENVELOPE_MAX_HOURS as _EXECUTION_ENVELOPE_MAX_HOURS,
         EXECUTION_ENVELOPE_REQUIRED_FIELDS as _EXECUTION_ENVELOPE_REQUIRED_FIELDS,
         EXECUTION_ENVELOPE_STATUSES as _EXECUTION_ENVELOPE_STATUSES,
-        _approve_execution_envelope,
-        _execution_envelope_approval_digest,
-        _execution_envelope_issues,
+        approve_execution_envelope_locked as _approve_execution_envelope,
         approve_execution_envelope as _approve_execution_envelope_func,
         propose_execution_envelope as _propose_execution_envelope,
+    )
+    from isekai.catalog.ai_dlc.unit.execution_schema import (
+        execution_envelope_approval_digest as _execution_envelope_approval_digest,
+        execution_envelope_issues as _execution_envelope_issues,
     )
     from isekai.catalog.ai_dlc.unit.initialization import (
         initialize_unit as _initialize_unit,

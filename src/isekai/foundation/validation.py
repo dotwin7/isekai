@@ -630,3 +630,18 @@ def validate_context(context: dict[str, Any]) -> bool:
         and isinstance(context["route"], str)
         and context["route"] in {"query", "quick-change", "unit"}
     )
+
+
+# Typed internal Foundation validation and persistence contract.
+load_foundation_documents = _load_foundation_documents
+load_json = _load_json
+optional_json = _optional_json
+parse_timestamp = _parse_timestamp
+safe_path = _safe_path
+validate_asset_specific = _validate_asset_specific
+validate_condition = _validate_condition
+validate_cross_references = _validate_cross_references
+validate_provenance = _validate_provenance
+validate_provenance_record = _validate_provenance_record
+validate_rule_metadata = _validate_rule_metadata
+write_json = _write_json

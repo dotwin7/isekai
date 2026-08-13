@@ -6,7 +6,7 @@ import stat
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from typing import Sequence
 
@@ -25,7 +25,7 @@ from isekai.support.jsonio import (
 )
 from isekai.support.locking import rooted_file_lock
 from isekai.support.errors import IntegrityError
-from isekai.workflow.project import _context_receipt_id
+from isekai.workflow.project import context_receipt_id as _context_receipt_id
 from isekai.catalog.ai_dlc.routing import ALLOWED_AGENT_LEVELS, WorkRoute
 
 
@@ -145,7 +145,7 @@ _SHA256_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 @contextmanager
-def unit_lock(unit_dir: Path):
+def unit_lock(unit_dir: Path) -> Iterator[None]:
     """Serialize every mutation of one Unit.
 
     ``decisions.json`` and ``unit.json`` are read-modify-write ledgers. Without a
@@ -466,9 +466,9 @@ def _unit_preflight_issues(unit_dir: Path) -> list[str]:
         issues.append("Context Receipt foundation_version does not match Unit")
     if receipt.get("foundation_digest") != unit.get("foundation_digest"):
         issues.append("Context Receipt foundation_digest does not match Unit")
-    from isekai.workflow.project_knowledge import (
-        project_knowledge_binding_issues,
-        project_knowledge_receipt_issues,
+    from isekai.workflow.project_knowledge import project_knowledge_binding_issues
+    from isekai.workflow.project_knowledge_schema import (
+        receipt_issues as project_knowledge_receipt_issues,
     )
 
     issues.extend(
@@ -547,3 +547,21 @@ def _decision_description_language_issues(
         for field, value in descriptions
         if isinstance(value, str) and value.strip() and not _HANGUL.search(value)
     ]
+
+
+# Typed internal storage and validation contract for sibling Unit modules.
+write_json = _write_json
+write_unit_json = _write_unit_json
+restore_snapshots = _restore_snapshots
+unlink_unit_file = _unlink_unit_file
+unit_bytes = _unit_bytes
+unit_json = _unit_json
+unit_text = _unit_text
+unit_path_without_symlinks = _unit_path_without_symlinks
+unit_maximum_agent_level = _unit_maximum_agent_level
+unit_preflight_issues = _unit_preflight_issues
+is_unit_directory = _is_unit_directory
+is_canonical_unit_directory = _is_canonical_unit_directory
+parse_iso_timestamp = _parse_iso_timestamp
+is_iso_timestamp = _is_iso_timestamp
+decision_description_language_issues = _decision_description_language_issues

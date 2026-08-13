@@ -13,19 +13,19 @@ from ..support.files import (
     metadata_is_path_alias,
 )
 from .project import (
-    _context_contract_changed_fields,
-    _context_receipt_id,
-    _portable_context_receipt,
-    _receipt_source_manifest_path,
+    context_contract_changed_fields as _context_contract_changed_fields,
+    context_receipt_id as _context_receipt_id,
+    portable_context_receipt as _portable_context_receipt,
+    receipt_source_manifest_path as _receipt_source_manifest_path,
     resolve_context,
 )
 from isekai.catalog.ai_dlc.routing import WorkRoute
 from isekai.catalog.ai_dlc.unit.common import (
     UNIT_LOCK_NAME,
-    _is_canonical_unit_directory,
-    _unit_json,
-    _unit_preflight_issues,
-    _write_unit_json,
+    is_canonical_unit_directory as _is_canonical_unit_directory,
+    unit_json as _unit_json,
+    unit_preflight_issues as _unit_preflight_issues,
+    write_unit_json as _write_unit_json,
     unit_lock,
 )
 from isekai.catalog.ai_dlc.unit.checkpointing import (
@@ -293,9 +293,9 @@ def build_session(
             raise SessionError(
                 "Unit Context Receipt fingerprint does not match its bound context"
             )
-        from .project_knowledge import (
-            project_knowledge_binding_issues,
-            project_knowledge_receipt_issues,
+        from .project_knowledge import project_knowledge_binding_issues
+        from .project_knowledge_schema import (
+            receipt_issues as project_knowledge_receipt_issues,
         )
 
         knowledge_issues = project_knowledge_receipt_issues(

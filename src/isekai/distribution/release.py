@@ -17,7 +17,7 @@ from ..support.files import (
 )
 from ..support.jsonio import (
     UnsafeWritePath,
-    write_json_atomic,
+    write_json_atomic as _support_write_json_atomic,
     write_json_atomic_beneath,
 )
 
@@ -77,7 +77,7 @@ def _read_control_json(path: Path, *, root: Path, label: str) -> dict[str, Any]:
 
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
-    write_json_atomic(path, value)
+    _support_write_json_atomic(path, value)
 
 
 def _safe_relative_path(value: object, *, label: str) -> Path:
@@ -640,3 +640,16 @@ def _normalize_runtimes(runtimes: Iterable[str]) -> list[str]:
     if unknown:
         raise DistributionError("unknown runtime: " + ", ".join(unknown))
     return sorted(set(values))
+
+
+# Typed internal release and filesystem contract.
+component_root = _component_root
+normalize_runtimes = _normalize_runtimes
+read_json = _read_json
+safe_relative_path = _safe_relative_path
+verify_or_raise = _verify_or_raise
+write_json_atomic = _write_json_atomic
+verified_tree_digest = _verified_tree_digest
+read_control_bytes = _read_control_bytes
+read_control_json = _read_control_json
+is_transient = _is_transient

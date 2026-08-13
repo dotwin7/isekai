@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from isekai.catalog.ai_dlc.unit.execution import _issue_action_grant
+from isekai.catalog.ai_dlc.unit.execution import issue_action_grant as _issue_action_grant
 
 
 def authorize_action(

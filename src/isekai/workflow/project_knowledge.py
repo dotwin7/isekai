@@ -131,7 +131,7 @@ def project_knowledge_binding_issues(
     pinned = receipt.get("project_knowledge")
     if pinned is None:
         return []
-    from .project import _receipt_source_manifest_path
+    from .project import receipt_source_manifest_path as _receipt_source_manifest_path
 
     try:
         manifest = _receipt_source_manifest_path(receipt, unit_dir=unit_dir)
@@ -172,11 +172,14 @@ def project_knowledge_binding_issues(
 
 def _unit_project(unit_dir: Path) -> tuple[dict[str, Any], Path, str]:
     from .project import (
-        _context_contract_changed_fields,
-        _receipt_source_manifest_path,
+        context_contract_changed_fields as _context_contract_changed_fields,
+        receipt_source_manifest_path as _receipt_source_manifest_path,
         resolve_context,
     )
-    from isekai.catalog.ai_dlc.unit.common import _unit_json, _unit_preflight_issues
+    from isekai.catalog.ai_dlc.unit.common import (
+        unit_json as _unit_json,
+        unit_preflight_issues as _unit_preflight_issues,
+    )
 
     issues = _unit_preflight_issues(unit_dir)
     if issues:
@@ -459,8 +462,11 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
         raise WorkflowError(f"Unit directory does not exist: {unit_dir}")
     if not isinstance(candidate, str) or not candidate.strip():
         raise WorkflowError("candidate must be a non-empty string")
-    from isekai.catalog.ai_dlc.unit.common import _unit_json, unit_lock
-    from isekai.catalog.ai_dlc.unit.decisions import _decision_ledger_issues, _latest_decision
+    from isekai.catalog.ai_dlc.unit.common import unit_json as _unit_json, unit_lock
+    from isekai.catalog.ai_dlc.unit.decision_schema import (
+        decision_ledger_issues,
+        latest_decision,
+    )
 
     candidate = candidate.strip().replace("\\", "/")
 
@@ -475,7 +481,7 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
                 unit_dir, candidate, require_current_base=True
             )
             decisions = _unit_json(unit_dir, "decisions.json")
-            decision_issues = _decision_ledger_issues(
+            decision_issues = decision_ledger_issues(
                 decisions,
                 unit_id=str(unit.get("id")),
                 scope=str(unit.get("scope")),
@@ -485,7 +491,7 @@ def promote_project_knowledge(path: str | Path, *, candidate: str) -> dict[str, 
                     "Project Knowledge promotion found an invalid Decision ledger: "
                     + "; ".join(decision_issues)
                 )
-            decision = _latest_decision(decisions, "knowledge")
+            decision = latest_decision(decisions, "knowledge")
             if decision is None or decision.get("outcome") != "approved":
                 raise LifecycleError(
                     "Project Knowledge promotion requires the latest knowledge Decision to be approved"

@@ -10,7 +10,7 @@ from ..support.jsonio import (
     write_bytes_atomic_beneath,
     write_json_atomic_beneath,
 )
-from .release import DistributionError, _component_root
+from .release import DistributionError, component_root as _component_root
 
 
 def remove_path(path: Path) -> None:

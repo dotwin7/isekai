@@ -598,3 +598,10 @@ def _fsync_directory(directory: Path) -> None:
         pass
     finally:
         os.close(descriptor)
+
+
+# Typed rooted-write contract shared with the locking layer.
+fallback_rooted_target = _fallback_rooted_target
+open_rooted_parent = _open_rooted_parent
+rooted_relative_path = _rooted_relative_path
+supports_rooted_writes = _supports_rooted_writes

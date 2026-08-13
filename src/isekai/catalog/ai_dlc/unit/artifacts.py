@@ -12,7 +12,7 @@ from .checkpointing import (
     authorization_progress_cursor,
     checkpoint_progress_issues,
 )
-from .common import _unit_json, _unit_text
+from .common import unit_json as _unit_json, unit_text as _unit_text
 
 
 ARTIFACT_PLACEHOLDER_MARKER = "<!-- ISEKAI:placeholder -->"

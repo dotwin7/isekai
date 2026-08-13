@@ -13,11 +13,11 @@ from .types import (
     FoundationRelease,
 )
 from .validation import (
-    _parse_timestamp,
-    _validate_condition,
-    _validate_provenance,
-    _validate_provenance_record,
-    _validate_rule_metadata,
+    parse_timestamp as _parse_timestamp,
+    validate_condition as _validate_condition,
+    validate_provenance as _validate_provenance,
+    validate_provenance_record as _validate_provenance_record,
+    validate_rule_metadata as _validate_rule_metadata,
     load_foundation,
 )
 
@@ -205,7 +205,7 @@ def evaluate_routing_cases(root: str | Path | FoundationRelease) -> dict[str, An
     asset = foundation.assets.get("routing-evaluation")
     if asset is None:
         raise FoundationError("missing routing-evaluation asset")
-    from ..workflow import RouteRequest, classify_work
+    from isekai.catalog.ai_dlc.routing import RouteRequest, classify_work
     results = []
     for case in asset["content"]["cases"]:
         decision = classify_work(RouteRequest(**case["input"]))
@@ -279,3 +279,8 @@ def evaluate_foundation(root: str | Path) -> dict[str, Any]:
     foundation = load_foundation(root)
     evaluations = evaluate_all_evaluations(foundation)
     return {"valid": True, "evaluations_passed": evaluations["passed"], "summary": foundation.summary(), "evaluations": evaluations["evaluations"]}
+
+
+as_release = _as_release
+evaluate_case = _evaluate_case
+evaluation_condition = _evaluation_condition

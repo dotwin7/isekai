@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .parser import DIRECT_RUNTIME_ACTIONS, _parser
+from .parser import DIRECT_RUNTIME_ACTIONS, build_parser as _parser
 from .installation import configure_installed_profiles, doctor_project
 from .runtime_request import runtime_exit_code, runtime_request
 from ..distribution import (

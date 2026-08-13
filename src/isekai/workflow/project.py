@@ -582,3 +582,10 @@ def initialize_project(
             raise WorkflowError(str(exc)) from exc
         raise
     return manifest_path
+
+
+# Typed internal Project context contract.
+context_receipt_id = _context_receipt_id
+context_contract_changed_fields = _context_contract_changed_fields
+portable_context_receipt = _portable_context_receipt
+receipt_source_manifest_path = _receipt_source_manifest_path

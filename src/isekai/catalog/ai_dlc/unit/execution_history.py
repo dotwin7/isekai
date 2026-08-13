@@ -7,8 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from isekai.support.errors import IntegrityError
-from .authorization import _authorization_ledger_digest, _authorization_ledger_issues
-from .common import _unit_json, _unit_path_without_symlinks, _write_unit_json
+from .authorization import (
+    authorization_ledger_digest as _authorization_ledger_digest,
+    authorization_ledger_issues as _authorization_ledger_issues,
+)
+from .common import (
+    unit_json as _unit_json,
+    unit_path_without_symlinks as _unit_path_without_symlinks,
+    write_unit_json as _write_unit_json,
+)
 
 
 EXECUTION_AUTHORIZATION_RECORDS_DIR = "execution-authorization-records"
@@ -173,3 +180,8 @@ def _persist_execution_authorization_record(
             + "; ".join(persisted_issues)
         )
     return target
+
+
+execution_authorization_record_relative = _execution_authorization_record_relative
+execution_authorization_record_issues = _execution_authorization_record_issues
+persist_execution_authorization_record = _persist_execution_authorization_record
