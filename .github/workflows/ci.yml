@@ -93,10 +93,31 @@ jobs:
       - name: Smoke-test installed wheel
         shell: bash
         run: |
-          uv venv .wheel-smoke --python "$(command -v python)"
-          uv pip install --python .wheel-smoke/bin/python --no-index --no-deps dist/*.whl
-          uv pip check --python .wheel-smoke/bin/python
-          .wheel-smoke/bin/isekai runtime compatibility
+          run_smoke() {
+            label="$1"
+            shift
+            output_file="$(mktemp)"
+            set +e
+            "$@" 2>&1 | tee "$output_file"
+            status="${PIPESTATUS[0]}"
+            set -e
+            if test "$status" -ne 0; then
+              summary="$(tail -n 80 "$output_file")"
+              summary="${summary//'%'/'%25'}"
+              summary="${summary//$'\r'/'%0D'}"
+              summary="${summary//$'\n'/'%0A'}"
+              echo "::error title=wheel smoke failed ($label)::$summary"
+              exit "$status"
+            fi
+          }
+          run_smoke create-environment \
+            uv venv .wheel-smoke --python "$(command -v python)"
+          run_smoke install-wheel \
+            uv pip install --python .wheel-smoke/bin/python --no-index --no-deps dist/*.whl
+          run_smoke check-dependencies \
+            uv pip check --python .wheel-smoke/bin/python
+          run_smoke run-cli \
+            .wheel-smoke/bin/isekai runtime compatibility
       - name: Validate Foundation structure
         run: isekai validate --foundation foundation
       - name: Report Foundation release readiness
