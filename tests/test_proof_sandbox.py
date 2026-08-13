@@ -106,7 +106,8 @@ def test_macos_provider_allows_only_declared_reads_and_temp_writes(
     assert '(subpath "/Library")' not in profile
     assert '(subpath "/private/etc")' not in profile
     assert '(subpath "/private/var/db")' not in profile
-    assert '(subpath "/private/var/db/timezone")' in profile
+    timezone_rule = '(subpath "/private/var/db/timezone")'
+    assert (timezone_rule in profile) == Path("/private/var/db/timezone").exists()
     assert json.dumps(str(tmp_path)) in profile
     assert json.dumps(str(tmp_path.parent / "source-project")) not in profile
     assert str(tmp_path.parent / "outside") not in profile
