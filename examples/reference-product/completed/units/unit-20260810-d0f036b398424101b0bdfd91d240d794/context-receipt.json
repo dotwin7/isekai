@@ -1,8 +1,8 @@
 {
-  "receipt_id": "CTX-478e5358090c1820",
+  "receipt_id": "CTX-0a3633554961ac2d",
   "generated_at": "2026-08-10T09:25:41.326707+00:00",
   "project_id": "reference-product",
-  "project_version": "0.3.0",
+  "project_version": "0.3.1",
   "project_schema_version": "1.0.0",
   "document_language": "ko",
   "foundation_id": "isekai-foundation",
@@ -59,12 +59,13 @@
         "id": "ai-dlc",
         "kind": "isekai-catalog-entry",
         "schema_version": "1.0.0",
-        "version": "0.3.0",
+        "version": "0.3.1",
         "status": "active",
         "title": "AI-Driven Development Life Cycle",
         "description": "Governed development cycle from intake through learning.",
         "control_protocol": "1.2.0",
         "delivery": "core-bundled",
+        "binding_mode": "single",
         "actions": [
           "active-unit-detach",
           "amend",
@@ -98,12 +99,40 @@
           "Unit"
         ],
         "authority": "cannot-expand-foundation-project-or-unit-authority",
-        "package_path": "ai-dlc/0.3.0",
+        "package_path": "ai-dlc/0.3.1",
         "active": true,
-        "entry_digest": "sha256:319b373c025863a27d2919c2caadc6f4b8814992589750a7e8c4de8f67682bc4"
+        "entry_digest": "sha256:6f9dcb7cdef5ed706e39c8a943d7e1abd2fd18952da023ab667394feb05abbdb"
+      },
+      {
+        "id": "agent-control",
+        "kind": "isekai-catalog-entry",
+        "schema_version": "1.0.0",
+        "version": "0.1.0",
+        "status": "preview",
+        "title": "Agent Control Plane",
+        "description": "Local governance for external agent Engagements and Connector Executions, independent from the AI-DLC Unit lifecycle.",
+        "control_protocol": "1.2.0",
+        "delivery": "core-bundled",
+        "binding_mode": "multiple",
+        "actions": [
+          "agent-engagement-approve",
+          "agent-engagement-create",
+          "agent-engagement-status",
+          "agent-execution-start",
+          "agent-execution-status"
+        ],
+        "resources": [
+          "ConnectorExecution",
+          "Engagement",
+          "ResultReceipt"
+        ],
+        "authority": "cannot-expand-foundation-project-or-unit-authority",
+        "package_path": "agent-control/0.1.0",
+        "active": false,
+        "entry_digest": "sha256:56541b11ccd15c3d821a06221ec8d5ccbc576e952fd97bee55ee115c0c1374f3"
       }
     ],
-    "catalog_digest": "sha256:cbef2e628b830865df17ed3324e8414feced927a70ba9b104f35e13d1f7323bc"
+    "catalog_digest": "sha256:955ccd39e769775f5ed48fe91e0080b08fa0478b21eb6b23cc36f62bd84edb9c"
   },
   "route": "unit",
   "maximum_agent_level": "L1",
