@@ -38,7 +38,23 @@ def _frontmatter(path: Path) -> dict[str, str]:
         key, separator, value = line.partition(":")
         if not separator or not key.strip() or not value.strip():
             raise ValueError(f"Skill frontmatter must use scalar key/value fields: {path}")
-        values[key.strip()] = value.strip()
+        scalar = value.strip()
+        if scalar.startswith('"'):
+            try:
+                decoded = json.loads(scalar)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Skill frontmatter has an invalid quoted scalar: {path}"
+                ) from exc
+            if not isinstance(decoded, str):
+                raise ValueError(f"Skill frontmatter values must be strings: {path}")
+            values[key.strip()] = decoded
+        else:
+            if re.search(r":(?:\s|$)", scalar):
+                raise ValueError(
+                    f"Skill frontmatter plain scalar contains an unquoted mapping token: {path}"
+                )
+            values[key.strip()] = scalar
     return values
 
 

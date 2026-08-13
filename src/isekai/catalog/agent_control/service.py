@@ -1,26 +1,31 @@
 from __future__ import annotations
 
 import copy
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from isekai.support.jsonio import ensure_directory_beneath
+from isekai.support.jsonio import ensure_directory_beneath, unlink_file_beneath
 from isekai.workflow.errors import IntegrityError, WorkflowError
 from isekai.workflow.project import load_project
 from isekai.workflow.project_knowledge import current_project_knowledge
 
 from .connectors import Connector, ConnectorRequest, connector_from_project_config
 from .connectors.nahonza import ConnectorTransportError
+from .integrity import (
+    approved_contract,
+    seal_execution,
+    validate_approval,
+    validate_engagement,
+    validate_ledger,
+    validate_result_receipts,
+)
 from .schema import (
     IN_FLIGHT_STATUSES,
     SCHEMA_VERSION,
-    SHA256,
     canonical_digest,
-    engagement_issues,
-    execution_ledger_issues,
-    is_timestamp,
 )
 from .storage import (
     APPROVAL_FILE,
@@ -38,6 +43,15 @@ from .storage import (
 
 ConnectorFactory = Callable[[dict[str, Any]], Connector]
 _ACTION_LEVELS = {"L0": 0, "L1": 1, "L2": 2}
+_CONNECTOR_FIELDS = {
+    "id",
+    "kind",
+    "transport",
+    "endpoint_ref",
+    "auth_ref",
+    "allowed_operations",
+    "maximum_action_level",
+}
 
 
 def _now() -> str:
@@ -73,11 +87,13 @@ def _connectors(project: dict[str, Any]) -> list[dict[str, Any]]:
         operations = connector.get("allowed_operations")
         action_level = connector.get("maximum_action_level")
         if (
-            connector.get("kind") != "nahonza"
+            set(connector) != _CONNECTOR_FIELDS
+            or connector.get("kind") != "nahonza"
             or connector.get("transport") != "agent-api"
             or not isinstance(operations, list)
             or not operations
             or any(not isinstance(item, str) or not item for item in operations)
+            or len(operations) != len(set(operations))
             or action_level not in _ACTION_LEVELS
         ):
             raise WorkflowError(f"Project Agent Control connector {connector_id} is invalid")
@@ -92,6 +108,18 @@ def _connectors(project: dict[str, Any]) -> list[dict[str, Any]]:
     if len(identifiers) != len(set(identifiers)):
         raise WorkflowError("Project Agent Control connectors must have unique IDs")
     return normalized
+
+
+def _connector_contract(connector: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": connector["id"],
+        "kind": connector["kind"],
+        "transport": connector["transport"],
+        "endpoint_ref": connector["endpoint_ref"],
+        "auth_ref": connector["auth_ref"],
+        "allowed_operations": sorted(connector["allowed_operations"]),
+        "maximum_action_level": connector["maximum_action_level"],
+    }
 
 
 def _connector_config(
@@ -152,64 +180,6 @@ def _knowledge_context(
     return context
 
 
-def _validate_engagement(value: dict[str, Any]) -> None:
-    issues = engagement_issues(value)
-    if issues:
-        raise IntegrityError("Agent Control engagement is invalid: " + "; ".join(issues))
-
-
-def _validate_ledger(value: dict[str, Any], engagement_id: str) -> None:
-    issues = execution_ledger_issues(value, engagement_id=engagement_id)
-    if issues:
-        raise IntegrityError(
-            "Agent Control execution ledger is invalid: " + "; ".join(issues)
-        )
-
-
-def _approved_contract(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value[key]
-        for key in (
-            "id",
-            "project_id",
-            "objective",
-            "connector_id",
-            "operation",
-            "action_level",
-            "scope",
-            "maximum_executions",
-            "knowledge_context",
-        )
-    }
-
-
-def _validate_approval(
-    approval: dict[str, Any], engagement: dict[str, Any]
-) -> None:
-    if (
-        approval.get("type") != "agent-control-engagement-approval"
-        or approval.get("schema_version") != SCHEMA_VERSION
-        or approval.get("engagement_id") != engagement.get("id")
-        or approval.get("outcome") != "approved"
-    ):
-        raise IntegrityError("Agent Control approval contract is invalid")
-    for field in ("summary", "decided_by"):
-        if not isinstance(approval.get(field), str) or not approval[field].strip():
-            raise IntegrityError(f"Agent Control approval requires {field}")
-    if not is_timestamp(approval.get("approved_at")):
-        raise IntegrityError("Agent Control approval requires approved_at")
-    contract_digest = approval.get("contract_digest")
-    if not isinstance(contract_digest, str) or SHA256.fullmatch(contract_digest) is None:
-        raise IntegrityError("Agent Control approval requires contract_digest")
-    recorded_digest = approval.get("approval_digest")
-    if not isinstance(recorded_digest, str) or recorded_digest != canonical_digest(
-        {key: item for key, item in approval.items() if key != "approval_digest"}
-    ):
-        raise IntegrityError("Agent Control approval digest does not match")
-    if contract_digest != canonical_digest(_approved_contract(engagement)):
-        raise IntegrityError("Agent Control approved contract has changed")
-
-
 def create_engagement(
     project: str | Path,
     *,
@@ -247,6 +217,7 @@ def create_engagement(
         "connector_id": connector_id,
         "operation": operation,
         "action_level": connector_level,
+        "connector_contract": _connector_contract(connector),
         "scope": list(scope),
         "maximum_executions": maximum_executions,
         "status": "proposed",
@@ -255,19 +226,59 @@ def create_engagement(
         "created_at": now,
         "updated_at": now,
     }
-    _validate_engagement(value)
-    relative = Path(ENGAGEMENTS_DIRECTORY) / engagement_id
-    ensure_directory_beneath(manifest.parent, relative, mode=0o700)
-    directory = manifest.parent / relative
-    write_json(directory, ENGAGEMENT_FILE, value)
+    validate_engagement(value)
     ledger = {
         "type": "agent-control-execution-ledger",
         "schema_version": SCHEMA_VERSION,
         "engagement_id": engagement_id,
         "executions": [],
     }
-    _validate_ledger(ledger, engagement_id)
-    write_json(directory, EXECUTIONS_FILE, ledger)
+    validate_ledger(ledger, engagement_id)
+    engagements_root = ensure_directory_beneath(
+        manifest.parent,
+        ENGAGEMENTS_DIRECTORY,
+        mode=0o700,
+    )
+    directory = engagements_root / engagement_id
+    if directory.exists() or directory.is_symlink():
+        raise IntegrityError("Agent Control engagement id collision")
+    staging = tempfile.TemporaryDirectory(
+        prefix=f".{engagement_id}.stage-",
+        dir=engagements_root,
+    )
+    staged_directory = Path(staging.name)
+    renamed = False
+    try:
+        write_json(staged_directory, ENGAGEMENT_FILE, value)
+        write_json(staged_directory, EXECUTIONS_FILE, ledger)
+        persisted_engagement = read_json(
+            staged_directory / ENGAGEMENT_FILE,
+            root=staged_directory,
+            label="Agent Control staged engagement",
+        )
+        persisted_ledger = read_json(
+            staged_directory / EXECUTIONS_FILE,
+            root=staged_directory,
+            label="Agent Control staged execution ledger",
+        )
+        validate_engagement(persisted_engagement)
+        validate_ledger(persisted_ledger, engagement_id)
+        staged_directory.rename(directory)
+        renamed = True
+        validate_engagement(load_engagement(directory))
+        validate_ledger(load_executions(directory), engagement_id)
+    except Exception as exc:
+        if renamed:
+            try:
+                directory.rename(staged_directory)
+            except Exception as restore_exc:
+                raise IntegrityError(
+                    "Agent Control engagement creation failed and rollback failed: "
+                    + str(restore_exc)
+                ) from exc
+        raise
+    finally:
+        staging.cleanup()
     return {"engagement": value, "path": str(directory)}
 
 
@@ -280,10 +291,28 @@ def approve_engagement(
     directory = resolve_engagement_directory(engagement)
     with engagement_lock(directory):
         value = load_engagement(directory)
-        _validate_engagement(value)
-        if value["status"] != "proposed":
+        validate_engagement(value)
+        recovering = value["status"] == "active"
+        if value["status"] not in {"proposed", "active"}:
             raise WorkflowError("only a proposed engagement can be approved")
-        approved_contract = _approved_contract(value)
+        approval_path = directory / APPROVAL_FILE
+        if not recovering and (approval_path.exists() or approval_path.is_symlink()):
+            raise IntegrityError(
+                "Agent Control proposed engagement has an unexpected approval"
+            )
+        if recovering:
+            try:
+                existing = read_json(
+                    directory / APPROVAL_FILE,
+                    root=directory,
+                    label="Agent Control engagement approval",
+                )
+            except FileNotFoundError:
+                existing = None
+            if existing is not None:
+                validate_approval(existing, value)
+                raise WorkflowError("only a proposed engagement can be approved")
+        approved_contract_value = approved_contract(value)
         approval = {
             "type": "agent-control-engagement-approval",
             "schema_version": SCHEMA_VERSION,
@@ -292,15 +321,42 @@ def approve_engagement(
             "summary": summary,
             "decided_by": decided_by,
             "approved_at": _now(),
-            "contract_digest": canonical_digest(approved_contract),
+            "contract_digest": canonical_digest(approved_contract_value),
         }
         approval["approval_digest"] = canonical_digest(approval)
-        _validate_approval(approval, value)
-        write_json(directory, APPROVAL_FILE, approval)
+        validate_approval(approval, value)
+        original = copy.deepcopy(value)
         value["status"] = "active"
         value["updated_at"] = approval["approved_at"]
-        _validate_engagement(value)
-        write_json(directory, ENGAGEMENT_FILE, value)
+        validate_engagement(value)
+        try:
+            write_json(directory, ENGAGEMENT_FILE, value)
+            write_json(directory, APPROVAL_FILE, approval)
+            persisted = load_engagement(directory)
+            validate_engagement(persisted)
+            persisted_approval = _approval(directory, persisted)
+            if persisted_approval is None:  # pragma: no cover - allow_missing is false
+                raise IntegrityError("Agent Control approval postflight failed")
+        except Exception as exc:
+            rollback_errors: list[str] = []
+            try:
+                # Rollback must not depend on the operation-specific writer seam
+                # that failed while committing the approval.
+                from isekai.support.jsonio import write_json_atomic_beneath
+
+                write_json_atomic_beneath(directory, ENGAGEMENT_FILE, original)
+            except Exception as restore_exc:
+                rollback_errors.append(str(restore_exc))
+            try:
+                unlink_file_beneath(directory, APPROVAL_FILE, missing_ok=True)
+            except Exception as restore_exc:
+                rollback_errors.append(str(restore_exc))
+            if rollback_errors:
+                raise IntegrityError(
+                    "Agent Control approval failed and rollback failed: "
+                    + "; ".join(rollback_errors)
+                ) from exc
+            raise
     return {"engagement": value, "approval": approval}
 
 
@@ -320,7 +376,7 @@ def _approval(
         if allow_missing:
             return None
         raise IntegrityError("Agent Control engagement approval is missing") from exc
-    _validate_approval(approval, engagement)
+    validate_approval(approval, engagement)
     return approval
 
 
@@ -330,6 +386,25 @@ def _project_for_engagement(directory: Path, engagement: dict[str, Any]) -> tupl
     if project.get("id") != engagement.get("project_id"):
         raise IntegrityError("Agent Control engagement does not match its Project")
     return manifest, project
+
+
+def _current_connector_for_engagement(
+    project: dict[str, Any], engagement: dict[str, Any]
+) -> dict[str, Any]:
+    connector = _connector_config(
+        project,
+        str(engagement["connector_id"]),
+        str(engagement["operation"]),
+    )
+    if _connector_contract(connector) != engagement.get("connector_contract"):
+        raise IntegrityError("Agent Control approved connector contract has changed")
+    project_level = str(project.get("maximum_agent_level", "L0"))
+    action_level = str(engagement.get("action_level"))
+    if _ACTION_LEVELS.get(action_level, 99) > _ACTION_LEVELS.get(project_level, -1):
+        raise IntegrityError(
+            f"Agent Control action level {action_level} exceeds current Project {project_level}"
+        )
+    return connector
 
 
 def start_execution(
@@ -342,27 +417,41 @@ def start_execution(
     _connector_factory: ConnectorFactory = connector_from_project_config,
 ) -> dict[str, Any]:
     directory = resolve_engagement_directory(engagement)
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise WorkflowError("execution prompt must be a non-empty string")
+    if not isinstance(requested_by, str) or not requested_by.strip():
+        raise WorkflowError("execution requested_by must be a non-empty string")
     with engagement_lock(directory):
         engagement_value = load_engagement(directory)
-        _validate_engagement(engagement_value)
+        validate_engagement(engagement_value)
         if engagement_value["status"] != "active":
             raise WorkflowError("Agent Control engagement must be active")
         approval = _approval(directory, engagement_value)
         if approval is None:  # pragma: no cover - allow_missing is false
             raise IntegrityError("Agent Control engagement approval is missing")
         ledger = load_executions(directory)
-        _validate_ledger(ledger, str(engagement_value["id"]))
+        validate_ledger(ledger, str(engagement_value["id"]))
+        validate_result_receipts(directory, engagement_value, ledger)
         executions = ledger["executions"]
         if any(item.get("status") in IN_FLIGHT_STATUSES for item in executions):
             raise WorkflowError("Agent Control engagement already has an in-flight execution")
         if len(executions) >= engagement_value["maximum_executions"]:
             raise WorkflowError("Agent Control engagement execution budget is exhausted")
-        if not scope or not set(scope).issubset(set(engagement_value["scope"])):
+        if (
+            not scope
+            or any(not isinstance(item, str) or not item.strip() for item in scope)
+            or len(scope) != len(set(scope))
+            or not set(scope).issubset(set(engagement_value["scope"]))
+        ):
             raise WorkflowError("execution scope must be a non-empty engagement scope subset")
         prior = list(prior_execution_ids or [])
         known_ids = {str(item.get("id")) for item in executions}
         if len(prior) != len(set(prior)) or not set(prior).issubset(known_ids):
             raise WorkflowError("prior_execution_ids must reference this engagement")
+        _manifest, project_value = _project_for_engagement(directory, engagement_value)
+        connector_config = _current_connector_for_engagement(
+            project_value, engagement_value
+        )
         execution_id = _new_id("EXEC")
         request_contract = {
             "engagement_id": engagement_value["id"],
@@ -393,19 +482,18 @@ def start_execution(
             "remote_task_id": None,
             "phase": None,
             "result_digest": None,
+            "result_receipt_digest": None,
             "error": None,
             "created_at": _now(),
             "updated_at": _now(),
+            "previous_execution_digest": (
+                executions[-1].get("execution_digest") if executions else None
+            ),
         }
+        seal_execution(execution)
         executions.append(execution)
-        _validate_ledger(ledger, str(engagement_value["id"]))
+        validate_ledger(ledger, str(engagement_value["id"]))
         write_json(directory, EXECUTIONS_FILE, ledger)
-        _manifest, project_value = _project_for_engagement(directory, engagement_value)
-        connector_config = _connector_config(
-            project_value,
-            str(engagement_value["connector_id"]),
-            str(engagement_value["operation"]),
-        )
 
     terminal_status: str
     remote_task_id: str | None
@@ -430,20 +518,37 @@ def start_execution(
         remote_task_id = None
         error = str(exc)
     else:
-        terminal_status = handle.status
-        remote_task_id = handle.remote_task_id
-        error = None
+        if (
+            handle.status != "queued"
+            or not isinstance(handle.remote_task_id, str)
+            or not handle.remote_task_id.strip()
+        ):
+            terminal_status = "failed"
+            remote_task_id = None
+            error = "connector returned an invalid task handle"
+        else:
+            terminal_status = handle.status
+            remote_task_id = handle.remote_task_id
+            error = None
 
     with engagement_lock(directory):
         ledger = load_executions(directory)
-        record = next(item for item in ledger["executions"] if item.get("id") == execution_id)
+        validate_ledger(ledger, str(engagement_value["id"]))
+        validate_result_receipts(directory, engagement_value, ledger)
+        record = next(
+            (item for item in ledger["executions"] if item.get("id") == execution_id),
+            None,
+        )
+        if record is None:
+            raise IntegrityError("Agent Control execution disappeared during dispatch")
         if record.get("status") != "dispatching":
             raise IntegrityError("Agent Control execution changed during connector dispatch")
         record["status"] = terminal_status
         record["remote_task_id"] = remote_task_id
         record["error"] = error
         record["updated_at"] = _now()
-        _validate_ledger(ledger, str(engagement_value["id"]))
+        seal_execution(record)
+        validate_ledger(ledger, str(engagement_value["id"]))
         write_json(directory, EXECUTIONS_FILE, ledger)
     return {"engagement_id": engagement_value["id"], "execution": record}
 
@@ -457,9 +562,10 @@ def poll_execution(
     directory = resolve_engagement_directory(engagement)
     with engagement_lock(directory):
         engagement_value = load_engagement(directory)
-        _validate_engagement(engagement_value)
+        validate_engagement(engagement_value)
         ledger = load_executions(directory)
-        _validate_ledger(ledger, str(engagement_value["id"]))
+        validate_ledger(ledger, str(engagement_value["id"]))
+        validate_result_receipts(directory, engagement_value, ledger)
         record = next(
             (item for item in ledger["executions"] if item.get("id") == execution_id),
             None,
@@ -474,17 +580,25 @@ def poll_execution(
         if not isinstance(remote_task_id, str) or not remote_task_id:
             raise IntegrityError("Agent Control execution remote task ID is missing")
         _manifest, project_value = _project_for_engagement(directory, engagement_value)
-        connector_config = _connector_config(
-            project_value,
-            str(engagement_value["connector_id"]),
-            str(engagement_value["operation"]),
+        connector_config = _current_connector_for_engagement(
+            project_value, engagement_value
         )
 
     connector = _connector_factory(connector_config)
     snapshot = connector.poll(remote_task_id)
+    if snapshot.remote_task_id != remote_task_id:
+        raise IntegrityError("Agent Control connector returned a different task ID")
     with engagement_lock(directory):
         ledger = load_executions(directory)
-        record = next(item for item in ledger["executions"] if item.get("id") == execution_id)
+        validate_ledger(ledger, str(engagement_value["id"]))
+        validate_result_receipts(directory, engagement_value, ledger)
+        original_ledger = copy.deepcopy(ledger)
+        record = next(
+            (item for item in ledger["executions"] if item.get("id") == execution_id),
+            None,
+        )
+        if record is None:
+            raise IntegrityError("Agent Control execution disappeared during polling")
         allowed = {
             "queued": {"queued", "running", "completed", "failed"},
             "running": {"running", "completed", "failed"},
@@ -507,11 +621,53 @@ def poll_execution(
                 "received_at": _now(),
             }
             receipt["result_digest"] = canonical_digest(snapshot.result)
-            write_json(directory, Path("results") / f"{execution_id}.json", receipt)
+            receipt["receipt_digest"] = canonical_digest(receipt)
             record["result_digest"] = receipt["result_digest"]
+            record["result_receipt_digest"] = receipt["receipt_digest"]
         record["updated_at"] = _now()
-        _validate_ledger(ledger, str(engagement_value["id"]))
-        write_json(directory, EXECUTIONS_FILE, ledger)
+        seal_execution(record)
+        validate_ledger(ledger, str(engagement_value["id"]))
+        receipt_relative = Path("results") / f"{execution_id}.json"
+        receipt_path = directory / receipt_relative
+        if snapshot.status == "completed" and (
+            receipt_path.exists() or receipt_path.is_symlink()
+        ):
+            raise IntegrityError(
+                f"Agent Control result receipt already exists: {execution_id}"
+            )
+        receipt_written = False
+        ledger_attempted = False
+        try:
+            if snapshot.status == "completed":
+                write_json(directory, receipt_relative, receipt)
+                receipt_written = True
+            ledger_attempted = True
+            write_json(directory, EXECUTIONS_FILE, ledger)
+            validate_result_receipts(directory, engagement_value, ledger)
+        except Exception as exc:
+            rollback_errors: list[str] = []
+            if ledger_attempted:
+                try:
+                    from isekai.support.jsonio import write_json_atomic_beneath
+
+                    write_json_atomic_beneath(
+                        directory,
+                        EXECUTIONS_FILE,
+                        original_ledger,
+                    )
+                except Exception as restore_exc:
+                    rollback_errors.append(str(restore_exc))
+            if receipt_written:
+                try:
+                    unlink_file_beneath(directory, receipt_relative, missing_ok=True)
+                except Exception as restore_exc:
+                    rollback_errors.append(str(restore_exc))
+            if rollback_errors:
+                raise IntegrityError(
+                    "Agent Control result persistence failed and rollback failed: "
+                    + "; ".join(rollback_errors)
+                ) from exc
+            raise
     return {"engagement_id": engagement_value["id"], "execution": record}
 
 
@@ -519,14 +675,19 @@ def engagement_status(engagement: str | Path) -> dict[str, Any]:
     directory = resolve_engagement_directory(engagement)
     with engagement_lock(directory):
         value = load_engagement(directory)
-        _validate_engagement(value)
+        validate_engagement(value)
         ledger = load_executions(directory)
-        _validate_ledger(ledger, str(value["id"]))
+        validate_ledger(ledger, str(value["id"]))
+        validate_result_receipts(directory, value, ledger)
         approval = _approval(
             directory,
             value,
             allow_missing=value["status"] == "proposed",
         )
+        if value["status"] == "proposed" and approval is not None:
+            raise IntegrityError(
+                "Agent Control proposed engagement has an unexpected approval"
+            )
     return {
         "engagement": value,
         "approval": approval,

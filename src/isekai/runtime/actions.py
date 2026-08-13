@@ -505,12 +505,12 @@ def _route(values: Mapping[str, Any]) -> dict[str, Any]:
 
 def _resolve_catalog_entry(values: Mapping[str, Any]) -> str:
     entry = values.get("catalog_entry")
-    if entry is not None:
-        return _string_field(values, "catalog_entry")
-    selected = select_active_entries(load_catalog())["selected_entry"]
-    if selected is None:
-        raise RuntimeContractError("multiple active catalog entries; catalog_entry is required")
-    return str(selected)
+    selected = "ai-dlc" if entry is None else _string_field(values, "catalog_entry")
+    if selected != "ai-dlc":
+        raise RuntimeContractError(
+            "unit-init is owned by ai-dlc and cannot initialize another Catalog entry"
+        )
+    return selected
 
 
 def _unit_init(values: Mapping[str, Any]) -> dict[str, Any]:

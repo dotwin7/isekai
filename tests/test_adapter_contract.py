@@ -742,7 +742,12 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     kiro = (
         ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md"
     ).read_text(encoding="utf-8")
-    assert "ISEKAI_HEADLESS: ACTION" in kiro.split("---", maxsplit=2)[1]
+    kiro_frontmatter = kiro.split("---", maxsplit=2)[1]
+    description_line = next(
+        line for line in kiro_frontmatter.splitlines() if line.startswith("description: ")
+    )
+    description = json.loads(description_line.split(": ", maxsplit=1)[1])
+    assert "ISEKAI_HEADLESS: ACTION" in description
     assert "--trust-all-tools` as a substitute for a human gate" in kiro
 
 

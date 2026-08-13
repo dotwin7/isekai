@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import socket
 from pathlib import Path
 from typing import Any
 
@@ -335,6 +336,9 @@ class FakeResponse:
     def read(self, _limit: int) -> bytes:
         return json.dumps(self.value).encode("utf-8")
 
+    def close(self) -> None:
+        pass
+
 
 def test_nahonza_connector_uses_polling_and_binds_approved_knowledge() -> None:
     requests: list[Any] = []
@@ -394,3 +398,222 @@ def test_nahonza_connector_uses_polling_and_binds_approved_knowledge() -> None:
     assert start_body["context"]["isekai"]["scope"] == ["asset:payment-api"]
     assert requests[0].get_header("Idempotency-key") == "EXEC-1"
     assert requests[1].full_url.endswith("/api/v1/agent/status/task-1")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://nahonza.example",
+        "https://127.0.0.1",
+        "https://localhost",
+        "https://nahonza.example:8443",
+        "https://user@nahonza.example",
+    ],
+)
+def test_nahonza_connector_rejects_unsafe_endpoints(endpoint: str) -> None:
+    with pytest.raises(WorkflowError, match="external HTTPS DNS URL|IP literal"):
+        NahonzaConnector(endpoint=endpoint, token="opaque-test-token")
+
+
+def test_nahonza_connector_rejects_non_global_dns() -> None:
+    connector = NahonzaConnector(
+        endpoint="https://nahonza.example",
+        token="opaque-test-token",
+        resolver=lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ],
+    )
+
+    with pytest.raises(WorkflowError, match="only to global addresses"):
+        connector.start(
+            ConnectorRequest(
+                execution_id="EXEC-1",
+                operation="va",
+                prompt="scan",
+                scope=("asset:payment-api",),
+                knowledge_context=None,
+            )
+        )
+
+
+def test_approved_connector_contract_and_project_level_are_rechecked(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+    _configure_project(project)
+    engagement = _engagement(project)
+    approve_engagement(engagement, decided_by="human", summary="approved")
+    original_ledger = (engagement / "executions.json").read_bytes()
+
+    value = json.loads(project.read_text(encoding="utf-8"))
+    value["agent_control"]["connectors"][0]["endpoint_ref"] = "env://OTHER_URL"
+    project.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(IntegrityError, match="connector contract has changed"):
+        start_execution(
+            engagement,
+            prompt="scan",
+            scope=["asset:payment-api"],
+            requested_by="operator",
+            _connector_factory=lambda _config: FakeConnector(),
+        )
+    assert (engagement / "executions.json").read_bytes() == original_ledger
+
+    value["agent_control"]["connectors"][0]["endpoint_ref"] = "env://NAHONZA_TEST_URL"
+    value["maximum_agent_level"] = "L0"
+    project.write_text(json.dumps(value) + "\n", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="exceeds current Project L0"):
+        start_execution(
+            engagement,
+            prompt="scan",
+            scope=["asset:payment-api"],
+            requested_by="operator",
+            _connector_factory=lambda _config: FakeConnector(),
+        )
+
+
+def test_execution_and_result_receipt_tampering_fail_closed(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    _configure_project(project)
+    engagement = _engagement(project)
+    approve_engagement(engagement, decided_by="human", summary="approved")
+    connector = FakeConnector()
+    started = start_execution(
+        engagement,
+        prompt="scan",
+        scope=["asset:payment-api"],
+        requested_by="operator",
+        _connector_factory=lambda _config: connector,
+    )
+    execution_id = started["execution"]["id"]
+    poll_execution(
+        engagement,
+        execution_id=execution_id,
+        _connector_factory=lambda _config: connector,
+    )
+
+    receipt_path = engagement / "results" / f"{execution_id}.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["result"] = {"forged": True}
+    receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="result receipt is invalid"):
+        engagement_status(engagement)
+
+    receipt_path.unlink()
+    with pytest.raises(IntegrityError, match="result receipt is missing"):
+        engagement_status(engagement)
+
+
+def test_execution_ledger_digest_chain_detects_tampering(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    _configure_project(project)
+    engagement = _engagement(project)
+    approve_engagement(engagement, decided_by="human", summary="approved")
+    started = start_execution(
+        engagement,
+        prompt="scan",
+        scope=["asset:payment-api"],
+        requested_by="operator",
+        _connector_factory=lambda _config: FakeConnector(),
+    )
+    ledger_path = engagement / "executions.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["executions"][0]["scope"] = ["asset:unapproved"]
+    ledger_path.write_text(json.dumps(ledger) + "\n", encoding="utf-8")
+
+    with pytest.raises(IntegrityError, match="digest does not match"):
+        engagement_status(engagement)
+    assert started["execution"]["execution_digest"].startswith("sha256:")
+
+
+def test_engagement_approval_rolls_back_when_approval_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import isekai.catalog.agent_control.service as service_module
+
+    project = make_project(tmp_path)
+    _configure_project(project)
+    engagement = _engagement(project)
+    original_write = service_module.write_json
+
+    def fail_approval(root: Path, relative: str | Path, value: dict[str, Any]) -> None:
+        if Path(relative) == Path("approval.json"):
+            raise OSError("simulated approval write failure")
+        original_write(root, relative, value)
+
+    monkeypatch.setattr(service_module, "write_json", fail_approval)
+
+    with pytest.raises(OSError, match="simulated approval write failure"):
+        approve_engagement(engagement, decided_by="human", summary="approved")
+
+    value = json.loads((engagement / "engagement.json").read_text(encoding="utf-8"))
+    assert value["status"] == "proposed"
+    assert not (engagement / "approval.json").exists()
+
+
+def test_engagement_creation_does_not_publish_partial_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import isekai.catalog.agent_control.service as service_module
+
+    project = make_project(tmp_path)
+    _configure_project(project)
+    original_write = service_module.write_json
+
+    def fail_ledger(root: Path, relative: str | Path, value: dict[str, Any]) -> None:
+        if Path(relative) == Path("executions.json"):
+            original_write(root, relative, value)
+            raise OSError("simulated ledger write failure")
+        original_write(root, relative, value)
+
+    monkeypatch.setattr(service_module, "write_json", fail_ledger)
+
+    with pytest.raises(OSError, match="simulated ledger write failure"):
+        _engagement(project)
+
+    engagements = project.parent / "engagements"
+    assert not list(engagements.glob("ENG-*"))
+    assert not list(engagements.glob(".*.stage-*"))
+
+
+def test_result_persistence_rolls_back_receipt_when_ledger_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import isekai.catalog.agent_control.service as service_module
+
+    project = make_project(tmp_path)
+    _configure_project(project)
+    engagement = _engagement(project)
+    approve_engagement(engagement, decided_by="human", summary="approved")
+    connector = FakeConnector()
+    started = start_execution(
+        engagement,
+        prompt="scan",
+        scope=["asset:payment-api"],
+        requested_by="operator",
+        _connector_factory=lambda _config: connector,
+    )
+    execution_id = started["execution"]["id"]
+    original_ledger = (engagement / "executions.json").read_bytes()
+    original_write = service_module.write_json
+
+    def fail_ledger(root: Path, relative: str | Path, value: dict[str, Any]) -> None:
+        if Path(relative) == Path("executions.json"):
+            original_write(root, relative, value)
+            raise OSError("simulated ledger write failure")
+        original_write(root, relative, value)
+
+    monkeypatch.setattr(service_module, "write_json", fail_ledger)
+
+    with pytest.raises(OSError, match="simulated ledger write failure"):
+        poll_execution(
+            engagement,
+            execution_id=execution_id,
+            _connector_factory=lambda _config: connector,
+        )
+
+    assert (engagement / "executions.json").read_bytes() == original_ledger
+    assert not (engagement / "results" / f"{execution_id}.json").exists()

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import json
 import os
-from dataclasses import dataclass
+import re
+import socket
+import ssl
+from dataclasses import dataclass, field
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
+from urllib.request import Request
 
 from isekai.support.errors import WorkflowError
 
@@ -15,6 +20,45 @@ from .base import ConnectorHandle, ConnectorRequest, ConnectorSnapshot
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _TERMINAL = {"completed", "failed"}
+_EXTERNAL_HOST = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Connect to one validated address while retaining TLS hostname checks."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        pinned_address: str,
+        timeout: float,
+    ) -> None:
+        self._pinned_address = pinned_address
+        self._tls_context = ssl.create_default_context()
+        super().__init__(
+            host,
+            port=port,
+            timeout=timeout,
+            context=self._tls_context,
+        )
+
+    def connect(self) -> None:
+        raw_socket = socket.create_connection(
+            (self._pinned_address, self.port),
+            timeout=self.timeout,
+        )
+        try:
+            self.sock = self._tls_context.wrap_socket(
+                raw_socket,
+                server_hostname=self.host,
+            )
+        except Exception:
+            raw_socket.close()
+            raise
 
 
 class ConnectorTransportError(WorkflowError):
@@ -65,15 +109,108 @@ class NahonzaConnector:
     endpoint: str
     token: str
     timeout_seconds: float = 30.0
-    opener: Callable[..., Any] = urlopen
+    opener: Callable[..., Any] | None = None
+    resolver: Callable[..., Any] = socket.getaddrinfo
+    _parsed_endpoint: SplitResult = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        parsed = urlparse(self.endpoint)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise WorkflowError("Nahonza endpoint must be an absolute HTTP(S) URL")
-        self.endpoint = self.endpoint.rstrip("/")
+        try:
+            parsed = urlsplit(self.endpoint)
+            port = parsed.port
+        except ValueError as exc:
+            raise WorkflowError("Nahonza endpoint is invalid") from exc
+        host = parsed.hostname.lower() if parsed.hostname else ""
+        if (
+            parsed.scheme.lower() != "https"
+            or not host
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in {None, 443}
+            or parsed.query
+            or parsed.fragment
+            or _EXTERNAL_HOST.fullmatch(host) is None
+        ):
+            raise WorkflowError(
+                "Nahonza endpoint must be an external HTTPS DNS URL on port 443"
+            )
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:  # pragma: no cover - the DNS pattern already excludes literals
+            raise WorkflowError("Nahonza endpoint cannot use an IP literal")
+        path = parsed.path.rstrip("/")
+        if (
+            path.startswith("//")
+            or "\\" in path
+            or any(character.isspace() for character in path)
+            or ".." in path.split("/")
+        ):
+            raise WorkflowError("Nahonza endpoint contains an unsafe path")
+        self.endpoint = urlunsplit(("https", host, path, "", ""))
+        self._parsed_endpoint = urlsplit(self.endpoint)
         if not self.token:
             raise WorkflowError("Nahonza auth token is unavailable")
+
+    def _resolved_global_address(self) -> str:
+        host = str(self._parsed_endpoint.hostname)
+        try:
+            answers = self.resolver(
+                host,
+                443,
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exc:
+            raise ConnectorTransportError(
+                "Nahonza endpoint DNS resolution failed before dispatch"
+            ) from exc
+        try:
+            addresses = sorted(
+                {str(answer[4][0]) for answer in answers if len(answer) > 4 and answer[4]}
+            )
+            parsed_addresses = [ipaddress.ip_address(address) for address in addresses]
+        except (IndexError, TypeError, ValueError) as exc:
+            raise ConnectorTransportError(
+                "Nahonza endpoint DNS resolution returned invalid addresses"
+            ) from exc
+        if not addresses:
+            raise ConnectorTransportError(
+                "Nahonza endpoint DNS resolution returned no addresses"
+            )
+        if any(not address.is_global for address in parsed_addresses):
+            raise WorkflowError(
+                "Nahonza endpoint DNS must resolve only to global addresses"
+            )
+        return addresses[0]
+
+    def _direct_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        encoded: bytes | None,
+        headers: dict[str, str],
+    ) -> tuple[int, bytes]:
+        host = str(self._parsed_endpoint.hostname)
+        connection = _PinnedHTTPSConnection(
+            host,
+            443,
+            pinned_address=self._resolved_global_address(),
+            timeout=self.timeout_seconds,
+        )
+        target = (self._parsed_endpoint.path.rstrip("/") + path) or "/"
+        try:
+            connection.request(method, target, body=encoded, headers=headers)
+            response = connection.getresponse()
+            status = int(response.status)
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+        except (TimeoutError, OSError, http.client.HTTPException) as exc:
+            raise ConnectorTransportError(
+                "Nahonza request ended before a reliable remote task identity was received"
+            ) from exc
+        finally:
+            connection.close()
+        return status, raw
 
     def _request(
         self,
@@ -98,22 +235,40 @@ class NahonzaConnector:
             # Current Nahonza may ignore this header. It still gives a future
             # idempotent server contract a stable caller-owned key.
             headers["Idempotency-Key"] = execution_id
-        request = Request(
-            self.endpoint + path,
-            data=encoded,
-            headers=headers,
-            method=method,
-        )
-        try:
-            response = self.opener(request, timeout=self.timeout_seconds)
-            status = int(getattr(response, "status", response.getcode()))
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
-        except HTTPError as exc:
-            raise WorkflowError(f"Nahonza returned HTTP {exc.code}") from exc
-        except (TimeoutError, URLError, OSError) as exc:
-            raise ConnectorTransportError(
-                "Nahonza request ended before a reliable remote task identity was received"
-            ) from exc
+        if self.opener is None:
+            status, raw = self._direct_request(
+                method,
+                path,
+                encoded=encoded,
+                headers=headers,
+            )
+        else:
+            request = Request(
+                self.endpoint + path,
+                data=encoded,
+                headers=headers,
+                method=method,
+            )
+            response: Any | None = None
+            try:
+                response = self.opener(request, timeout=self.timeout_seconds)
+                response_status = getattr(response, "status", None)
+                status = int(
+                    response_status if response_status is not None else response.getcode()
+                )
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+            except HTTPError as exc:
+                raise WorkflowError(f"Nahonza returned HTTP {exc.code}") from exc
+            except (TimeoutError, URLError, OSError) as exc:
+                raise ConnectorTransportError(
+                    "Nahonza request ended before a reliable remote task identity was received"
+                ) from exc
+            finally:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
+        if status < 200 or status >= 300:
+            raise WorkflowError(f"Nahonza returned HTTP {status}")
         if len(raw) > MAX_RESPONSE_BYTES:
             raise WorkflowError("Nahonza response exceeds the connector size limit")
         try:
@@ -156,8 +311,10 @@ class NahonzaConnector:
             raise WorkflowError("Nahonza remote task ID is missing")
         _status, value = self._request(
             "GET",
-            f"/api/v1/agent/status/{remote_task_id}",
+            f"/api/v1/agent/status/{quote(remote_task_id, safe='')}",
         )
+        if _status != 200:
+            raise WorkflowError("Nahonza status endpoint did not return HTTP 200")
         returned_id = value.get("taskId")
         state = value.get("status")
         if returned_id != remote_task_id or state not in {

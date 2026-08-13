@@ -10,10 +10,12 @@ from isekai.foundation import FoundationError
 from isekai.runtime_contract import dispatch
 from isekai.workflow import (
     catalog_resources,
+    initialize_unit,
     load_catalog,
     read_catalog_resource,
     resolve_context,
 )
+from isekai.workflow.errors import WorkflowError
 
 from test_core_workflow import make_project
 
@@ -49,6 +51,19 @@ def test_context_receipt_binds_installed_isekai_catalog(
     assert receipt["catalog"]["catalog_digest"] == (
         load_catalog()["catalog_digest"]
     )
+
+
+def test_ai_dlc_unit_initialization_rejects_another_catalog_resource(
+    tmp_path: Path,
+) -> None:
+    project = make_project(tmp_path)
+
+    with pytest.raises(WorkflowError, match="requires catalog_entry ai-dlc"):
+        initialize_unit(
+            project,
+            "must stay AI-DLC owned",
+            catalog_entry="agent-control",
+        )
 
 
 def test_feature_status_is_available_through_runtime_contract() -> None:

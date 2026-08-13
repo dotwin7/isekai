@@ -87,9 +87,9 @@ Project는 connector instance를 다음처럼 선언한다.
 }
 ```
 
-URL과 credential 원문은 Project나 Engagement에 기록하지 않는다. connector가 호출 시점에 `env://` 참조를 해석한다.
+URL과 credential 원문은 Project나 Engagement에 기록하지 않는다. connector가 호출 시점에 `env://` 참조를 해석한다. 해석된 endpoint는 사용자 정보·query·fragment가 없는 외부 DNS 이름의 HTTPS 443 URL이어야 한다. 호출 직전에 DNS의 모든 응답이 global 주소인지 확인하고, 검증한 주소 하나에 연결을 고정한 채 원래 hostname으로 TLS를 검증한다. redirect는 따르지 않는다.
 
-connector의 `maximum_action_level`은 Project `maximum_agent_level`을 넘을 수 없으며 승인된 Engagement에 함께 결박된다.
+connector의 전체 선언과 `maximum_action_level`은 승인된 Engagement에 함께 결박된다. 실행 시작과 polling 직전에 현재 Project의 connector 선언이 승인본과 같은지, 현재 Project `maximum_agent_level`이 승인 action level 이상인지 다시 검사한다.
 
 현재 Nahonza 계약에 맞춰 non-SSE `202 + taskId`와 `GET /status/{taskId}`를 authoritative 경로로 사용한다. SSE는 진행 표시용 보조 경로이며 v0.1에는 사용하지 않는다.
 
@@ -105,7 +105,7 @@ engagements/ENG-.../
 └─ results/EXEC-....json
 ```
 
-승인은 목적·connector·operation·scope·실행 예산·Knowledge context digest를 결박한다. 각 Execution은 승인 digest, request digest, remote task ID와 result digest를 독립적으로 기록한다.
+승인은 목적·connector 전체 선언·operation·scope·실행 예산·Knowledge context digest를 결박한다. 각 Execution은 승인 digest, request digest, remote task ID와 result digest를 기록하고 이전 Execution digest에 연결된다. 완료 Result Receipt는 결과 전체의 digest와 receipt 전체의 digest를 Execution에 역결박하며, 상태 조회·후속 실행·polling 때 원장 chain과 모든 완료 receipt를 다시 검증한다. 생성·승인·완료 저장은 staging 또는 rollback을 사용해 부분 상태가 정상 계약으로 노출되지 않게 한다.
 
 ## Runtime action
 

@@ -18,13 +18,13 @@ from isekai.support.files import metadata_is_path_alias
 
 MAX_PROOF_OUTPUT_BYTES = 256 * 1024
 MAX_PROOF_CAPTURE_BYTES = 8 * 1024 * 1024
-PROOF_IGNORED_NAMES = {
+PROOF_ROOT_IGNORED_NAMES = {
     ".git",
     ".isekai",
     ".isekai-runtime",
-    "__pycache__",
     "units",
 }
+PROOF_RECURSIVE_IGNORED_NAMES = {"__pycache__"}
 PROOF_DEPENDENCY_NAMES = {".venv", "node_modules"}
 
 
@@ -201,7 +201,9 @@ def _copy_source_directory(
 ) -> None:
     entries = sorted(os.scandir(source_fd), key=lambda item: item.name)
     for entry in entries:
-        if entry.name in PROOF_IGNORED_NAMES:
+        if entry.name in PROOF_RECURSIVE_IGNORED_NAMES or (
+            not relative_root.parts and entry.name in PROOF_ROOT_IGNORED_NAMES
+        ):
             continue
         relative = relative_root / entry.name
         try:

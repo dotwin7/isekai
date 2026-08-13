@@ -15,19 +15,19 @@
     "package": "isekai-core-runtime",
     "version": "0.3.1",
     "path": "src/isekai",
-    "digest": "sha256:ddea3e79fe85ec802b3e9709912e18cd4b46f0b34663c35462d77ddda0c844ee"
+    "digest": "sha256:516ba8efa4455142b59e59ed3a616c9bfca64bf433c51ab711bebbdc88fcf675"
   },
   "bootstrap": {
     "id": "bootstrap",
     "version": "0.3.1",
     "path": "scripts",
-    "digest": "sha256:3ef964d2458e811743d936a8554e01e0b0a5411fcefee86d80054e0671f7fafd"
+    "digest": "sha256:337087f143a29c4e690575e4145e4559ec505844a01510fc33c3f6ff79e19f84"
   },
   "runtime": {
     "id": "isekai-project-runtime-contract",
     "version": "0.3.1",
     "path": "runtime",
-    "digest": "sha256:d3dc8e844fa3bfe673afd3657f391e02e646711eaf50af7d14cf455de131ed0e"
+    "digest": "sha256:6bc72eb3c1588c8ee7f96c91e4c94d7fd60ed226ac031f25f66a3f1fce75c5a5"
   },
   "catalog": {
     "id": "isekai-catalog",
@@ -58,7 +58,7 @@
       "id": "kiro",
       "version": "0.3.1",
       "path": "runtime/adapters/kiro/skills/isekai",
-      "digest": "sha256:c8405891c6540895bdbfd28a6ead02c9acdf0c4276a7caaa386baa9fcfbedecf"
+      "digest": "sha256:b452eb9a29f061b4911f4af9d371957d68b5e8e7b89352ddd3d6e5ae1b712f60"
     }
   ]
 }

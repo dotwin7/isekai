@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from isekai.catalog.ai_dlc.unit.managed_execution import execute_proof
+from isekai.catalog.ai_dlc.unit.proof_runtime import copy_test_workspace
 from isekai.catalog.ai_dlc.unit.proof_sandbox import (
     PROOF_ADDRESS_SPACE_BYTES,
     PROOF_FILE_SIZE_BYTES,
@@ -28,6 +29,25 @@ from isekai.catalog.ai_dlc.unit.proof_sandbox import (
 from isekai.workflow.errors import WorkflowError
 
 from test_execution_envelope import approve_inception, make_enveloped_unit
+
+
+def test_proof_workspace_ignores_only_the_project_unit_root(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "copy"
+    (source / "units" / "managed-unit").mkdir(parents=True)
+    (source / "units" / "managed-unit" / "unit.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (source / "tests" / "units").mkdir(parents=True)
+    nested_test = source / "tests" / "units" / "test_domain_units.py"
+    nested_test.write_text("def test_nested_units():\n    assert True\n", encoding="utf-8")
+
+    copy_test_workspace(source, destination)
+
+    assert not (destination / "units").exists()
+    assert (destination / "tests" / "units" / "test_domain_units.py").read_bytes() == (
+        nested_test.read_bytes()
+    )
 
 
 def test_unsupported_platform_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:

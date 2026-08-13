@@ -53,6 +53,11 @@ def initialize_unit(
     owner = _validated_owner(owner)
     if not isinstance(catalog_entry, str) or not catalog_entry.strip():
         raise WorkflowError("catalog_entry must be a non-empty string")
+    if catalog_entry != "ai-dlc":
+        raise WorkflowError(
+            "AI-DLC Unit initialization requires catalog_entry ai-dlc; "
+            "other Catalog entries must use their own resource model"
+        )
     if intent is not None and not isinstance(intent, dict):
         raise WorkflowError("intent must be an object")
     receipt = resolve_context(project_path, WorkRoute.UNIT)
@@ -63,9 +68,9 @@ def initialize_unit(
         for e in catalog_entries
         if isinstance(e, dict) and e.get("active")
     ]
-    if catalog_entry not in active_ids:
+    if "ai-dlc" not in active_ids:
         raise WorkflowError(
-            f"catalog_entry must be an active catalog entry: {catalog_entry}"
+            "AI-DLC Unit initialization requires the active ai-dlc Catalog entry"
         )
     manifest_path = Path(str(receipt["source_manifest"])).resolve()
     project_root = manifest_path.parent.resolve()
