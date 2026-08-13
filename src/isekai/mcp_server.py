@@ -10,6 +10,7 @@ from .distribution.install import doctor_install
 from .distribution.execution_profile import execution_profile_status
 from .runtime.actions import ACTION_HANDLERS
 from .runtime_contract import dispatch
+from .support.logging import LOGGER, configure_logging
 from .workflow.catalog import (
     catalog_resources,
     load_catalog,
@@ -397,7 +398,9 @@ def serve_mcp(
     input_stream: BinaryIO | None = None,
     output_stream: BinaryIO | None = None,
 ) -> int:
+    configure_logging()
     server = ProjectMcpServer(project, runtime=runtime)
+    LOGGER.info("mcp server started", extra={"action": "mcp-serve", "project": str(project)})
     incoming = input_stream or sys.stdin.buffer
     outgoing = output_stream or sys.stdout.buffer
     for raw_line in incoming:

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import __version__ as _runtime_version
 from ..foundation import (
     FoundationError,
     FoundationRelease,
@@ -532,7 +533,7 @@ def initialize_project(
         "id": resolved_id,
         "kind": "project",
         "schema_version": "1.0.0",
-        "version": "0.3.1",
+        "version": _runtime_version,
         "foundation_path": foundation_path,
         "profiles": selected_profiles,
         "extensions": [],

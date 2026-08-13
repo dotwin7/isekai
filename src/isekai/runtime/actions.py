@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..support.files import UnsafeControlFile, read_control_file
+from ..support.logging import ActionTimer, LOGGER, configure_logging
 from ..distribution import verify_adapter_handshake
 from ..foundation import (
     load_foundation,
@@ -698,6 +699,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
 
 
 def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    configure_logging()
     if not isinstance(action, str):
         raise RuntimeContractError("runtime action must be a string")
     if payload is not None and not isinstance(payload, Mapping):
@@ -706,21 +708,29 @@ def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dic
     if handler is None:
         raise RuntimeContractError(f"unsupported runtime action: {action}")
     values = dict(payload or {})
-    if action in _UNIT_BOUND_ACTIONS:
-        unit = Path(_string_field(values, "unit")).expanduser().resolve()
-        if unit.is_dir() and (unit / "unit.json").is_file():
-            project = project_manifest_for_unit(unit)
-            with active_unit_action_guard(project, unit, action=action) as complete:
-                result = handler(values)
-                transition_target = values.get("to")
-                if action == "transition" and isinstance(
-                    transition_target, str
-                ) and transition_target in {
-                    "learned",
-                    "abandoned",
-                }:
-                    result["active_unit_binding"] = complete()
-            return result
-    if action not in {"on", "off", "intake", "resume", "unit-init", "active-unit-detach"}:
-        _guard_active_unit(action, values)
-    return handler(values)
+    timer = ActionTimer(action, unit=values.get("unit"), project=values.get("project"))
+    try:
+        if action in _UNIT_BOUND_ACTIONS:
+            unit = Path(_string_field(values, "unit")).expanduser().resolve()
+            if unit.is_dir() and (unit / "unit.json").is_file():
+                project = project_manifest_for_unit(unit)
+                with active_unit_action_guard(project, unit, action=action) as complete:
+                    result = handler(values)
+                    transition_target = values.get("to")
+                    if action == "transition" and isinstance(
+                        transition_target, str
+                    ) and transition_target in {
+                        "learned",
+                        "abandoned",
+                    }:
+                        result["active_unit_binding"] = complete()
+                timer.ok()
+                return result
+        if action not in {"on", "off", "intake", "resume", "unit-init", "active-unit-detach"}:
+            _guard_active_unit(action, values)
+        result = handler(values)
+        timer.ok()
+        return result
+    except Exception as exc:
+        timer.fail(str(exc))
+        raise
