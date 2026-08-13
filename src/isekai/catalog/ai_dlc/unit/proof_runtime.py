@@ -22,11 +22,43 @@ PROOF_IGNORED_NAMES = {
     ".git",
     ".isekai",
     ".isekai-runtime",
-    ".venv",
     "__pycache__",
-    "node_modules",
     "units",
 }
+PROOF_DEPENDENCY_NAMES = {".venv", "node_modules"}
+
+
+def validated_dependency_roots(
+    source_project: Path,
+    dependency_roots: list[Path] | None,
+) -> list[Path]:
+    source = source_project.absolute()
+    validated: list[Path] = []
+    for value in dependency_roots or []:
+        lexical = value.absolute()
+        try:
+            lexical.relative_to(source)
+        except ValueError as exc:
+            raise WorkflowError(
+                f"proof dependency root escapes its source Project: {lexical}"
+            ) from exc
+        if lexical.name not in PROOF_DEPENDENCY_NAMES:
+            raise WorkflowError(
+                f"proof dependency root has an unsupported name: {lexical}"
+            )
+        try:
+            resolved = lexical.resolve(strict=True)
+        except OSError as exc:
+            raise WorkflowError(
+                f"proof dependency root cannot be resolved: {lexical}"
+            ) from exc
+        if resolved != lexical or not lexical.is_dir():
+            raise WorkflowError(
+                f"proof dependency root must be a real Project directory: {lexical}"
+            )
+        if lexical not in validated:
+            validated.append(lexical)
+    return validated
 
 
 def proof_command_text(command: list[str]) -> str:
@@ -163,6 +195,8 @@ def _copy_source_directory(
     source_fd: int,
     destination: Path,
     *,
+    source_root: Path,
+    dependency_roots: list[Path],
     relative_root: Path,
 ) -> None:
     entries = sorted(os.scandir(source_fd), key=lambda item: item.name)
@@ -182,6 +216,16 @@ def _copy_source_directory(
                 f"{relative}"
             )
         destination_entry = destination / entry.name
+        if entry.name in PROOF_DEPENDENCY_NAMES:
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise WorkflowError(
+                    "proof dependency root must be a real directory: "
+                    f"{relative}"
+                )
+            dependency_root = source_root / relative
+            destination_entry.symlink_to(dependency_root, target_is_directory=True)
+            dependency_roots.append(dependency_root)
+            continue
         if stat.S_ISDIR(metadata.st_mode):
             child_fd = _verified_source_fd(
                 source_fd,
@@ -195,6 +239,8 @@ def _copy_source_directory(
                 _copy_source_directory(
                     child_fd,
                     destination_entry,
+                    source_root=source_root,
+                    dependency_roots=dependency_roots,
                     relative_root=relative,
                 )
                 destination_entry.chmod(stat.S_IMODE(metadata.st_mode) & 0o777)
@@ -244,7 +290,7 @@ def _copy_source_directory(
             )
 
 
-def copy_test_workspace(project_root: Path, destination: Path) -> None:
+def copy_test_workspace(project_root: Path, destination: Path) -> list[Path]:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_DIRECTORY", 0)
     try:
@@ -258,16 +304,28 @@ def copy_test_workspace(project_root: Path, destination: Path) -> None:
         if not stat.S_ISDIR(before.st_mode):
             raise WorkflowError("proof source Project must be a directory")
         destination.mkdir()
-        _copy_source_directory(source_fd, destination, relative_root=Path())
+        dependency_roots: list[Path] = []
+        _copy_source_directory(
+            source_fd,
+            destination,
+            source_root=project_root,
+            dependency_roots=dependency_roots,
+            relative_root=Path(),
+        )
         if _source_identity(os.fstat(source_fd)) != _source_identity(before):
             raise WorkflowError(
                 "proof source Project changed while its workspace was copied"
             )
     finally:
         os.close(source_fd)
+    return dependency_roots
 
 
-def proof_environment(temp_root: Path) -> dict[str, str]:
+def proof_environment(
+    temp_root: Path,
+    *,
+    dependency_roots: list[Path] | None = None,
+) -> dict[str, str]:
     home = temp_root / "home"
     temporary = temp_root / "tmp"
     home.mkdir()
@@ -294,6 +352,15 @@ def proof_environment(temp_root: Path) -> dict[str, str]:
             "TMPDIR": str(temporary),
         }
     )
+    dependency_bins = [
+        str(root / ("Scripts" if os.name == "nt" else "bin"))
+        for root in dependency_roots or []
+        if root.name == ".venv"
+        and (root / ("Scripts" if os.name == "nt" else "bin")).is_dir()
+    ]
+    if dependency_bins:
+        current_path = environment.get("PATH", os.defpath)
+        environment["PATH"] = os.pathsep.join([*dependency_bins, current_path])
     if os.name == "nt":
         environment["USERPROFILE"] = str(home)
     return environment

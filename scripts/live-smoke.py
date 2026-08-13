@@ -462,6 +462,21 @@ def _followup_prompt() -> str:
     )
 
 
+def _off_prompt(runtime: str) -> str:
+    marker = {
+        "codex": "$isekai off",
+        "claude": "/isekai off",
+        "kiro": "ISEKAI_HEADLESS: off",
+    }[runtime]
+    return (
+        f"{marker}\n\n"
+        "Use the explicitly invoked ISEKAI Skill and only the project-local "
+        "isekai-core MCP runtime_action tool. Resolve the host-provided argument as "
+        "the off action without asking to repeat the command. Call handshake and off, "
+        "make no file changes, and report adapter_mode.state."
+    )
+
+
 def _golden_prompt(runtime: str, project: Path, unit: Path) -> str:
     marker = {
         "codex": "$isekai status",
@@ -538,6 +553,38 @@ def _codex_live(
             f"stdout: {trace[-5000:]}\n"
             f"stderr: {completed.stderr[-2000:]}"
         )
+    deactivated = _run(
+        (
+            executable,
+            "exec",
+            "--ignore-user-config",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--json",
+            _off_prompt("codex"),
+        ),
+        cwd=project,
+        timeout=timeout,
+    )
+    off_evidence = _codex_trace_evidence(deactivated.stdout)
+    off_actions = off_evidence["mcp_actions"]
+    off_result = off_evidence["action_results"].get("off", {})
+    off_mode = off_result.get("adapter_mode", {})
+    if (
+        deactivated.returncode != 0
+        or "handshake" not in off_actions
+        or "off" not in off_actions
+        or not isinstance(off_mode, dict)
+        or off_mode.get("state") != "off"
+    ):
+        raise SmokeFailure(
+            "Codex live smoke did not execute the explicitly invoked off action\n"
+            f"exit: {deactivated.returncode}\n"
+            f"stdout: {deactivated.stdout[-5000:]}\n"
+            f"stderr: {deactivated.stderr[-2000:]}"
+        )
     followup = _run(
         (
             executable,
@@ -607,6 +654,11 @@ def _codex_live(
                 trace=followup.stdout,
                 actions=followup_evidence["mcp_actions"],
             ),
+            "off": _stage_execution_evidence(
+                trace_format="codex-jsonl",
+                trace=deactivated.stdout,
+                actions=off_actions,
+            ),
             "golden": _stage_execution_evidence(
                 trace_format="codex-jsonl",
                 trace=golden.stdout,
@@ -618,6 +670,7 @@ def _codex_live(
             "handshake compatible",
             "adapter mode on",
             "same-session automatic intake",
+            "explicit off invocation resolved from host arguments",
             "Golden Unit status/resume/verify valid",
         ],
     }
@@ -648,8 +701,8 @@ def _claude_live(
             "--verbose",
             "--permission-mode",
             "dontAsk",
-            "--tools",
-            "mcp__isekai_core__runtime_action,Read",
+            "--tools=mcp__isekai_core__runtime_action,Read",
+            "--allowedTools=mcp__isekai_core__runtime_action",
             prompt,
         ),
         cwd=project,
@@ -679,6 +732,40 @@ def _claude_live(
             f"stdout: {trace[-5000:]}\n"
             f"stderr: {completed.stderr[-2000:]}"
         )
+    deactivated = _run(
+        (
+            executable,
+            "-p",
+            "--no-session-persistence",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--permission-mode",
+            "dontAsk",
+            "--tools=mcp__isekai_core__runtime_action,Read",
+            "--allowedTools=mcp__isekai_core__runtime_action",
+            _off_prompt("claude"),
+        ),
+        cwd=project,
+        timeout=timeout,
+    )
+    off_evidence = _claude_trace_evidence(deactivated.stdout)
+    off_actions = off_evidence["mcp_actions"]
+    off_result = off_evidence["action_results"].get("off", {})
+    off_mode = off_result.get("adapter_mode", {})
+    if (
+        deactivated.returncode != 0
+        or "handshake" not in off_actions
+        or "off" not in off_actions
+        or not isinstance(off_mode, dict)
+        or off_mode.get("state") != "off"
+    ):
+        raise SmokeFailure(
+            "Claude live smoke did not execute the explicitly invoked off action\n"
+            f"exit: {deactivated.returncode}\n"
+            f"stdout: {deactivated.stdout[-5000:]}\n"
+            f"stderr: {deactivated.stderr[-2000:]}"
+        )
     followup = _run(
         (
             executable,
@@ -690,8 +777,8 @@ def _claude_live(
             "--verbose",
             "--permission-mode",
             "dontAsk",
-            "--tools",
-            "mcp__isekai_core__runtime_action,Read",
+            "--tools=mcp__isekai_core__runtime_action,Read",
+            "--allowedTools=mcp__isekai_core__runtime_action",
             _followup_prompt(),
         ),
         cwd=project,
@@ -723,8 +810,8 @@ def _claude_live(
             "--verbose",
             "--permission-mode",
             "dontAsk",
-            "--tools",
-            "mcp__isekai_core__runtime_action,Read",
+            "--tools=mcp__isekai_core__runtime_action,Read",
+            "--allowedTools=mcp__isekai_core__runtime_action",
             _golden_prompt("claude", golden_project, golden_unit),
         ),
         cwd=golden_project,
@@ -760,6 +847,11 @@ def _claude_live(
                 trace=followup.stdout,
                 actions=followup_actions,
             ),
+            "off": _stage_execution_evidence(
+                trace_format="claude-stream-json",
+                trace=deactivated.stdout,
+                actions=off_actions,
+            ),
             "golden": _stage_execution_evidence(
                 trace_format="claude-stream-json",
                 trace=golden.stdout,
@@ -771,6 +863,7 @@ def _claude_live(
             "handshake compatible",
             "adapter mode on",
             "same-session automatic intake",
+            "explicit off invocation resolved from host arguments",
             "Golden Unit status/resume/verify valid",
         ],
     }
@@ -789,6 +882,7 @@ def _kiro_live(
     trace_root.mkdir(exist_ok=True)
     activation_trace_path = trace_root / "activation.jsonl"
     followup_trace_path = trace_root / "followup.jsonl"
+    off_trace_path = trace_root / "off.jsonl"
     golden_trace_path = trace_root / "golden.jsonl"
     prompt = (
         f"ISEKAI_HEADLESS: on --project {project}\n\n"
@@ -839,6 +933,43 @@ def _kiro_live(
             f"exit: {completed.returncode}\n"
             f"stdout: {completed.stdout[-5000:]}\n"
             f"stderr: {completed.stderr[-2000:]}"
+        )
+    deactivated = _run(
+        (
+            executable,
+            "chat",
+            "--agent",
+            "isekai-core",
+            "--no-interactive",
+            "--require-mcp-startup",
+            "--trust-tools=read,@mcp",
+            _off_prompt("kiro"),
+        ),
+        cwd=project,
+        timeout=timeout,
+        environment=_kiro_environment(off_trace_path),
+    )
+    if deactivated.returncode != 0:
+        raise SmokeFailure(
+            "Kiro explicit off command failed\n"
+            f"exit: {deactivated.returncode}\n"
+            f"stdout: {deactivated.stdout[-5000:]}\n"
+            f"stderr: {deactivated.stderr[-2000:]}"
+        )
+    off_trace, off_evidence = _kiro_acp_evidence(off_trace_path)
+    off_actions = off_evidence["mcp_actions"]
+    off_result = off_evidence["action_results"].get("off", {})
+    off_mode = off_result.get("adapter_mode", {})
+    if (
+        "handshake" not in off_actions
+        or "off" not in off_actions
+        or not isinstance(off_mode, dict)
+        or off_mode.get("state") != "off"
+    ):
+        raise SmokeFailure(
+            "Kiro live smoke did not execute the explicit headless off action\n"
+            f"stdout: {deactivated.stdout[-5000:]}\n"
+            f"stderr: {deactivated.stderr[-2000:]}"
         )
     followup = _run(
         (
@@ -930,6 +1061,11 @@ def _kiro_live(
                 trace=followup_trace,
                 actions=followup_actions,
             ),
+            "off": _stage_execution_evidence(
+                trace_format="kiro-acp-jsonl",
+                trace=off_trace,
+                actions=off_actions,
+            ),
             "golden": _stage_execution_evidence(
                 trace_format="kiro-acp-jsonl",
                 trace=golden_trace,
@@ -941,6 +1077,7 @@ def _kiro_live(
             "handshake compatible",
             "adapter mode on",
             "same-session automatic intake",
+            "explicit off invocation resolved from host arguments",
             "Golden Unit status/resume/verify valid",
         ],
     }

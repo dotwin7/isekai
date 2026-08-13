@@ -148,7 +148,7 @@ def tree_digest(
         )
     digest = hashlib.sha256()
     try:
-        relative_files, relative_directories = inspect_tree_beneath(
+        relative_files, _relative_directories = inspect_tree_beneath(
             root,
             label="release component",
         )
@@ -157,11 +157,6 @@ def tree_digest(
     files = [
         root / relative
         for relative in relative_files
-        if include_transients or not _is_transient(relative)
-    ]
-    directories = [
-        root / relative
-        for relative in relative_directories
         if include_transients or not _is_transient(relative)
     ]
     for candidate in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
@@ -186,14 +181,9 @@ def tree_digest(
         digest.update(b"\0")
         digest.update(content)
         digest.update(b"\0")
-    # A directory holding no files anywhere beneath it leaves no trace in the
-    # loop above, so removing it would be invisible to doctor. Record those.
-    populated = {parent for file in files for parent in file.parents}
-    empty = [candidate for candidate in directories if candidate not in populated]
-    for candidate in sorted(empty, key=lambda item: item.relative_to(root).as_posix()):
-        digest.update(b"dir\0")
-        digest.update(candidate.relative_to(root).as_posix().encode("utf-8"))
-        digest.update(b"\0")
+    # Empty directories are not Git release content: Git does not preserve
+    # them in a tagged checkout.  Omitting them also prevents a directory left
+    # behind by ignored interpreter caches from changing the source digest.
     return "sha256:" + digest.hexdigest()
 
 
@@ -358,7 +348,7 @@ def build_distribution_manifest(root: str | Path) -> dict[str, Any]:
             "foundation_schema_versions": ["1.0.0"],
         },
         "core": {
-            "package": "isekai-ai-dlc-runtime",
+            "package": "isekai-core-runtime",
             "version": version,
             "path": "src/isekai",
             "digest": tree_digest(

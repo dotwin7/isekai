@@ -31,6 +31,9 @@ CONFIG: dict[str, dict[str, Any]] = {
             "- Invoke `$isekai off` to run `isekai runtime off`, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
             "- An explicit skill action runs once while mode is off without activating persistent conversation mode."
         ),
+        "host_invocation": (
+            "Codex may present an explicitly selected `$isekai` Skill and its remaining argument text as separate host context. When this document is loaded as that active named Skill, the host selection is the invocation and the remaining text is its argument string, even if the model-visible text is only `off`."
+        ),
         "invocation": "The user invokes the Project-local Runtime Skill as `$isekai ACTION`.",
         "permission_guidance": (
             "Codex sandbox or tool approval authorizes the requested local tool call; it is not by itself a lifecycle Decision. Before a human-decision action, show the Decision Packet and its bound Envelope or Evidence in the conversation and obtain an explicit user response."
@@ -53,6 +56,12 @@ CONFIG: dict[str, dict[str, Any]] = {
             "- Invoke `/isekai off` to run the Project-local `runtime off` action, stop automatic ISEKAI routing, and preserve Unit artifacts and checkpoints unchanged.\n"
             "- An explicit Skill action runs once while mode is off without activating persistent conversation mode."
         ),
+        "host_invocation": (
+            "Claude Code marks a user-selected Skill with a `/isekai` command envelope and binds the remaining command text below. Treat that host-marked Skill load as the invocation and parse this value as its arguments, even if it contains only `off`:\n\n"
+            "```text\n"
+            "$ARGUMENTS\n"
+            "```"
+        ),
         "invocation": "The user invokes the Project-local Runtime Skill as `/isekai ACTION`.",
         "permission_guidance": (
             "Claude Code tool permission grants authorize a tool call for their configured duration; they are not by themselves lifecycle Decisions. Before a human-decision action, show the Decision Packet and its bound Envelope or Evidence in the conversation and obtain an explicit user response. Never add broad `allowed-tools` merely to avoid that confirmation."
@@ -74,6 +83,9 @@ CONFIG: dict[str, dict[str, Any]] = {
             "- `/isekai off` invokes `isekai runtime off`, stops automatic ISEKAI routing, and preserves Unit artifacts and checkpoints unchanged.\n"
             "- `/isekai <action> [arguments]` runs one explicit action while mode is off without activating persistent conversation mode."
         ),
+        "host_invocation": (
+            "Kiro may load the workspace `isekai` Agent Skill from an explicitly selected `/isekai` slash command while providing only the remaining command text to the model. When this document is loaded as that active named Skill, the host selection is the invocation and the remaining text is its argument string, even if it is only `off`."
+        ),
         "invocation": "The user invokes this Skill interactively as `/isekai ACTION`, or in Kiro headless mode with `ISEKAI_HEADLESS: ACTION` as the first non-blank request line.",
         "permission_guidance": (
             "Kiro `read`, `write`, and `shell` approvals are tool permissions, not lifecycle Decisions. Do not use `/tools trust-all` or `--trust-all-tools` as a substitute for a human gate. A headless Kiro run cannot create a new human Decision from its own prompt; stop with the pending Decision Packet and require a later interactive confirmation or an authenticated external approval."
@@ -89,6 +101,7 @@ def render(runtime: str) -> str:
         "@@FRONTMATTER@@": config["frontmatter"],
         "@@RUNTIME_LABEL@@": config["label"],
         "@@RUNTIME@@": runtime,
+        "@@HOST_INVOCATION_BODY@@": config["host_invocation"],
         "@@ACTIVATION_BODY@@": config["activation"],
         "@@INVOCATION_GUIDANCE@@": config["invocation"],
         "@@HOST_PERMISSION_GUIDANCE@@": config["permission_guidance"],

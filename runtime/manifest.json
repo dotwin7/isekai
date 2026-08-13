@@ -1,10 +1,10 @@
 {
   "id": "isekai-project-runtime",
   "kind": "project-local-runtime",
-  "version": "0.3.0",
-  "description": "Version-pinned project-local ISEKAI AI-DLC runtime for existing agent hosts",
+  "version": "0.3.1",
+  "description": "Version-pinned project-local ISEKAI Core runtime for Catalog entry controllers",
   "core": {
-    "package": "isekai-ai-dlc-runtime",
+    "package": "isekai-core-runtime",
     "interface": "isekai runtime",
     "user_interface": "isekai <action>",
     "protocol_version": "1.2.0"

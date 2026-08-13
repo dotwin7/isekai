@@ -307,6 +307,49 @@ def test_proof_ignores_symlinks_inside_excluded_virtualenv(
     assert result["passed"] is True
 
 
+def test_proof_uses_prepared_node_dependencies_in_disposable_workspace(
+    tmp_path: Path,
+) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    tool = tmp_path / "project/services/frontend/node_modules/.bin/tsc"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\necho typecheck-ok\n", encoding="utf-8")
+    tool.chmod(0o755)
+
+    result = execute_proof(
+        unit,
+        target="tests/typecheck",
+        command=["services/frontend/node_modules/.bin/tsc"],
+    )
+
+    assert result["passed"] is True
+    assert result["stdout"] == "typecheck-ok\n"
+    assert result["execution"]["dependency_views"] == [
+        "services/frontend/node_modules"
+    ]
+
+
+def test_proof_rejects_an_aliased_dependency_root(tmp_path: Path) -> None:
+    unit = make_enveloped_unit(tmp_path)
+    approve_inception(unit)
+    external = tmp_path / "external-node-modules"
+    external.mkdir()
+    dependency = tmp_path / "project/services/frontend/node_modules"
+    dependency.parent.mkdir(parents=True)
+    dependency.symlink_to(external, target_is_directory=True)
+    ledger_before = (unit / "execution-authorizations.json").read_bytes()
+
+    with pytest.raises(WorkflowError, match="cannot contain symlinks"):
+        execute_proof(
+            unit,
+            target="tests/typecheck",
+            command=[sys.executable, "-c", "print('must-not-run')"],
+        )
+
+    assert (unit / "execution-authorizations.json").read_bytes() == ledger_before
+
+
 def test_proof_rejects_a_source_symlink(tmp_path: Path) -> None:
     unit = make_enveloped_unit(tmp_path)
     approve_inception(unit)

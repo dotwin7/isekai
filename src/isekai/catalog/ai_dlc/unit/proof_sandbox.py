@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Mapping
 
 from isekai.support.errors import WorkflowError
+from .proof_runtime import validated_dependency_roots
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,10 @@ _MACOS_SYSTEM_READ_ROOTS = (
     "/System",
     "/usr",
 )
+_MACOS_TOOLCHAIN_READ_ROOTS = (
+    "/opt/homebrew",
+    "/usr/local",
+)
 _MACOS_READABLE_DEVICES = (
     "/dev/null",
     "/dev/random",
@@ -135,6 +140,8 @@ def sandbox_status() -> dict[str, object]:
                 "provider": "macos-seatbelt",
                 "issue": "sandbox-exec is not installed",
             }
+        supervisor = Path(sys.executable).absolute()
+        supervisor_resolved = supervisor.resolve()
         ready, issue = _probe(
             [
                 executable,
@@ -142,11 +149,26 @@ def sandbox_status() -> dict[str, object]:
                 _macos_profile(
                     read_roots=[
                         *(Path(value) for value in _MACOS_SYSTEM_READ_ROOTS),
+                        *(
+                            Path(value)
+                            for value in _MACOS_TOOLCHAIN_READ_ROOTS
+                            if Path(value).exists()
+                        ),
+                        *_command_roots(
+                            supervisor,
+                            supervisor_resolved,
+                            temp_root=Path("/private/tmp/isekai-proof-preflight"),
+                        ),
+                        *_symlink_read_roots(supervisor),
                         Path(executable).parent,
                     ],
                     write_root=None,
+                    metadata_paths=_symlink_resolution_paths(supervisor),
                 ),
-                "/usr/bin/true",
+                str(supervisor),
+                "-I",
+                "-c",
+                "raise SystemExit(0)",
             ]
         )
         return {"ready": ready, "provider": "macos-seatbelt", "issue": issue}
@@ -325,6 +347,7 @@ def _validate_executable_scope(
     workspace: Path,
     source_project: Path,
     temp_root: Path,
+    dependency_roots: list[Path] | None = None,
 ) -> None:
     current = Path(sys.executable).absolute()
     current_resolved = current.resolve()
@@ -340,13 +363,19 @@ def _validate_executable_scope(
         _inside(lexical, workspace)
         or _inside(lexical, temp_root)
         or _inside(lexical, source_virtualenv)
-        or any(_inside(lexical, root) for root in [*system_roots, *current_roots])
+        or any(
+            _inside(lexical, root)
+            for root in [*system_roots, *current_roots, *(dependency_roots or [])]
+        )
     )
     resolved_allowed = (
         _inside(resolved, workspace)
         or _inside(resolved, temp_root)
         or _inside(resolved, source_virtualenv)
-        or any(_inside(resolved, root) for root in [*system_roots, *current_roots])
+        or any(
+            _inside(resolved, root)
+            for root in [*system_roots, *current_roots, *(dependency_roots or [])]
+        )
     )
     if not lexical_allowed or not resolved_allowed:
         raise WorkflowError(
@@ -361,6 +390,7 @@ def _sandbox_environment(
     lexical: Path,
     resolved: Path,
     temp_root: Path,
+    dependency_roots: list[Path] | None = None,
 ) -> dict[str, str]:
     safe_roots = _minimal_roots(
         [
@@ -368,6 +398,7 @@ def _sandbox_environment(
             Path("/opt/homebrew"),
             Path("/usr/local"),
             *_execution_roots(lexical, resolved, temp_root=temp_root),
+            *(dependency_roots or []),
             temp_root,
         ]
     )
@@ -425,6 +456,14 @@ def _symlink_resolution_paths(path: Path) -> list[Path]:
             pending.append(expanded.joinpath(*remaining).absolute())
             break
     return sorted(links, key=lambda item: (len(item.parts), str(item)))
+
+
+def _symlink_read_roots(path: Path) -> list[Path]:
+    """Return readable aliases needed to exec a symlinked toolchain binary."""
+    roots: list[Path] = []
+    for link in _symlink_resolution_paths(path):
+        roots.append(link if link.is_dir() else link.parent)
+    return _minimal_roots(roots)
 
 
 def _macos_metadata_filter(
@@ -526,6 +565,7 @@ def _macos_invocation(
     temp_root: Path,
     workspace: Path,
     source_project: Path,
+    dependency_roots: list[Path] | None = None,
     environment: Mapping[str, str],
     timeout_seconds: int = 300,
 ) -> SandboxInvocation:
@@ -537,23 +577,34 @@ def _macos_invocation(
         workspace=workspace,
         environment=environment,
     )
+    dependencies = validated_dependency_roots(source_project, dependency_roots)
     _validate_executable_scope(
         lexical,
         resolved,
         workspace=workspace,
         source_project=source_project,
         temp_root=temp_root,
+        dependency_roots=dependencies,
     )
     sandbox_environment = _sandbox_environment(
         environment,
         lexical=lexical,
         resolved=resolved,
         temp_root=temp_root,
+        dependency_roots=dependencies,
     )
     read_roots = _minimal_roots(
         [
             *(Path(value) for value in _MACOS_SYSTEM_READ_ROOTS),
+            *(
+                Path(value)
+                for value in _MACOS_TOOLCHAIN_READ_ROOTS
+                if Path(value).exists()
+            ),
             *_execution_roots(lexical, resolved, temp_root=temp_root),
+            *_symlink_read_roots(lexical),
+            *_symlink_read_roots(Path(sys.executable).absolute()),
+            *dependencies,
             temp_root,
         ]
     )
@@ -587,6 +638,7 @@ def _linux_invocation(
     temp_root: Path,
     workspace: Path,
     source_project: Path,
+    dependency_roots: list[Path] | None = None,
     environment: Mapping[str, str],
     timeout_seconds: int = 300,
 ) -> SandboxInvocation:
@@ -598,24 +650,28 @@ def _linux_invocation(
         workspace=workspace,
         environment=environment,
     )
+    dependencies = validated_dependency_roots(source_project, dependency_roots)
     _validate_executable_scope(
         lexical,
         resolved,
         workspace=workspace,
         source_project=source_project,
         temp_root=temp_root,
+        dependency_roots=dependencies,
     )
     sandbox_environment = _sandbox_environment(
         environment,
         lexical=lexical,
         resolved=resolved,
         temp_root=temp_root,
+        dependency_roots=dependencies,
     )
     read_roots = _minimal_roots(
         [
             *(Path(value) for value in _LINUX_SYSTEM_ROOTS),
             *(Path(value) for value in _LINUX_SYSTEM_FILES),
             *_execution_roots(lexical, resolved, temp_root=temp_root),
+            *dependencies,
         ]
     )
     wrapped = [
@@ -664,6 +720,7 @@ def build_sandbox_invocation(
     temp_root: Path,
     workspace: Path,
     source_project: Path,
+    dependency_roots: list[Path] | None = None,
     environment: Mapping[str, str],
     timeout_seconds: int = 300,
 ) -> SandboxInvocation:
@@ -674,6 +731,7 @@ def build_sandbox_invocation(
             temp_root=temp_root,
             workspace=workspace,
             source_project=source_project,
+            dependency_roots=dependency_roots,
             environment=environment,
             timeout_seconds=timeout_seconds,
         )
@@ -683,6 +741,7 @@ def build_sandbox_invocation(
             temp_root=temp_root,
             workspace=workspace,
             source_project=source_project,
+            dependency_roots=dependency_roots,
             environment=environment,
             timeout_seconds=timeout_seconds,
         )

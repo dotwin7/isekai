@@ -25,8 +25,8 @@ catalog/
 
 | ID | Version | Status | Delivery | 설명 |
 |---|---|---|---|---|
-| `ai-dlc` | 0.3.0 | active | core-bundled | Intake부터 Learn까지 거버넌스 개발주기 |
-| `agent-control` | 0.1.0 | preview | core-bundled | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어 |
+| `ai-dlc` | 0.3.1 | active | core-bundled | Intake부터 Learn까지 거버넌스 개발주기 |
+| `agent-control` | 0.1.0 | preview | core-bundled | 독립 Engagement와 connector execution으로 외부 에이전트를 제어 |
 
 ## 새 Entry 추가 절차
 
@@ -95,7 +95,7 @@ uv run pytest -q
 ## 제약
 
 - Entry ID는 catalog 안에서 고유해야 한다.
-- `authority`는 `"cannot-expand-foundation-project-or-unit-authority"` 고정이다. Catalog entry는 Foundation, Project Agent level, Unit Envelope, Human Gate를 확장할 수 없다.
+- `authority`는 기존 protocol 값인 `"cannot-expand-foundation-project-or-unit-authority"`로 고정한다. 모든 entry는 Foundation과 Project Agent level을 확장할 수 없고, AI-DLC가 소유한 Unit Envelope·Human Gate를 다른 entry가 재사용하거나 우회할 수 없다.
 - `preview` entry는 발견은 허용하되 실행 action을 제공하지 않는다.
-- Catalog entry 업데이트로 기존 Unit이 새 기능이나 권한을 암묵적으로 얻지 않는다.
+- Catalog entry 업데이트로 기존 entry-owned resource가 새 기능이나 권한을 암묵적으로 얻지 않는다.
 - `_`로 시작하는 디렉터리(예: `_template`)는 catalog에 등록하지 않는다.

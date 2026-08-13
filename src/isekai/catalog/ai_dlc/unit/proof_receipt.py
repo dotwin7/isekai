@@ -107,6 +107,20 @@ def proof_receipt_issues(
         issues.append("has an invalid Core proof sandbox policy")
     if execution.get("environment") != "core-allowlisted":
         issues.append("has an invalid Core proof environment boundary")
+    dependency_views = execution.get("dependency_views")
+    if dependency_views is not None and (
+        not isinstance(dependency_views, list)
+        or any(
+            not isinstance(value, str)
+            or not value
+            or value.startswith("/")
+            or ".." in value.split("/")
+            or value.split("/")[-1] not in {".venv", "node_modules"}
+            for value in dependency_views
+        )
+        or len(dependency_views) != len(set(dependency_views))
+    ):
+        issues.append("has invalid Core proof dependency views")
     limits = execution.get("resource_limits")
     required_limits = {
         "cpu_seconds",

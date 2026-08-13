@@ -45,10 +45,11 @@ Live smoke의 성공 기준은 단순히 Skill 파일이 존재하는 것이 아
 2. 새 host 세션의 초기 Skill 목록에 ISEKAI가 주입되어야 한다. 모델이 프로젝트를 검색해 문서를 수동 발견한 경우는 실패다.
 3. 명시적 `on`이 Project-local launcher로 `handshake`와 Core `on`을 호출해야 한다.
 4. 같은 대화의 다음 일반 요청은 명령 재호출 없이 `intake`되어야 한다.
-5. Unit Golden Path는 `status`, `resume`, `verify`를 호출하고 실제 `verify.valid`를 보고해야 한다.
-6. 읽기 전용 smoke는 Unit이나 제품 파일을 만들거나 수정해서는 안 된다.
+5. 별도 one-shot 세션의 명시적 `off`는 host가 분리해 전달한 인자를 문서로 오판하거나 재호출을 요구하지 않고 `handshake/off`를 호출해 `adapter_mode.state=off`를 반환해야 한다.
+6. Unit Golden Path는 `status`, `resume`, `verify`를 호출하고 실제 `verify.valid`를 보고해야 한다.
+7. 읽기 전용 smoke는 Unit이나 제품 파일을 만들거나 수정해서는 안 된다.
 
-각 실제 host는 세 단계로 자동 검증된다. 첫 세션에서 `handshake/on`을 수행하고, 그 세션 ID 또는 해당 Project의 최근 세션을 재개해 ISEKAI·`intake`·MCP를 언급하지 않은 일반 후속 요청이 자동으로 `intake`되는지 확인한다. 마지막으로 완성 Reference Project의 새 세션에서 `status`, `resume`, `verify`를 호출하고 `learned`와 `verify.valid=true`를 확인한다. 모든 lifecycle action은 Project 실행 보호 설정이 연결한 `isekai-core` MCP `runtime_action`을 통한다. Codex는 JSONL의 `thread.started`와 MCP tool call, Claude는 stream JSON의 MCP tool-use와 Core 응답을 판정에 사용한다. Kiro는 생성된 `isekai-core` agent, directory-scoped `--resume`, required MCP startup을 사용하고, 모델 본문이 아니라 `KIRO_ACP_RECORD_PATH`의 ACP JSONL에서 실제 MCP 호출과 Core 결과를 판정한다. Evidence에는 각 단계의 trace 형식·digest·관찰된 MCP action이 결박된다.
+각 실제 host는 네 단계로 자동 검증된다. 첫 세션에서 `handshake/on`을 수행하고, 별도 one-shot 세션에서 명시적 `off`가 실제 `handshake/off`로 해석되는지 확인한다. 이어서 `on` 세션 ID 또는 해당 Project의 최근 세션을 재개해 ISEKAI·`intake`·MCP를 언급하지 않은 일반 후속 요청이 자동으로 `intake`되는지 확인한다. 마지막으로 완성 Reference Project의 새 세션에서 `status`, `resume`, `verify`를 호출하고 `learned`와 `verify.valid=true`를 확인한다. 모든 lifecycle action은 Project 실행 보호 설정이 연결한 `isekai-core` MCP `runtime_action`을 통한다. Codex는 JSONL의 `thread.started`와 MCP tool call, Claude는 stream JSON의 MCP tool-use와 Core 응답을 판정에 사용한다. Kiro는 생성된 `isekai-core` agent, directory-scoped `--resume`, required MCP startup을 사용하고, 모델 본문이 아니라 `KIRO_ACP_RECORD_PATH`의 ACP JSONL에서 실제 MCP 호출과 Core 결과를 판정한다. Evidence에는 각 단계의 trace 형식·digest·관찰된 MCP action이 결박된다.
 
 이 자동화가 존재한다는 사실만으로 live baseline이 생기지는 않는다. 실제 인증 세션이 성공하고 digest-bound Evidence를 보존한 경우에만 `live-verified`로 기록한다.
 

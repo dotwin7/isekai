@@ -15,8 +15,8 @@ The same host-neutral ISEKAI contract is exposed through three independent runti
 Install the project-local launcher and adapters from an immutable Git tag first:
 
 ```bash
-curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.3.0/scripts/install.sh
-bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.3.0 --path . --runtime all --init
+curl -fsSLo /tmp/isekai-install.sh https://raw.githubusercontent.com/dotwin7/isekai/v0.3.1/scripts/install.sh
+bash /tmp/isekai-install.sh --source https://github.com/dotwin7/isekai.git --ref v0.3.1 --path . --runtime all --init
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -45,8 +45,8 @@ The ISEKAI Catalog groups the versioned functions provided by ISEKAI on the Proj
 Git releases are pinned by `isekai.lock.json`. Check and apply an update separately so contract changes are reviewable:
 
 ```bash
-./.isekai/bin/isekai update --check --ref v0.3.0
-./.isekai/bin/isekai update --ref v0.3.0
+./.isekai/bin/isekai update --check --ref v0.3.1
+./.isekai/bin/isekai update --ref v0.3.1
 ./.isekai/bin/isekai rollback
 ```
 

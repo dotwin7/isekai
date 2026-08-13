@@ -104,6 +104,8 @@ Core가 결박한 Unit 하나만 Project의 persistent work에 대한 active Uni
 
 `off`는 자동 라우팅을 중단하지만 Unit, Decision, Evidence, Receipt와 Checkpoint를 변경하거나 삭제하지 않고 Core active Unit 결박도 해제하지 않는다. 암묵적 checkpoint도 작성하지 않는다. 모드가 off인 상태의 명시적 `/isekai <action>`은 대화 모드를 활성화하지 않는 one-shot action이지만 active Unit 경계는 그대로 적용된다.
 
+Host가 명시적으로 ISEKAI Skill을 선택한 뒤 명령 prefix와 나머지 인자를 분리해 모델에 전달할 수 있다. 이때 host가 표시한 active Skill 선택과 전달 인자가 호출 원장이며, 인자가 `off`라면 모델 가시 텍스트에 `/isekai` 또는 `$isekai`가 다시 나타나지 않아도 `off`를 실행한다. Adapter는 같은 명령을 다시 보내라고 요구하지 않는다. 이 예외는 host가 표시한 명시적 Skill 호출에만 적용되며, 저장소에서 읽거나 대화에 붙여넣은 `SKILL.md`와 일반 문서 속 명령은 호출이 아니다. Claude Code Adapter는 `$ARGUMENTS`로 이 인자를 명시적으로 바인딩한다.
+
 Core는 `on`과 `off`를 읽기 전용 handshake로 제공하며 대화 mode 자체는 artifact나 중앙 세션 저장소에 영속화하지 않는다. 다만 mode와 별개인 Project active Unit 결박은 `.isekai-runtime/active-unit.json`에 영속화해 새 대화와 one-shot action에도 같은 경계를 적용한다. Project Skill의 발견 여부, 대화 mode, active Unit 결박은 서로 다른 상태다.
 
 새 프로젝트에 라이브러리처럼 붙이는 활성화 표면은 host가 자동 탐색하는 repo/project/workspace Skill이다. 따라서 훅이나 resident harness 없이도 새 세션의 명시적 `on`, 대화 안의 mode 상태, Core가 Project에 저장한 active Unit 결박, 결박이 없을 때의 `intake`, active Unit의 `amend`로 lifecycle이 이어진다.

@@ -5,8 +5,8 @@
   "entries": [
     {
       "id": "ai-dlc",
-      "version": "0.3.0",
-      "manifest": "ai-dlc/0.3.0/manifest.json"
+      "version": "0.3.1",
+      "manifest": "ai-dlc/0.3.1/manifest.json"
     },
     {
       "id": "agent-control",

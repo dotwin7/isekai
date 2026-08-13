@@ -1,7 +1,9 @@
-# Agent Control Plane
+# Agent Control Plane — 폐기된 Unit 재사용 초안
 
 - 설명: 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어하는 범용 Catalog entry 계약
-- 문서 역할: [ISEKAI canonical 문서 집합](isekai.md)의 일부
+- 문서 역할: 폐기된 설계 기록. 구현 기준은 [Agent Control Engagement](engagement.md)다.
+
+> **폐기 결정(2026-08-11):** 이 문서 아래의 “Agent Control이 AI-DLC Unit lifecycle을 재사용한다”는 전제는 잘못됐다. Unit은 AI-DLC의 개발 단위이며 Agent Control이 참조·확장·재사용하지 않는다. 아래 내용은 구현 계약으로 사용하지 않는다.
 
 ## 개념
 

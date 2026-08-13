@@ -28,7 +28,7 @@ def test_catalog_contains_active_ai_dlc() -> None:
     assert "agent-control" in entries
     assert entries["ai-dlc"]["active"] is True
     assert entries["ai-dlc"]["delivery"] == "core-bundled"
-    assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.3.0"
+    assert entries["ai-dlc"]["package_path"] == "ai-dlc/0.3.1"
     assert entries["agent-control"]["active"] is False
     assert entries["agent-control"]["delivery"] == "core-bundled"
     assert entries["agent-control"]["package_path"] == "agent-control/0.1.0"
@@ -89,8 +89,8 @@ def test_catalog_is_managed_as_a_repository_distribution_component() -> None:
 
     assert entries["ai-dlc"] == {
         "id": "ai-dlc",
-        "version": "0.3.0",
-        "manifest": "ai-dlc/0.3.0/manifest.json",
+        "version": "0.3.1",
+        "manifest": "ai-dlc/0.3.1/manifest.json",
     }
     assert entries["agent-control"] == {
         "id": "agent-control",

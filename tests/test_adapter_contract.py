@@ -181,6 +181,10 @@ from pathlib import Path
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
 prompt = args[-1] if args else ""
+is_off_prompt = any(
+    marker in prompt
+    for marker in ("$isekai off", "/isekai off", "ISEKAI_HEADLESS: off")
+)
 if "--version" in args:
     versions = {
         "codex": "codex-cli 0.147.0",
@@ -213,7 +217,7 @@ if name == "codex" and "resume" in args and "--sandbox" in args:
     raise SystemExit(2)
 if ("resume" in args or "--resume" in args) and any(
     token in prompt.lower() for token in ("isekai", "intake", "runtime_action")
-):
+) and not is_off_prompt:
     print("follow-up prompt leaked the expected orchestration", file=sys.stderr)
     raise SystemExit(2)
 
@@ -266,7 +270,14 @@ if name == "codex":
         }))
 
     print(json.dumps({"type": "thread.started", "thread_id": "fake-thread"}))
-    if "resume" in args:
+    if is_off_prompt:
+        item(".isekai/bin/isekai runtime handshake --runtime codex", "handshake", {
+            "compatible": True
+        })
+        item(".isekai/bin/isekai runtime off", "off", {
+            "adapter_mode": {"state": "off"}
+        })
+    elif "resume" in args:
         item(".isekai/bin/isekai runtime intake --project /tmp/project", "intake", {
             "route": {"route": "query"}, "workflow": {"directive": "direct-response"}
         })
@@ -311,7 +322,14 @@ elif name == "claude":
                 "content": json.dumps({"action": action, "result": result}),
             }]},
         }))
-    if "--resume" in args:
+    if is_off_prompt:
+        claude_item(".isekai/bin/isekai runtime handshake --runtime claude", "handshake", {
+            "compatible": True
+        })
+        claude_item(".isekai/bin/isekai runtime off", "off", {
+            "adapter_mode": {"state": "off"}
+        })
+    elif "--resume" in args:
         claude_item(".isekai/bin/isekai runtime intake --project /tmp/project", "intake", {
             "route": {"route": "query"}, "workflow": {"directive": "direct-response"}
         })
@@ -333,7 +351,12 @@ elif name == "claude":
             "adapter_mode": {"state": "on"}
         })
 else:
-    if "--resume" in args:
+    if is_off_prompt:
+        write_kiro_trace([
+            *kiro_items("handshake", {"compatible": True}),
+            *kiro_items("off", {"adapter_mode": {"state": "off"}}),
+        ])
+    elif "--resume" in args:
         write_kiro_trace(kiro_items("intake", {
             "route": {"route": "query"},
             "workflow": {"directive": "direct-response"},
@@ -383,6 +406,7 @@ else:
     assert set(result["live_hosts"]) == {"codex", "claude", "kiro"}
     assert all(
         "same-session automatic intake" in host["checks"]
+        and "explicit off invocation resolved from host arguments" in host["checks"]
         and "Golden Unit status/resume/verify valid" in host["checks"]
         for host in result["live_hosts"].values()
     )
@@ -396,16 +420,19 @@ else:
         "codex": {
             "activation": "codex-jsonl",
             "followup": "codex-jsonl",
+            "off": "codex-jsonl",
             "golden": "codex-jsonl",
         },
         "claude": {
             "activation": "claude-stream-json",
             "followup": "claude-stream-json",
+            "off": "claude-stream-json",
             "golden": "claude-stream-json",
         },
         "kiro": {
             "activation": "kiro-acp-jsonl",
             "followup": "kiro-acp-jsonl",
+            "off": "kiro-acp-jsonl",
             "golden": "kiro-acp-jsonl",
         },
     }
@@ -448,7 +475,7 @@ def test_kiro_live_evidence_rejects_model_text_without_an_acp_tool_call() -> Non
 def test_runtime_manifest_actions_and_write_boundary_are_consistent() -> None:
     manifest = read_json(ROOT / "runtime/manifest.json")
 
-    assert manifest["core"]["package"] == "isekai-ai-dlc-runtime"
+    assert manifest["core"]["package"] == "isekai-core-runtime"
     assert manifest["core"]["user_interface"] == "isekai <action>"
     assert set(manifest["actions"]) == EXPECTED_ACTIONS
     assert set(manifest["writes"]) == EXPECTED_WRITES
@@ -717,6 +744,40 @@ def test_runtime_skills_require_explicit_invocation_before_activation() -> None:
     ).read_text(encoding="utf-8")
     assert "ISEKAI_HEADLESS: ACTION" in kiro.split("---", maxsplit=2)[1]
     assert "--trust-all-tools` as a substitute for a human gate" in kiro
+
+
+def test_runtime_skills_accept_host_bound_off_without_requiring_prefix_again() -> None:
+    skills = {
+        "codex": ROOT / "runtime/adapters/codex/skills/isekai/SKILL.md",
+        "claude": ROOT / "runtime/adapters/claude/skills/isekai/SKILL.md",
+        "kiro": ROOT / "runtime/adapters/kiro/skills/isekai/SKILL.md",
+    }
+    shared_contract = (
+        "host-provided invocation arguments",
+        "literal command prefix",
+        "ask the user to invoke the same command again",
+        "If the resolved action is exactly `off`",
+        "call the connected Core `runtime_action` with action `off`",
+        "Do not ask for confirmation, inspect or resume a Unit, write a Checkpoint, or run intake first.",
+        "quoted or pasted Skill content",
+    )
+
+    for runtime, path in skills.items():
+        content = path.read_text(encoding="utf-8")
+        for phrase in shared_contract:
+            assert phrase in content, f"{runtime} is missing invocation transport: {phrase}"
+
+    codex = skills["codex"].read_text(encoding="utf-8")
+    assert "loaded as that active named Skill" in codex
+    assert "model-visible text is only `off`" in codex
+
+    claude = skills["claude"].read_text(encoding="utf-8")
+    assert "user-selected Skill with a `/isekai` command envelope" in claude
+    assert "$ARGUMENTS" in claude
+
+    kiro = skills["kiro"].read_text(encoding="utf-8")
+    assert "explicitly selected `/isekai` slash command" in kiro
+    assert "remaining command text" in kiro
 
 
 def test_runtime_skills_are_project_local_and_never_use_a_global_launcher() -> None:

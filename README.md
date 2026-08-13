@@ -4,12 +4,12 @@ ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 프로젝트 로컬 AI 거
 
 배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하며 승인된 파일 변경을 직접 적용합니다. 별도 Agent Brain이나 lifecycle 훅을 전제로 하지 않습니다.
 
-현재 버전은 `0.3.0`입니다. `prove` 기반 Core 영수증과 Evidence 결박, 전체 Evidence 이력 감사, 프로젝트 로컬 설치·업데이트·롤백, 세 런타임 Adapter, L2 외부 API 계약과 공통 Catalog·제어 기반을 제공합니다.
+현재 버전은 `0.3.1`입니다. AI-DLC와 분리된 Agent Control preview, Project-local 검증 dependency view와 macOS proof provider 보강, 세 Runtime의 명시적 `off` 호출 인자 처리를 포함합니다. 기존 `prove` 영수증·Evidence 결박, 프로젝트 로컬 설치·업데이트·롤백과 L2 외부 API 경계도 유지합니다.
 
 | Catalog entry | 버전 | 상태 | 설명 |
 |---|---|---|---|
-| AI-DLC | 0.3.0 | active | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리 |
-| Agent Control | 0.1.0 | preview | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어 |
+| AI-DLC | 0.3.1 | active | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리 |
+| Agent Control | 0.1.0 | preview | AI-DLC Unit과 분리된 Engagement로 외부 에이전트 실행을 제어 |
 
 ## ISEKAI가 하는 일
 
@@ -50,7 +50,7 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 ISEKAI Runtime
 ├─ Core MCP control plane (공통 승인·검증·실행 경계)
 └─ Catalog
-   ├─ AI-DLC 0.3.0 (active)        개발주기 관리
+   ├─ AI-DLC 0.3.1 (active)        개발주기 관리
    └─ Agent Control 0.1.0 (preview) 외부 에이전트 거버넌스
 ```
 
@@ -82,7 +82,7 @@ Catalog 배포 원본은 이세카이 저장소의 `catalog/catalog.json`과 `ca
 ### macOS / Linux
 
 ```bash
-ISEKAI_VERSION=v0.3.0
+ISEKAI_VERSION=v0.3.1
 curl -fsSLo /tmp/isekai-install.sh \
   "https://raw.githubusercontent.com/dotwin7/isekai/${ISEKAI_VERSION}/scripts/install.sh"
 bash /tmp/isekai-install.sh \
@@ -99,7 +99,7 @@ bash /tmp/isekai-install.sh \
 ### Windows PowerShell
 
 ```powershell
-$IsekaiVersion = "v0.3.0"
+$IsekaiVersion = "v0.3.1"
 $installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-$IsekaiVersion.ps1"
 Invoke-WebRequest `
   "https://raw.githubusercontent.com/dotwin7/isekai/$IsekaiVersion/scripts/install.ps1" `
@@ -238,14 +238,16 @@ Envelope 승인에는 만료 창(기본 168시간, `--expires-in-hours`로 최�
 
 ## 버전 관리와 업데이트
 
-### 0.2.1에서 0.3.0으로 업그레이드
+### 0.3.0에서 0.3.1로 업그레이드
+
+`0.3.1`은 Agent Control preview vertical slice, Core prove 실행 환경 보강과 Runtime Adapter의 명시적 `off` 호출 수정을 함께 배포합니다. Foundation version과 protocol version은 변경하지 않습니다.
 
 대상 프로젝트 루트에서 실행합니다. 먼저 진행 중인 작업과 프로젝트 로컬 ISEKAI 파일의 변경을 커밋하거나 별도로 백업하고, 현재 설치가 정상인지 확인합니다. `update --check`는 파일을 바꾸지 않고 target commit과 component 차이만 보여 줍니다.
 
 ```bash
 ./.isekai/bin/isekai doctor --path .
-./.isekai/bin/isekai update --check --ref v0.3.0 --path .
-./.isekai/bin/isekai update --ref v0.3.0 --path .
+./.isekai/bin/isekai update --check --ref v0.3.1 --path .
+./.isekai/bin/isekai update --ref v0.3.1 --path .
 ./.isekai/bin/isekai doctor --path .
 ```
 
@@ -254,9 +256,9 @@ Windows PowerShell에서는 같은 프로젝트에서 `py -3 .\.isekai\bin\iseka
 일반 update는 Core와 Adapter만 갱신하고 Project가 고정한 Foundation은 유지합니다. 0.2.1 Foundation의 L2 계약까지 채택하려면 진행 중 Unit이 이전 Foundation에 고정되어 있지 않은지 먼저 확인하고, `--check` 결과와 Foundation diff를 사람에게 검수받은 다음 명시적으로 적용합니다.
 
 ```bash
-./.isekai/bin/isekai update --check --ref v0.3.0 --path . \
+./.isekai/bin/isekai update --check --ref v0.3.1 --path . \
   --include-foundation --adopt-foundation
-./.isekai/bin/isekai update --ref v0.3.0 --path . \
+./.isekai/bin/isekai update --ref v0.3.1 --path . \
   --include-foundation --adopt-foundation
 ./.isekai/bin/isekai doctor --path .
 ```
@@ -292,7 +294,7 @@ Envelope는 active Unit 하나에만 속합니다. `scope: ["**"]`가 승인되�
 
 공통화할 결과는 형제 Unit을 직접 읽게 하지 않고 `project-knowledge-propose → decision --gate knowledge → project-knowledge-promote`로 승격합니다. `project-knowledge/`는 Core-managed path이며 active Unit은 catalog를 직접 읽지 않고 자기 Receipt에 scope별로 고정된 항목만 사용합니다. Unit이 선택되지 않은 Project context에는 release 요약만 들어가며, `project-knowledge-status`는 candidate를 승인 대기·승인·거부·stale·승격·invalid로 구분하고 schema 호환 상태도 보여 줍니다. 자세한 계약은 [Project Knowledge](docs/project-knowledge.md)를 참고하세요.
 
-`prove`는 원본 Project가 아닌 일회용 복제 workspace에서 최소 허용 환경 변수만 넘기고 OS sandbox 안에서 명령을 실행합니다. 복제는 directory descriptor와 `O_NOFOLLOW`를 사용해 각 항목의 inode·metadata를 복사 전후에 확인하며 symlink·hardlink·특수 파일과 복사 중 변경을 거부합니다. macOS Seatbelt와 Linux Bubblewrap provider는 원본 Project와 사용자 홈의 파일 내용을 읽지 못하게 하고(runtime executable root는 read-only 예외), 쓰기를 일회용 workspace로 제한하며 네트워크를 차단합니다. Linux는 PID namespace를 사용하고 macOS는 외부 process signal/info와 Mach service 접근을 차단하며, Core는 종료 시 같은 process group의 자식을 정리합니다. 명령에는 CPU·생성 파일 크기·open file·process 수·core dump hard limit를 적용하고 Linux에서는 4 GiB address-space limit도 적용합니다. provider가 없거나 preflight에 실패하면 명령을 실행하지 않고 fail-closed합니다. Windows의 로컬 `prove`는 현재 provider가 없어 거부됩니다. Windows Project를 검증하려면 같은 Unit을 지원되는 Linux/macOS 환경으로 가져가 그 환경의 ISEKAI Core `prove`를 실행해야 하며, host나 외부 CI가 독립적으로 보고한 결과는 Evidence를 대신할 수 없습니다. stdout/stderr는 메모리 pipe에서 합계 8 MiB까지만 수집하고 초과 시 명령을 종료하며, `core-proof` receipt에는 status·exit code·완료 시각·실제 명령·provider·격리/자원 제한·stream digest와 byte count가 결박됩니다. `evidence`에는 `authorization_id`만 전달하며 command·output digest·observed time은 Core가 receipt에서 파생합니다. 호출자 값이 receipt와 다르거나 완료되지 않은 proof를 passing으로 표시하면 거부합니다. 모든 `evidence/records`도 당시 authorization 원장 prefix와 자체 digest에 대해 감사합니다.
+`prove`는 원본 Project가 아닌 일회용 복제 workspace에서 최소 허용 환경 변수만 넘기고 OS sandbox 안에서 명령을 실행합니다. 복제는 directory descriptor와 `O_NOFOLLOW`를 사용해 각 항목의 inode·metadata를 복사 전후에 확인하며 symlink·hardlink·특수 파일과 복사 중 변경을 거부합니다. macOS Seatbelt와 Linux Bubblewrap provider는 원본 Project와 사용자 홈의 파일 내용을 읽지 못하게 하고, 검증 toolchain과 Project에 준비된 `.venv`·`node_modules`만 read-only로 노출하며, 쓰기를 일회용 workspace로 제한하고 네트워크를 차단합니다. 따라서 Core가 준비된 `pytest`·`tsc`를 복제 과정에서 제거하지 않으며, 네트워크 설치는 계속 허용하지 않습니다. Linux는 PID namespace를 사용하고 macOS는 외부 process signal/info와 Mach service 접근을 차단하며, Core는 종료 시 같은 process group의 자식을 정리합니다. 명령에는 CPU·생성 파일 크기·open file·process 수·core dump hard limit를 적용하고 Linux에서는 4 GiB address-space limit도 적용합니다. provider가 없거나 preflight에 실패하면 명령을 실행하지 않고 fail-closed합니다. Windows의 로컬 `prove`는 현재 provider가 없어 거부됩니다. Windows Project를 검증하려면 같은 Unit을 지원되는 Linux/macOS 환경으로 가져가 그 환경의 ISEKAI Core `prove`를 실행해야 하며, host나 외부 CI가 독립적으로 보고한 결과는 Evidence를 대신할 수 없습니다. stdout/stderr는 메모리 pipe에서 합계 8 MiB까지만 수집하고 초과 시 명령을 종료하며, `core-proof` receipt에는 status·exit code·완료 시각·실제 명령·provider·격리/자원 제한·dependency view·stream digest와 byte count가 결박됩니다. `evidence`에는 `authorization_id`만 전달하며 command·output digest·observed time은 Core가 receipt에서 파생합니다. 호출자 값이 receipt와 다르거나 완료되지 않은 proof를 passing으로 표시하면 거부합니다. 모든 `evidence/records`도 당시 authorization 원장 prefix와 자체 digest에 대해 감사합니다.
 
 Core는 Host 대화 원문을 독립적으로 관찰하지 않으므로, active Unit 중 새 사용자 변경을 `amend`로 보고하는 행위는 Runtime Adapter가 담당합니다. 정상 Adapter가 새 요청을 `intake`로 보내면 Core는 새 route를 거부하고 `active-unit-amendment-required`를 반환하며, 기록된 Amendment 뒤에는 영향 문서·새 Decision·Checkpoint를 강제합니다. 그러나 Agent가 사용자 메시지를 아예 보고하지 않았다는 사실까지 MCP 서버가 감지할 수는 없습니다. lifecycle 훅이나 Host 플러그인 없이 대화 interception을 하지 않는 선택의 명시적 trust boundary입니다.
 

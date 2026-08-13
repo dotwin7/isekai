@@ -568,7 +568,7 @@ def test_reference_product_feature_runs_through_installed_codex_runtime_skill(
         "--runtime",
         "codex",
         "--adapter-version",
-        "0.3.0",
+        "0.3.1",
         "--protocol-version",
         "1.2.0",
         "--project",

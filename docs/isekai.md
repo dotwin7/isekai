@@ -103,4 +103,5 @@ Core는 직접 CLI dispatch와 Project-local stdio MCP server를 함께 제공�
 
 | 문서 | 내용 |
 |---|---|
-| [agent-control.md](agent-control.md) | 외부 에이전트의 사전 승인·결과 수신·감사를 Unit lifecycle로 제어하는 범용 계약 |
+| [agent-control/engagement.md](agent-control/engagement.md) | 외부 에이전트 실행을 Engagement와 Connector Execution으로 제어하는 독립 Catalog 계약 |
+| [agent-control/deprecated-unit-reuse.md](agent-control/deprecated-unit-reuse.md) | 폐기된 Agent Control Unit 재사용 초안 |

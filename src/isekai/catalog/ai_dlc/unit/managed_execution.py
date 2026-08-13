@@ -387,13 +387,20 @@ def execute_proof(
                 # so bind the sandbox contract to the resolved spelling.
                 temp_root = Path(temp).resolve()
                 sandbox_project = temp_root / "project"
-                _copy_test_workspace(project_root, sandbox_project)
-                environment = _proof_environment(temp_root)
+                dependency_roots = _copy_test_workspace(
+                    project_root,
+                    sandbox_project,
+                )
+                environment = _proof_environment(
+                    temp_root,
+                    dependency_roots=dependency_roots,
+                )
                 sandbox = build_sandbox_invocation(
                     argv,
                     temp_root=temp_root,
                     workspace=sandbox_project,
                     source_project=project_root,
+                    dependency_roots=dependency_roots,
                     environment=environment,
                     timeout_seconds=timeout_seconds,
                 )
@@ -454,6 +461,10 @@ def execute_proof(
                 "process_isolation": sandbox.process_isolation,
                 "resource_limits": sandbox.resource_limits,
                 "environment": "core-allowlisted",
+                "dependency_views": [
+                    root.relative_to(project_root).as_posix()
+                    for root in dependency_roots
+                ],
                 "command": argv,
                 "exit_code": exit_code,
                 "timed_out": timed_out,

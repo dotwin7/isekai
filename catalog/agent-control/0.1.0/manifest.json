@@ -5,18 +5,21 @@
   "version": "0.1.0",
   "status": "preview",
   "title": "Agent Control Plane",
-  "description": "Local governance for external agent units — scope approval, result ingestion and audit over shared Unit lifecycle.",
+  "description": "Local governance for external agent Engagements and Connector Executions, independent from the AI-DLC Unit lifecycle.",
   "control_protocol": "1.2.0",
   "delivery": "core-bundled",
   "binding_mode": "multiple",
   "actions": [
-    "result-submit",
-    "result-verify",
-    "isolation-verify"
+    "agent-engagement-approve",
+    "agent-engagement-create",
+    "agent-engagement-status",
+    "agent-execution-start",
+    "agent-execution-status"
   ],
   "resources": [
-    "Result",
-    "IsolationBoundary"
+    "Engagement",
+    "ConnectorExecution",
+    "ResultReceipt"
   ],
   "authority": "cannot-expand-foundation-project-or-unit-authority"
 }

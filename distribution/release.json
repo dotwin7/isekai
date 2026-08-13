@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "id": "isekai",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "protocol_version": "1.2.0",
   "compatibility": {
     "project_schema_versions": [
@@ -12,28 +12,28 @@
     ]
   },
   "core": {
-    "package": "isekai-ai-dlc-runtime",
-    "version": "0.3.0",
+    "package": "isekai-core-runtime",
+    "version": "0.3.1",
     "path": "src/isekai",
-    "digest": "sha256:52ed09860a0de0c869b48f39e7d1004228b2639e11d3ce4534d4821fb62b39fb"
+    "digest": "sha256:3a175baa41c20fad89d9ca5a2b5259d10f1e2ed5f30b7102d7226a37c58b0772"
   },
   "bootstrap": {
     "id": "bootstrap",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "path": "scripts",
-    "digest": "sha256:8870dcbd88003bdf7e0bb6991c862ffb589f65af8ba073f02a21593bedbd39e6"
+    "digest": "sha256:3ef964d2458e811743d936a8554e01e0b0a5411fcefee86d80054e0671f7fafd"
   },
   "runtime": {
     "id": "isekai-project-runtime-contract",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "path": "runtime",
-    "digest": "sha256:1cae814c302745139af95e518430f0e503d12a3ff926861055838cc8d0cc07e6"
+    "digest": "sha256:d3dc8e844fa3bfe673afd3657f391e02e646711eaf50af7d14cf455de131ed0e"
   },
   "catalog": {
     "id": "isekai-catalog",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "path": "catalog",
-    "digest": "sha256:cbce2b1fb1bc904e9fbde233290bce906f1cc3cec30081ad372233dd301e7cf0"
+    "digest": "sha256:e123f3dcf7a2232d0379f9087c003d382ffdbb4fa1ff269bd51174ae01fae9d8"
   },
   "foundation": {
     "id": "isekai-foundation",
@@ -44,21 +44,21 @@
   "adapters": [
     {
       "id": "claude",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "path": "runtime/adapters/claude/skills/isekai",
-      "digest": "sha256:a0ea74ad40bd7c6ede413db1da6b7705041411166604f325b09302eb5d920045"
+      "digest": "sha256:3b027dcb3e5fc703d6b6fa8eeaa1786f9ba4195ea30a99b37a5b109c68085fd5"
     },
     {
       "id": "codex",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "path": "runtime/adapters/codex/skills/isekai",
-      "digest": "sha256:18e326dd2203b60b127e4a587e43155b303c69b1993598b0b8386be5ed1dbf24"
+      "digest": "sha256:cfcdd28df8e10108c0a26725b7bcee419116d5c093e6ca999c947f345d28dd2c"
     },
     {
       "id": "kiro",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "path": "runtime/adapters/kiro/skills/isekai",
-      "digest": "sha256:436accfbdf9223fc4f6f24b8862572fb34e12ef094c2ca2d84f8d66edce89cdc"
+      "digest": "sha256:c8405891c6540895bdbfd28a6ead02c9acdf0c4276a7caaa386baa9fcfbedecf"
     }
   ]
 }

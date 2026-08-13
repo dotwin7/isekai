@@ -190,6 +190,17 @@ class ProjectMcpServer:
                 raise ValueError("Core broker init path must be its fixed Project root")
         if action == "init":
             values["path"] = str(self.project_root)
+        engagement = values.get("engagement")
+        if engagement is not None:
+            if not isinstance(engagement, str):
+                raise ValueError("Core broker Agent Control engagement must be a string")
+            engagement_path = Path(engagement).expanduser().resolve()
+            engagements_root = (self.project_root / "engagements").resolve()
+            if engagement_path.parent != engagements_root:
+                raise ValueError(
+                    "Core broker Agent Control engagement belongs to a different Project"
+                )
+            values["engagement"] = str(engagement_path)
         if action in _FOUNDATION_ACTIONS:
             selected_foundation = self._selected_foundation()
             requested_foundation = values.get("foundation")

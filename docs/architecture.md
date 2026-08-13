@@ -15,10 +15,10 @@ Host Agent (planner and change proposer)
             ├─ Catalog, compatibility and action routing
             ├─ AI-DLC controller
             ├─ additional Catalog entry controllers
-            └─ Foundation + Project + Unit artifacts
+            └─ Foundation + Project + entry-owned artifacts
 ```
 
-Agent 추론을 Core에 복제하지 않는다. Runtime Skill은 Host Agent가 `intake`의 Workflow Directive를 해석해 Level-1 plan과 변경 내용을 제안하도록 만들고, Core는 승인 경계를 검증한 뒤 Unit 문서·Project edit·test를 gateway action으로 실행하고 receipt를 기록한다. 실행 경계는 lifecycle 훅이 아니라 호스트 read-only permission과 Project-local Core MCP server로 구성한다. ISEKAI가 제공하는 기능은 공통 Catalog에 등록되며, 각 Catalog entry controller는 Foundation이나 Unit Envelope보다 높은 권한을 만들 수 없다.
+Agent 추론을 Core에 복제하지 않는다. AI-DLC에서는 Runtime Skill이 Host Agent의 계획·변경 제안을 받아 Core가 Unit 승인 경계를 검증하고 Project edit·test receipt를 기록한다. Agent Control에서는 외부 agent connector가 실행하고 Core는 Engagement 승인·상태·결과 receipt만 관리한다. ISEKAI가 제공하는 기능은 공통 Catalog에 등록되지만 Unit은 공통 Catalog 실행 단위가 아니라 AI-DLC 전용 모델이다.
 
 ## Core 내부 모듈 경계
 
@@ -28,6 +28,7 @@ Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`,
 |---|---|
 | Project와 Unit workflow | `workflow/project.py`, `workflow/session.py`, `workflow/active_binding.py`, `catalog/ai_dlc/routing.py`, `catalog/ai_dlc/unit/` |
 | ISEKAI Catalog entries | `workflow/catalog.py`가 AI-DLC와 추가 기능 manifest를 검증하고 digest-bound catalog와 MCP resource를 생성 |
+| Agent Control | `catalog/agent_control/`이 Engagement·Connector Execution·Result Receipt와 connector를 소유하며 `catalog/ai_dlc/`를 참조하지 않음 |
 | Project Knowledge | `workflow/project_knowledge.py` service, `project_knowledge_schema.py` 검증·선택·호환 정책, `project_knowledge_storage.py` 안전한 파일 경계, `project_knowledge_observability.py` candidate·Decision 상태 결합 |
 | 배포와 설치 | `distribution/release.py`, `distribution/marketplace.py`, `distribution/install.py`, `distribution/execution_profile.py`, `distribution/git.py` |
 | Core tool gateway | `mcp_server.py`, `catalog/ai_dlc/unit/managed_execution.py` |
@@ -36,6 +37,8 @@ Runtime Adapter와 외부 호출자는 `isekai.workflow`, `isekai.distribution`,
 | CLI | `cli/parser.py`가 명령 표면을, `cli/runtime_request.py`가 runtime payload와 exit code를 담당 |
 
 루트에는 기존 import 경로를 보존하는 얇은 호환 façade만 둔다. 새 기능은 façade에 도메인 로직을 추가하지 않고 해당 구현 경계에 둔다. 구조 테스트는 전체 패키지를 재귀 검사해 구현 모듈 750줄, façade 150줄 상한과 module-level import cycle 부재를 CI에서 검증한다.
+
+`Unit`은 AI-DLC 전용 개발 작업 단위다. 추가 Catalog entry가 공통 Core 안전장치를 사용하는 것과 AI-DLC Unit 구현을 재사용하는 것은 다르다. Agent Control은 자체 Engagement 모델을 사용하며 Core action dispatch 외에는 AI-DLC와 의존 관계를 만들지 않는다.
 
 ## Project bootstrap과 discovery
 

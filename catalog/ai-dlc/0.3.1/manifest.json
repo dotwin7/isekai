@@ -2,7 +2,7 @@
   "id": "ai-dlc",
   "kind": "isekai-catalog-entry",
   "schema_version": "1.0.0",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "status": "active",
   "title": "AI-Driven Development Life Cycle",
   "description": "Governed development cycle from intake through learning.",

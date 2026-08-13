@@ -19,7 +19,8 @@ ISEKAI Runtime
 |---|---|---|
 | Catalog | 설치된 Catalog entry의 ID·버전·상태·action·resource·digest 목록 | ISEKAI Core |
 | ISEKAI Catalog entry | Core MCP를 통해 제어되는 버전형 기능 | ISEKAI Runtime |
-| AI-DLC | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리 | ISEKAI Core |
+| AI-DLC | 요구 접수부터 Learn까지 개발주기와 Unit을 관리 | AI-DLC Catalog |
+| Agent Control | Engagement와 외부 Connector Execution을 관리하며 AI-DLC Unit을 사용하지 않음 | Agent Control Catalog |
 | Domain Profile | AI-DLC에 적용할 도메인 용어·규칙·Semantic mapping | Foundation |
 | Product Extension | 제품 전용 타입·규칙·지표 | Project |
 
@@ -59,7 +60,7 @@ isekai/
 
 `distribution/release.json`은 `catalog/` 전체를 독립 release component와 SHA-256 digest로 결박한다. 설치기는 검증된 Catalog와 package를 Project-local `.isekai/catalog/`에 그대로 배치하고 `isekai.lock.json.catalog`에 source digest와 설치 digest를 기록한다. `doctor`는 이 디렉터리의 변조나 누락을 fail-closed로 보고한다. 사용자 홈이나 Host 전역 Plugin에는 설치하지 않는다.
 
-현재 배포 원본은 `catalog/ai-dlc/0.3.0/manifest.json`이다. AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, Catalog entry manifest와 Catalog는 독립 release component로 배포된다. 새로운 기능은 controller와 검증 계약을 자기 ID·version package에 구현한 뒤 `catalog/catalog.json`에 등록한다. Git release 설치와 update가 Catalog 전체를 대상 Project에 배포한다.
+현재 배포 원본은 `catalog/ai-dlc/0.3.1/manifest.json`이다. AI-DLC controller 코드는 Core에 포함되는 `core-bundled` 방식이고, Catalog entry manifest와 Catalog는 독립 release component로 배포된다. 새로운 기능은 controller와 검증 계약을 자기 ID·version package에 구현한 뒤 `catalog/catalog.json`에 등록한다. Git release 설치와 update가 Catalog 전체를 대상 Project에 배포한다.
 
 ## 새 Catalog entry 추가 절차
 
@@ -112,10 +113,10 @@ Host Agent
    ▼
 Project-local ISEKAI Core MCP
    ├─ Catalog discovery and compatibility
-   ├─ Project · Unit context binding
-   ├─ Envelope · Decision · authorization
+   ├─ Project · entry-owned context binding
+   ├─ common action and path authorization
    ├─ Catalog action routing
-   ├─ Evidence · Checkpoint · provenance
+   ├─ shared Project Knowledge
    ├─ AI-DLC controller
    └─ Additional Catalog entry controllers
               │
@@ -123,7 +124,7 @@ Project-local ISEKAI Core MCP
        Entry-owned execution boundary
 ```
 
-Catalog entry별 controller는 자기 상태와 동작을 소유하지만 Core의 공통 보안·승인 경계를 우회하지 않는다. Core는 Catalog entry 요청을 현재 Project와 Unit에 결박하고, 허용된 action·scope·risk를 검사하고, 결과를 Evidence와 Checkpoint에 연결한다.
+Catalog entry별 controller는 자기 상태와 동작을 소유하지만 Core의 공통 Project·Catalog·경로 안전 경계를 우회하지 않는다. Core는 모든 요청을 현재 Project와 선언된 Catalog action에 결박한다. 그 이후의 실행 모델은 entry가 소유한다. AI-DLC만 Unit·Envelope·Decision·Evidence·Checkpoint를 사용하고, Agent Control은 Engagement·Approval·Connector Execution·Result Receipt를 사용한다.
 
 ## 현재 구현 범위
 
@@ -138,13 +139,13 @@ CLI:      catalog-status
 
 Catalog와 각 manifest는 SHA-256 digest로 결박되고 새 Unit의 Context Receipt에 포함된다. Core가 이해하지 못하는 manifest, protocol 또는 authority는 fail-closed한다.
 
-현재 Catalog에는 실행 가능한 AI-DLC Catalog entry가 등록돼 있다. 아직 구현되지 않은 기능은 이름이나 빈 manifest를 미리 등록하지 않는다.
+현재 Catalog에는 실행 가능한 AI-DLC entry와 fail-closed `preview`인 Agent Control entry가 등록돼 있다. Agent Control에는 Engagement·Connector Execution 기반 개발 코드가 있지만 live Nahonza 활성화 검증 전이므로 Runtime action은 거부된다.
 
 ## 권한 불변식
 
-- Catalog entry는 Foundation, Project Agent level, Unit Envelope와 Human Gate를 확장하지 못한다.
+- Catalog entry는 Foundation과 Project Agent level을 확장하지 못한다. AI-DLC Unit Envelope와 Human Gate도 다른 entry가 재사용하거나 우회할 수 있는 공통 실행 모델이 아니다.
 - Catalog 발견은 실행, 파일 쓰기 또는 네트워크 권한이 아니다.
-- `preview` Catalog entry는 실행 action을 제공하지 않는다.
+- `preview` Catalog entry의 선언 action은 Runtime에서 실행을 거부한다.
 - Credential은 Core 밖 secret boundary에 두고 불투명 reference만 계약에 기록한다.
-- Catalog entry action과 외부 결과는 authorization, provenance, Evidence와 Checkpoint를 생략하지 못한다.
+- Catalog entry action과 외부 결과는 그 entry가 선언한 authorization·provenance 원장을 생략하지 못한다. AI-DLC는 Evidence·Checkpoint를, Agent Control은 Result Receipt를 사용한다.
 - Catalog entry package 업데이트로 기존 Unit이 새 기능이나 권한을 암묵적으로 얻지 않으며 Receipt mismatch로 재검토를 요구한다.

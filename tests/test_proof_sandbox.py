@@ -20,6 +20,7 @@ from isekai.catalog.ai_dlc.unit.proof_sandbox import (
     PROOF_PROCESSES,
     _linux_invocation,
     _macos_invocation,
+    _symlink_read_roots,
     require_sandbox_provider,
     sandbox_available,
     sandbox_status,
@@ -276,6 +277,111 @@ def test_macos_provider_allows_a_project_virtualenv_console_script(
 
     assert invocation.provider == "macos-seatbelt"
     assert json.dumps(str(source_project / ".venv")) in invocation.argv[2]
+
+
+def test_macos_provider_allows_intermediate_toolchain_symlink_paths(
+    tmp_path: Path,
+) -> None:
+    cellar = tmp_path / "Cellar/python/3.14/bin"
+    cellar.mkdir(parents=True)
+    executable = cellar / "python3.14"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    opt = tmp_path / "opt"
+    opt.mkdir()
+    alias = opt / "python@3.14"
+    alias.symlink_to(cellar.parent)
+
+    roots = _symlink_read_roots(alias / "bin/python3.14")
+
+    assert alias in roots
+
+
+def test_providers_expose_only_declared_project_dependencies_read_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_project = tmp_path / "source-project"
+    dependency = source_project / "services/frontend/node_modules"
+    dependency.mkdir(parents=True)
+    workspace = tmp_path / "sandbox/project"
+    workspace.mkdir(parents=True)
+    real_which = __import__("shutil").which
+
+    def which(name: str, **kwargs: object) -> str | None:
+        if name == "sandbox-exec":
+            return "/usr/bin/sandbox-exec"
+        if name == "bwrap":
+            return "/usr/bin/bwrap"
+        return real_which(name, **kwargs)
+
+    monkeypatch.setattr(
+        "isekai.catalog.ai_dlc.unit.proof_sandbox.shutil.which",
+        which,
+    )
+
+    macos = _macos_invocation(
+        [sys.executable, "-c", "print('ok')"],
+        temp_root=tmp_path / "sandbox",
+        workspace=workspace,
+        source_project=source_project,
+        dependency_roots=[dependency],
+        environment={"PATH": "/usr/bin:/bin"},
+    )
+    linux = _linux_invocation(
+        [sys.executable, "-c", "print('ok')"],
+        temp_root=tmp_path / "sandbox",
+        workspace=workspace,
+        source_project=source_project,
+        dependency_roots=[dependency],
+        environment={"PATH": "/usr/bin:/bin"},
+    )
+
+    assert json.dumps(str(dependency)) in macos.argv[2]
+    dependency_index = linux.argv.index(str(dependency))
+    assert linux.argv[dependency_index - 1] == "--ro-bind"
+    assert linux.argv[dependency_index + 1] == str(dependency)
+
+
+@pytest.mark.skipif(
+    platform.system() != "Darwin" or not sandbox_available(),
+    reason="requires the macOS Seatbelt provider",
+)
+def test_real_macos_sandbox_executes_a_prepared_node_dependency(
+    tmp_path: Path,
+) -> None:
+    source_project = tmp_path / "source-project"
+    dependency = source_project / "services/frontend/node_modules"
+    tool = dependency / ".bin/tsc"
+    tool.parent.mkdir(parents=True)
+    tool.write_text("#!/bin/sh\necho typecheck-ok\n", encoding="utf-8")
+    tool.chmod(0o755)
+    workspace = tmp_path / "sandbox/project"
+    workspace.mkdir(parents=True)
+    workspace_dependency = workspace / "services/frontend/node_modules"
+    workspace_dependency.parent.mkdir(parents=True)
+    workspace_dependency.symlink_to(dependency, target_is_directory=True)
+    invocation = _macos_invocation(
+        ["services/frontend/node_modules/.bin/tsc"],
+        temp_root=tmp_path / "sandbox",
+        workspace=workspace,
+        source_project=source_project,
+        dependency_roots=[dependency],
+        environment=os.environ,
+    )
+
+    completed = subprocess.run(
+        invocation.argv,
+        cwd=workspace,
+        env=invocation.environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == "typecheck-ok\n"
 
 
 @pytest.mark.skipif(
