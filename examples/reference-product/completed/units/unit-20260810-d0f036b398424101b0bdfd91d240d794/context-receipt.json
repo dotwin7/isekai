@@ -1,8 +1,8 @@
 {
-  "receipt_id": "CTX-0a3633554961ac2d",
+  "receipt_id": "CTX-3b99977db7db561d",
   "generated_at": "2026-08-10T09:25:41.326707+00:00",
   "project_id": "reference-product",
-  "project_version": "0.3.1",
+  "project_version": "0.4.0",
   "project_schema_version": "1.0.0",
   "document_language": "ko",
   "foundation_id": "isekai-foundation",
@@ -47,7 +47,7 @@
           }
         ]
       },
-      "source_path": "extension/reference-product.json"
+      "source_path": "/Users/rocky/git/isekai/examples/reference-product/completed/extension/reference-product.json"
     }
   ],
   "catalog": {
@@ -99,9 +99,110 @@
           "Unit"
         ],
         "authority": "cannot-expand-foundation-project-or-unit-authority",
+        "phase_source": {
+          "file": "unit.json",
+          "field": "phase"
+        },
+        "phases": {
+          "inception": {
+            "skill": "skills/ai-dlc/inception.md",
+            "allowed_actions": [
+              "intake",
+              "route",
+              "inception",
+              "unit-init",
+              "artifact-write",
+              "checkpoint",
+              "envelope-propose",
+              "envelope-approve",
+              "decision"
+            ],
+            "checks": [],
+            "required_artifacts": [
+              "intent.md",
+              "requirements.md",
+              "acceptance.md",
+              "plan.md"
+            ]
+          },
+          "construction": {
+            "skill": "skills/ai-dlc/construction.md",
+            "allowed_actions": [
+              "managed-edit",
+              "prove",
+              "artifact-write",
+              "checkpoint",
+              "authorize",
+              "evidence",
+              "decision",
+              "amend"
+            ],
+            "checks": [],
+            "required_artifacts": [
+              "architecture.md",
+              "implementation-guide.md"
+            ]
+          },
+          "validation": {
+            "skill": "skills/ai-dlc/validation.md",
+            "allowed_actions": [
+              "prove",
+              "artifact-write",
+              "checkpoint",
+              "authorize",
+              "evidence",
+              "decision",
+              "amend"
+            ],
+            "checks": [
+              {
+                "id": "tests",
+                "kind": "proof",
+                "scope": "tests",
+                "required": true
+              }
+            ],
+            "required_artifacts": []
+          },
+          "release": {
+            "skill": "skills/ai-dlc/release.md",
+            "allowed_actions": [
+              "artifact-write",
+              "checkpoint",
+              "authorize",
+              "evidence",
+              "decision",
+              "amend"
+            ],
+            "checks": [
+              {
+                "id": "release-evidence",
+                "kind": "proof",
+                "scope": "release-verification",
+                "required": true
+              }
+            ],
+            "required_artifacts": [
+              "release.md"
+            ]
+          },
+          "operations": {
+            "skill": "skills/ai-dlc/operations.md",
+            "allowed_actions": [
+              "artifact-write",
+              "checkpoint",
+              "evidence",
+              "decision",
+              "project-knowledge-propose",
+              "project-knowledge-promote"
+            ],
+            "checks": [],
+            "required_artifacts": []
+          }
+        },
         "package_path": "ai-dlc/0.3.1",
         "active": true,
-        "entry_digest": "sha256:6f9dcb7cdef5ed706e39c8a943d7e1abd2fd18952da023ab667394feb05abbdb"
+        "entry_digest": "sha256:c0a730a6fd458ddfc5d98e75c080e7810882406ff9f1b13617b08827855fa49a"
       },
       {
         "id": "agent-control",
@@ -132,7 +233,7 @@
         "entry_digest": "sha256:56541b11ccd15c3d821a06221ec8d5ccbc576e952fd97bee55ee115c0c1374f3"
       }
     ],
-    "catalog_digest": "sha256:955ccd39e769775f5ed48fe91e0080b08fa0478b21eb6b23cc36f62bd84edb9c"
+    "catalog_digest": "sha256:51cba11fcbb8eb4edc5a33fa87f7b8970de00d08b8d9b4cb2039571c13191e60"
   },
   "route": "unit",
   "maximum_agent_level": "L1",
@@ -229,6 +330,5 @@
     "high-risk-policy"
   ],
   "project_knowledge": null,
-  "source_manifest": "../../project.json",
-  "source_manifest_base": "unit"
+  "source_manifest": "/Users/rocky/git/isekai/examples/reference-product/completed/project.json"
 }

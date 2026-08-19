@@ -130,6 +130,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if path.is_file() and "__pycache__" not in path.parts
             ]
             _json({"root": str(root), "files": files})
+        elif args.command == "dispatch":
+            from ..dispatch import dispatch_loop
+            result = dispatch_loop(
+                args.project,
+                work_dir=args.unit,
+                initial_prompt=args.prompt,
+                max_iterations=args.max_iterations,
+            )
+            _json(result)
+            return 0 if result.get("completed") else 1
         elif args.command == "runtime":
             action, payload = runtime_request(args)
             result = dispatch(action, payload)

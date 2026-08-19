@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "id": "isekai",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "protocol_version": "1.2.0",
   "compatibility": {
     "project_schema_versions": [
@@ -13,27 +13,27 @@
   },
   "core": {
     "package": "isekai-core-runtime",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "path": "src/isekai",
-    "digest": "sha256:d0f4c7b101c362a11eb4f2594aeb2346c793a87fc3fc582ff51c47d817fe056f"
+    "digest": "sha256:782f0de5190110af8c60a5e4b75db52f5b19db799a95eb1407f229b8e3a43687"
   },
   "bootstrap": {
     "id": "bootstrap",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "path": "scripts",
     "digest": "sha256:337087f143a29c4e690575e4145e4559ec505844a01510fc33c3f6ff79e19f84"
   },
   "runtime": {
     "id": "isekai-project-runtime-contract",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "path": "runtime",
-    "digest": "sha256:6bc72eb3c1588c8ee7f96c91e4c94d7fd60ed226ac031f25f66a3f1fce75c5a5"
+    "digest": "sha256:5581ecc4eea584864730dc5004882a83e71ceeffdba5e69e990eaa1cf278494b"
   },
   "catalog": {
     "id": "isekai-catalog",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "path": "catalog",
-    "digest": "sha256:e123f3dcf7a2232d0379f9087c003d382ffdbb4fa1ff269bd51174ae01fae9d8"
+    "digest": "sha256:1807a1bc3999ba1a5fb2939cd8ce49f0c4f8f79251ac0a53e3b380afc97376a2"
   },
   "foundation": {
     "id": "isekai-foundation",
@@ -44,21 +44,21 @@
   "adapters": [
     {
       "id": "claude",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "path": "runtime/adapters/claude/skills/isekai",
-      "digest": "sha256:3b027dcb3e5fc703d6b6fa8eeaa1786f9ba4195ea30a99b37a5b109c68085fd5"
+      "digest": "sha256:6aaa23f7e54719ece066988b5f6dd0510b7b6098a8551947dc7ff0e2b04b04b9"
     },
     {
       "id": "codex",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "path": "runtime/adapters/codex/skills/isekai",
-      "digest": "sha256:cfcdd28df8e10108c0a26725b7bcee419116d5c093e6ca999c947f345d28dd2c"
+      "digest": "sha256:3f44c6dde2b8055d5c9d668282e6dc74f93d3d2fe00ee62fa23adb40de50be10"
     },
     {
       "id": "kiro",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "path": "runtime/adapters/kiro/skills/isekai",
-      "digest": "sha256:b452eb9a29f061b4911f4af9d371957d68b5e8e7b89352ddd3d6e5ae1b712f60"
+      "digest": "sha256:ee14c427227a2408c6a77ea8c5cb5fbf04971dee0684f69822f1cb77b94e6a8f"
     }
   ]
 }

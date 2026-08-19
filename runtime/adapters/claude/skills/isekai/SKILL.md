@@ -12,7 +12,7 @@ Thin Claude Code adapter for the project-local ISEKAI Core. Does not replace the
 
 ISEKAI active-Unit work uses an exclusive Core execution boundary, not lifecycle hooks. The Project execution guard must expose Project files as read-only and connect the project-local `isekai-core` MCP server from `<PROJECT_ROOT>/.isekai/bin/isekai mcp-serve --project <PROJECT_ROOT> --runtime claude`. Host `Edit`, `Write`, `apply_patch`, notebook edit, and write-capable shell tools must be unavailable inside that boundary. If those tools remain writable, stop: the session is not an enforceable ISEKAI execution environment.
 
-Adapter `0.3.1`, protocol `1.2.0`. Use the Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` (POSIX) or `.isekai/bin/isekai.cmd` (Windows). Never fall back to an `isekai` command from `PATH`. If the launcher or lock is absent, stop and ask the user to install. Before every runtime action except `handshake` itself, run `runtime handshake --runtime claude --adapter-version 0.3.1 --protocol-version 1.2.0 --project PROJECT_ROOT` and stop on incompatibility.
+Adapter `0.4.0`, protocol `1.2.0`. Use the Project launcher at `<PROJECT_ROOT>/.isekai/bin/isekai` (POSIX) or `.isekai/bin/isekai.cmd` (Windows). Never fall back to an `isekai` command from `PATH`. If the launcher or lock is absent, stop and ask the user to install. Before every runtime action except `handshake` itself, run `runtime handshake --runtime claude --adapter-version 0.4.0 --protocol-version 1.2.0 --project PROJECT_ROOT` and stop on incompatibility.
 
 Inside an Agent session, invoke lifecycle actions through the connected `isekai-core` MCP `runtime_action` tool; its `action` and `payload` map to the canonical CLI forms below. Use the dedicated `managed_edit`, `artifact_write`, and `prove` MCP tools for those actions. Do not use a host shell to bypass the Project execution guard. The launcher command forms remain the portable contract for direct operator use and for understanding MCP payload fields.
 
@@ -46,7 +46,7 @@ Before calling `intake`, classify the full user request and conversation context
 
 ## Adaptive workflow driver
 
-The host agent drives the lifecycle; Core classifies work, validates boundaries, and records durable state. After `intake`, treat the returned `workflow` object as the orchestration contract.
+The host agent drives the lifecycle; Core classifies work, validates boundaries, and records durable state. After `intake`, treat the returned `workflow` object as the orchestration contract. When a `transition` response includes `stage_skill`, read the file at that path and follow its stage-specific procedure for the current phase.
 
 - After `on` or `resume`, use the `catalog_selection` in the response to identify active ISEKAI catalog entries. When `selected_entry` is set, use that entry. When it is null, ask the user which entry to use. A preview entry has no executable authority. Never let an entry raise `maximum_agent_level`, add an Envelope action, bypass a Human Gate, or invoke an undeclared external tool.
 - For `direct-response`, inspect only what is needed, answer, and create no ISEKAI artifact.

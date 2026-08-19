@@ -4,11 +4,11 @@ ISEKAI는 Codex, Claude Code, Kiro에서 사용하는 프로젝트 로컬 AI 거
 
 배포 형태는 대상 프로젝트에 라이브러리처럼 붙고 버전이 고정되는 프로젝트 로컬 Runtime입니다. 설치된 Runtime Skill을 따르는 기존 에이전트가 계획·질문을 주도하고, ISEKAI Core는 분류·승인 경계·상태·증거를 검증하며 승인된 파일 변경을 직접 적용합니다. 별도 Agent Brain이나 lifecycle 훅을 전제로 하지 않습니다.
 
-현재 버전은 `0.3.1`입니다. AI-DLC와 분리된 Agent Control preview, Project-local 검증 dependency view와 macOS proof provider 보강, 세 Runtime의 명시적 `off` 호출 인자 처리를 포함합니다. 기존 `prove` 영수증·Evidence 결박, 프로젝트 로컬 설치·업데이트·롤백과 L2 외부 API 경계도 유지합니다.
+현재 버전은 `0.4.0`입니다. AI-DLC Catalog entry에 phase 계약 시스템(단계별 스킬, allowed_actions 강제, evidence check 강제)과 phase 디스패처(단계별 에이전트·모델 선택, 핸드오프 루프, Human Gate 처리)를 추가합니다. Catalog entry가 `phase_source`를 선언해 phase 해석을 추상화하므로, AI-DLC 외의 Catalog entry도 같은 phase 계약 구조를 사용할 수 있습니다.
 
 | Catalog entry | 버전 | 상태 | 설명 |
 |---|---|---|---|
-| AI-DLC | 0.3.1 | active | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리 |
+| AI-DLC | 0.3.1 | active | 요구 접수부터 Learn까지 개발주기, Unit, Decision, Evidence와 Checkpoint를 관리. Phase 계약으로 단계별 스킬·action 제한·evidence check 강제 |
 | Agent Control | 0.1.0 | preview | AI-DLC Unit과 분리된 Engagement로 외부 에이전트 실행을 제어 |
 
 ## ISEKAI가 하는 일
@@ -50,7 +50,7 @@ Skill이 상태의 원본은 아닙니다. `project.json`, `isekai.lock.json`, F
 ISEKAI Runtime
 ├─ Core MCP control plane (공통 승인·검증·실행 경계)
 └─ Catalog
-   ├─ AI-DLC 0.3.1 (active)        개발주기 관리
+   ├─ AI-DLC 0.3.1 (active)        개발주기 관리 + Phase 계약
    └─ Agent Control 0.1.0 (preview) 외부 에이전트 거버넌스
 ```
 
@@ -82,7 +82,7 @@ Catalog 배포 원본은 이세카이 저장소의 `catalog/catalog.json`과 `ca
 ### macOS / Linux
 
 ```bash
-ISEKAI_VERSION=v0.3.1
+ISEKAI_VERSION=v0.4.0
 curl -fsSLo /tmp/isekai-install.sh \
   "https://raw.githubusercontent.com/dotwin7/isekai/${ISEKAI_VERSION}/scripts/install.sh"
 bash /tmp/isekai-install.sh \
@@ -99,7 +99,7 @@ bash /tmp/isekai-install.sh \
 ### Windows PowerShell
 
 ```powershell
-$IsekaiVersion = "v0.3.1"
+$IsekaiVersion = "v0.4.0"
 $installer = Join-Path ([IO.Path]::GetTempPath()) "isekai-install-$IsekaiVersion.ps1"
 Invoke-WebRequest `
   "https://raw.githubusercontent.com/dotwin7/isekai/$IsekaiVersion/scripts/install.ps1" `

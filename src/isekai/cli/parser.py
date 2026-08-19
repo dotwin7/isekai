@@ -449,6 +449,18 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     _add_project_commands(commands)
 
+    dispatch = commands.add_parser(
+        "dispatch", help="run the phase dispatcher loop with per-phase agent selection"
+    )
+    dispatch.add_argument("--project", default=".")
+    dispatch.add_argument("--unit", help="work directory (Unit path) to resume")
+    dispatch.add_argument("--agent", help="override agent for all phases")
+    dispatch.add_argument("--model", help="override model for all phases")
+    dispatch.add_argument("--prompt", help="initial prompt for the first session")
+    dispatch.add_argument(
+        "--max-iterations", type=int, default=20, help="maximum dispatch loop iterations"
+    )
+
     runtime = commands.add_parser(
         "runtime", help="run the ISEKAI project-local runtime contract"
     )

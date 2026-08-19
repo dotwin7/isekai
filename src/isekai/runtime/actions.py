@@ -32,7 +32,7 @@ from ..workflow.active_binding import (
     project_manifest_for_unit,
 )
 from ..workflow.authorization import authorize_action
-from ..workflow.catalog import load_catalog, select_active_entries
+from ..workflow.catalog import CATALOG_ROOT, load_catalog, select_active_entries
 from ..workflow.project import initialize_project
 from ..workflow.project_knowledge import (
     project_knowledge_status,
@@ -388,10 +388,61 @@ def _decision(values: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def _check_phase_exit_checks(unit_path: str) -> list[dict[str, Any]]:
+    """Return pending evidence checks for the current phase, if any."""
+    unit_dir = Path(unit_path).expanduser().resolve()
+    entry = _active_entry_with_phases()
+    if entry is None:
+        return []
+    phase = _resolve_phase(unit_dir, entry)
+    if not isinstance(phase, str):
+        return []
+    contract = _active_phase_contract(phase)
+    if contract is None:
+        return []
+    checks = contract.get("checks")
+    if not isinstance(checks, list) or not checks:
+        return []
+    evidence_path = unit_dir / "evidence/verification.json"
+    evidence_passed = False
+    if evidence_path.is_file():
+        try:
+            import json as _json
+            ev = _json.loads(
+                read_control_file(evidence_path, root=unit_dir, label="evidence")
+                .decode("utf-8")
+            )
+            evidence_passed = ev.get("passed") is True
+        except Exception:
+            pass
+    pending: list[dict[str, Any]] = []
+    for check in checks:
+        if not isinstance(check, dict) or check.get("required") is not True:
+            continue
+        check_scope = check.get("scope", "")
+        if check.get("kind") == "proof":
+            if not evidence_passed:
+                pending.append(check)
+        elif check.get("kind") == "artifact":
+            artifact_name = check_scope + ".md" if not check_scope.endswith(".md") else check_scope
+            if not (unit_dir / artifact_name).is_file():
+                pending.append(check)
+    return pending
+
+
 def _transition(values: Mapping[str, Any]) -> dict[str, Any]:
+    unit_path = _string_field(values, "unit")
+    target = _string_field(values, "to")
+    if target != "abandoned":
+        pending = _check_phase_exit_checks(unit_path)
+        if pending:
+            raise RuntimeContractError(
+                f"transition blocked: pending evidence checks for current phase: "
+                + ", ".join(f"{c.get('kind')}:{c.get('scope')}" for c in pending)
+            )
     return transition_unit(
-        _string_field(values, "unit"),
-        _string_field(values, "to"),
+        unit_path,
+        target,
     )
 
 
@@ -439,6 +490,99 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
 }
 
 
+def _active_entry_with_phases() -> dict[str, Any] | None:
+    try:
+        catalog = load_catalog()
+    except Exception:
+        return None
+    for entry in catalog.get("entries", []):
+        if not isinstance(entry, dict) or not entry.get("active"):
+            continue
+        if entry.get("phases"):
+            return entry
+    return None
+
+
+def _resolve_phase(work_dir: Path, entry: dict[str, Any]) -> str | None:
+    phase_source = entry.get("phase_source")
+    if not isinstance(phase_source, dict):
+        return None
+    src_file = phase_source.get("file")
+    src_field = phase_source.get("field")
+    if not isinstance(src_file, str) or not isinstance(src_field, str):
+        return None
+    try:
+        import json as _json
+        from ..support.files import read_control_file
+        file_path = work_dir / src_file
+        if not file_path.is_file():
+            return None
+        data = _json.loads(
+            read_control_file(file_path, root=work_dir, label=src_file).decode("utf-8")
+        )
+        phase = data.get(src_field)
+        return phase if isinstance(phase, str) else None
+    except Exception:
+        return None
+
+
+def _active_phase_contract(phase: str) -> dict[str, Any] | None:
+    entry = _active_entry_with_phases()
+    if entry is None:
+        return None
+    phases = entry.get("phases")
+    if isinstance(phases, dict) and phase in phases:
+        contract: dict[str, Any] = phases[phase]
+        return contract
+    return None
+
+
+def _inject_phase_contract(result: dict[str, Any]) -> None:
+    phase = result.get("phase")
+    if not isinstance(phase, str):
+        return
+    contract = _active_phase_contract(phase)
+    if contract is None:
+        return
+    skill_rel = contract.get("skill")
+    if isinstance(skill_rel, str):
+        result["stage_skill"] = (CATALOG_ROOT / skill_rel).as_posix()
+    allowed = contract.get("allowed_actions")
+    if isinstance(allowed, list):
+        result["allowed_actions"] = allowed
+    checks = contract.get("checks")
+    if isinstance(checks, list):
+        result["checks"] = checks
+
+
+_PHASE_GUARD_EXEMPT = {
+    "transition", "verify", "status", "active-unit-detach",
+    "checkpoint", "unit-migrate",
+}
+
+
+def _check_phase_allowed_action(work_dir: Path, action: str) -> None:
+    if action in _PHASE_GUARD_EXEMPT:
+        return
+    entry = _active_entry_with_phases()
+    if entry is None:
+        return
+    phase = _resolve_phase(work_dir, entry)
+    if phase is None:
+        return
+    contract = _active_phase_contract(phase)
+    if contract is None:
+        return
+    allowed = contract.get("allowed_actions")
+    if not isinstance(allowed, list):
+        return
+    if action not in allowed:
+        raise RuntimeContractError(
+            f"action '{action}' is not allowed in phase '{phase}'; "
+            f"allowed: {', '.join(allowed)}"
+        )
+
+
 def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
     configure_logging()
     if not isinstance(action, str):
@@ -454,6 +598,7 @@ def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dic
         if action in _UNIT_BOUND_ACTIONS:
             unit = Path(_string_field(values, "unit")).expanduser().resolve()
             if unit.is_dir() and (unit / "unit.json").is_file():
+                _check_phase_allowed_action(unit, action)
                 project = project_manifest_for_unit(unit)
                 with active_unit_action_guard(project, unit, action=action) as complete:
                     result = handler(values)
@@ -465,6 +610,8 @@ def execute_action(action: str, payload: Mapping[str, Any] | None = None) -> dic
                         "abandoned",
                     }:
                         result["active_unit_binding"] = complete()
+                    if action == "transition":
+                        _inject_phase_contract(result)
                 timer.ok()
                 return result
         if action not in {"on", "off", "intake", "resume", "unit-init", "active-unit-detach"}:

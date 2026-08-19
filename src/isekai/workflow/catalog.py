@@ -139,7 +139,80 @@ def _load_catalog_entry(
         "resources",
         entry_id=entry_id,
     )
-    normalized["package_path"] = path.parent.relative_to(root).as_posix()
+    package_path = path.parent.relative_to(root).as_posix()
+    normalized["package_path"] = package_path
+    phase_source = value.get("phase_source")
+    if phase_source is not None:
+        if (
+            not isinstance(phase_source, dict)
+            or not isinstance(phase_source.get("file"), str)
+            or not isinstance(phase_source.get("field"), str)
+        ):
+            raise FoundationError(
+                f"ISEKAI catalog entry {entry_id} phase_source must have file and field strings"
+            )
+        normalized["phase_source"] = dict(phase_source)
+    phases = value.get("phases")
+    if phases is not None:
+        if not isinstance(phases, dict):
+            raise FoundationError(
+                f"ISEKAI catalog entry {entry_id} phases must be an object"
+            )
+        validated_phases: dict[str, Any] = {}
+        for phase_id, phase_def in phases.items():
+            if not isinstance(phase_id, str) or not isinstance(phase_def, dict):
+                raise FoundationError(
+                    f"ISEKAI catalog entry {entry_id} phase {phase_id} must be an object"
+                )
+            skill_rel = phase_def.get("skill")
+            if isinstance(skill_rel, str):
+                if ".." in Path(skill_rel).parts:
+                    raise FoundationError(
+                        f"ISEKAI catalog entry {entry_id} skill path must not contain '..': "
+                        f"{skill_rel}"
+                    )
+                if not (root / skill_rel).is_file():
+                    raise FoundationError(
+                        f"ISEKAI catalog entry {entry_id} skill not found: {skill_rel}"
+                    )
+            allowed = phase_def.get("allowed_actions")
+            if allowed is not None and (
+                not isinstance(allowed, list)
+                or any(not isinstance(a, str) for a in allowed)
+            ):
+                raise FoundationError(
+                    f"ISEKAI catalog entry {entry_id} phase {phase_id} "
+                    "allowed_actions must be a string list"
+                )
+            checks = phase_def.get("checks")
+            if checks is not None:
+                if not isinstance(checks, list):
+                    raise FoundationError(
+                        f"ISEKAI catalog entry {entry_id} phase {phase_id} "
+                        "checks must be a list"
+                    )
+                for check in checks:
+                    if (
+                        not isinstance(check, dict)
+                        or "id" not in check
+                        or "kind" not in check
+                        or "scope" not in check
+                    ):
+                        raise FoundationError(
+                            f"ISEKAI catalog entry {entry_id} phase {phase_id} "
+                            "checks must have id, kind, and scope"
+                        )
+            req_arts = phase_def.get("required_artifacts")
+            if req_arts is not None and (
+                not isinstance(req_arts, list)
+                or any(not isinstance(a, str) for a in req_arts)
+            ):
+                raise FoundationError(
+                    f"ISEKAI catalog entry {entry_id} phase {phase_id} "
+                    "required_artifacts must be a string list"
+                )
+            validated_phases[phase_id] = dict(phase_def)
+        normalized["phases"] = validated_phases
     normalized["active"] = value["status"] == "active"
     normalized["entry_digest"] = _digest(normalized, "entry_digest")
     return normalized

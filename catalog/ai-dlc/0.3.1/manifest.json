@@ -41,5 +41,59 @@
     "Evidence",
     "Checkpoint"
   ],
-  "authority": "cannot-expand-foundation-project-or-unit-authority"
+  "authority": "cannot-expand-foundation-project-or-unit-authority",
+  "phase_source": { "file": "unit.json", "field": "phase" },
+  "phases": {
+    "inception": {
+      "skill": "skills/ai-dlc/inception.md",
+      "allowed_actions": [
+        "intake", "route", "inception", "unit-init",
+        "artifact-write", "checkpoint",
+        "envelope-propose", "envelope-approve", "decision"
+      ],
+      "checks": [],
+      "required_artifacts": ["intent.md", "requirements.md", "acceptance.md", "plan.md"]
+    },
+    "construction": {
+      "skill": "skills/ai-dlc/construction.md",
+      "allowed_actions": [
+        "managed-edit", "prove", "artifact-write", "checkpoint",
+        "authorize", "evidence", "decision", "amend"
+      ],
+      "checks": [],
+      "required_artifacts": ["architecture.md", "implementation-guide.md"]
+    },
+    "validation": {
+      "skill": "skills/ai-dlc/validation.md",
+      "allowed_actions": [
+        "prove", "artifact-write", "checkpoint",
+        "authorize", "evidence", "decision", "amend"
+      ],
+      "checks": [
+        { "id": "tests", "kind": "proof", "scope": "tests", "required": true }
+      ],
+      "required_artifacts": []
+    },
+    "release": {
+      "skill": "skills/ai-dlc/release.md",
+      "allowed_actions": [
+        "artifact-write", "checkpoint",
+        "authorize", "evidence", "decision", "amend"
+      ],
+      "checks": [
+        { "id": "release-evidence", "kind": "proof", "scope": "release-verification", "required": true }
+      ],
+      "required_artifacts": ["release.md"]
+    },
+    "operations": {
+      "skill": "skills/ai-dlc/operations.md",
+      "allowed_actions": [
+        "artifact-write", "checkpoint",
+        "evidence", "decision",
+        "project-knowledge-propose", "project-knowledge-promote"
+      ],
+      "checks": [],
+      "required_artifacts": []
+    }
+  }
 }
